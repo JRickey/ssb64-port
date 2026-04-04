@@ -71,7 +71,9 @@ The bridge (`lbreloc_bridge.cpp`):
 6 structs in `objtypes.h` changed, 23 access sites wrapped, static_asserts added.
 See Phase 1 section below for details.
 
-### Phases 2-5: TODO — Remaining struct changes + PORT_RESOLVE at access sites
+### Phase 2: COMPLETE — AObjEvent32 struct change + PORT_RESOLVE (2026-04-04)
+
+### Phases 3-5: TODO — Remaining struct changes + PORT_RESOLVE at access sites
 
 ## Affected Struct Types
 
@@ -124,13 +126,18 @@ file-data pointer fields that need the same treatment — discovered during Phas
 but deferred to a new phase since they have additional pointer fields (mobjsubs,
 matanim_joints) that belong to later phases.
 
-### Phase 2: AObjEvent32 (107+ call sites)
+### Phase 2: AObjEvent32 — COMPLETE (2026-04-04)
 
-The `void *p` union member becomes `u32 p_token` under `#ifdef PORT`.
-Keeps the union at 4 bytes.
+Changed `void *p` to `u32 p` under `#ifdef PORT` in AObjEvent32 union.
+Union stays at 4 bytes. `_Static_assert` added.
 
-Only specific animation opcodes use the `p` field — modify those opcode
-handlers in `src/sys/objanim.c` / `src/sys/aobj.c` to resolve the token.
+Wrapped 9 access sites in `src/sys/objanim.c` with `PORT_RESOLVE()`:
+- DObj animation: SetAnim (L513), Jump (L525), SetInterp (L561)
+- MObj material animation: SetAnim (L1088), Jump (L1095)
+- CObj camera animation: SetAnim (L2732), Jump (L2739), SetInterp (L2776, L2790)
+
+All accesses are read-only. 6 are script pointer chaining (SetAnim/Jump),
+3 are interpolation function pointer loads (SetInterp). Build passes clean.
 
 ### Phase 3: Sprite / Bitmap (564+ call sites)
 

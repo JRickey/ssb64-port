@@ -96,14 +96,18 @@ union AObjEvent32
     f32 f;
     s32 s;
     u32 u;
+#ifdef PORT
+    u32 p;      // Relocation token — use PORT_RESOLVE(event->p)
+#else
     void *p;
+#endif
 
     struct
     {
         u32 opcode : 7;
         u32 flags : 10;
         u32 payload : 15;
-        
+
     } command;
 };
 
@@ -453,6 +457,7 @@ _Static_assert(sizeof(DObjMultiList) == 12, "DObjMultiList must be 12 bytes to m
 _Static_assert(sizeof(DObjDLLink) == 8, "DObjDLLink must be 8 bytes to match file data layout");
 _Static_assert(sizeof(DObjDistDL) == 8, "DObjDistDL must be 8 bytes to match file data layout");
 _Static_assert(sizeof(DObjDistDLLink) == 8, "DObjDistDLLink must be 8 bytes to match file data layout");
+_Static_assert(sizeof(AObjEvent32) == 4, "AObjEvent32 must be 4 bytes to match file data layout");
 #endif
 
 struct GCGfxLink

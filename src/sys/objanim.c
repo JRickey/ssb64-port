@@ -510,7 +510,7 @@ void gcParseDObjAnimJoint(DObj *dobj)
 
             case nGCAnimEvent32SetAnim:
                 AObjAnimAdvance(dobj->anim_joint.event32);
-                dobj->anim_joint.event32 = dobj->anim_joint.event32->p;
+                dobj->anim_joint.event32 = PORT_RESOLVE(dobj->anim_joint.event32->p);
                 dobj->anim_frame = -dobj->anim_wait;
                 dobj->parent_gobj->anim_frame = -dobj->anim_wait;
 
@@ -522,9 +522,9 @@ void gcParseDObjAnimJoint(DObj *dobj)
 
             case nGCAnimEvent32Jump:
                 AObjAnimAdvance(dobj->anim_joint.event32);
-                dobj->anim_joint.event32 = dobj->anim_joint.event32->p;
+                dobj->anim_joint.event32 = PORT_RESOLVE(dobj->anim_joint.event32->p);
 
-                if ((dobj->is_anim_root != FALSE) && (dobj->parent_gobj->func_anim != NULL)) 
+                if ((dobj->is_anim_root != FALSE) && (dobj->parent_gobj->func_anim != NULL))
                 {
                     dobj->parent_gobj->func_anim(dobj, -2, 0);
                 }
@@ -558,7 +558,7 @@ void gcParseDObjAnimJoint(DObj *dobj)
                 { 
                     track_aobjs[nGCAnimTrackTraI - nGCAnimTrackJointStart] = gcAddAObjForDObj(dobj, nGCAnimTrackTraI); 
                 }
-                track_aobjs[nGCAnimTrackTraI - nGCAnimTrackJointStart]->interpolate = dobj->anim_joint.event32->p;
+                track_aobjs[nGCAnimTrackTraI - nGCAnimTrackJointStart]->interpolate = PORT_RESOLVE(dobj->anim_joint.event32->p);
 
                 AObjAnimAdvance(dobj->anim_joint.event32);
                 break;
@@ -1085,14 +1085,14 @@ void gcParseMObjMatAnimJoint(MObj *mobj)
             case nGCAnimEvent32SetAnim:
                 AObjAnimAdvance(mobj->matanim_joint.event32);
 
-                mobj->matanim_joint.event32 = mobj->matanim_joint.event32->p;
+                mobj->matanim_joint.event32 = PORT_RESOLVE(mobj->matanim_joint.event32->p);
                 mobj->anim_frame = -mobj->anim_wait;
                 break;
 
             case nGCAnimEvent32Jump:
                 AObjAnimAdvance(mobj->matanim_joint.event32);
 
-                mobj->matanim_joint.event32 = mobj->matanim_joint.event32->p;
+                mobj->matanim_joint.event32 = PORT_RESOLVE(mobj->matanim_joint.event32->p);
                 break;
 
             case ANIM_CMD_12:
@@ -2729,14 +2729,14 @@ void gcParseCObjCamAnimJoint(CObj *cobj)
 
             case nGCAnimEvent32SetAnim:
                 AObjAnimAdvance(cobj->camanim_joint.event32);
-                cobj->camanim_joint.event32 = cobj->camanim_joint.event32->p;
+                cobj->camanim_joint.event32 = PORT_RESOLVE(cobj->camanim_joint.event32->p);
                 cobj->anim_frame = -cobj->anim_wait;
                 cobj->parent_gobj->anim_frame = -cobj->anim_wait;
                 break;
 
             case nGCAnimEvent32Jump:
                 AObjAnimAdvance(cobj->camanim_joint.event32);
-                cobj->camanim_joint.event32 = cobj->camanim_joint.event32->p;
+                cobj->camanim_joint.event32 = PORT_RESOLVE(cobj->camanim_joint.event32->p);
                 break;
 
             case ANIM_CMD_12:
@@ -2773,7 +2773,7 @@ void gcParseCObjCamAnimJoint(CObj *cobj)
                             nGCAnimTrackEyeI
                         );
                     }
-                    track_aobjs[nGCAnimTrackEyeI - nGCAnimTrackCameraStart]->interpolate = cobj->camanim_joint.event32->p;
+                    track_aobjs[nGCAnimTrackEyeI - nGCAnimTrackCameraStart]->interpolate = PORT_RESOLVE(cobj->camanim_joint.event32->p);
 
                     AObjAnimAdvance(cobj->camanim_joint.event32);
                 }
@@ -2787,7 +2787,7 @@ void gcParseCObjCamAnimJoint(CObj *cobj)
                             nGCAnimTrackAtI
                         );
                     }
-                    track_aobjs[nGCAnimTrackAtI - nGCAnimTrackCameraStart]->interpolate = cobj->camanim_joint.event32->p;
+                    track_aobjs[nGCAnimTrackAtI - nGCAnimTrackCameraStart]->interpolate = PORT_RESOLVE(cobj->camanim_joint.event32->p);
 
                     AObjAnimAdvance(cobj->camanim_joint.event32);
                 }
