@@ -1557,7 +1557,11 @@ void sc1PGameWaitStageBossUpdate(void)
     sp20.y = 0.0F;
     sp20.z = 0.0F;
 
+#ifdef PORT
+    gmCameraSetStatusAnim(lbRelocGetFileData(AObjEvent32*, ((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - (intptr_t)llGRLastMapFileHead), D_NF_00006010), 0.0F, &sp20);
+#else
     gmCameraSetStatusAnim(lbRelocGetFileData(AObjEvent32*, ((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - (intptr_t)llGRLastMapFileHead), &D_NF_00006010), 0.0F, &sp20);
+#endif
 
     for (player = 0; TRUE; player++) // Wut da haeiyll
     {
@@ -2006,7 +2010,11 @@ void sc1PGameBossDefeatInterfaceProcSet(void)
 {
     gcFuncGObjAll(ifCommonBattleInterfaceResumeGObj, 0);
     sc1PGameBossSetChangeWallpaper();
+#ifdef PORT
+    gmCameraSetStatusAnim((void*) (((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - (intptr_t)llGRLastMapFileHead) + (intptr_t)D_NF_00006450), 0.0F, &sSC1PGameBossDefeatZoomPosition);
+#else
     gmCameraSetStatusAnim((void*) (((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - (intptr_t)llGRLastMapFileHead) + (intptr_t)&D_NF_00006450), 0.0F, &sSC1PGameBossDefeatZoomPosition);
+#endif
     ifCommonBattleBossDefeatSetGameStatus();
 }
 
