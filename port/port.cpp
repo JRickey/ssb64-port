@@ -57,8 +57,19 @@ int main(int argc, char* argv[]) {
 	// We handle SDL initialization ourselves through libultraship.
 	// SDL_MAIN_HANDLED is defined above to prevent SDL from hijacking main().
 
-	// TODO: Initialize port, start game loop.
-	// This will eventually call PortInit() followed by syMainLoop()
-	// once the boot sequence is restructured for single-threaded PC execution.
-	return PortInit(argc, argv);
+	if (PortInit(argc, argv) != 0) {
+		return 1;
+	}
+
+	// TODO: Once the boot sequence is restructured for single-threaded PC
+	// execution, this loop will be replaced by the game's own frame loop
+	// driven by scManagerRunLoop → scheduler → Fast3D rendering.
+	// For now, just keep the window alive with GUI-only frames.
+	auto window = sContext->GetWindow();
+	while (WindowIsRunning()) {
+		window->RunGuiOnly();
+	}
+
+	PortShutdown();
+	return 0;
 }

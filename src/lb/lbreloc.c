@@ -1,3 +1,7 @@
+#ifndef PORT
+// In the port build, this entire file is replaced by port/bridge/lbreloc_bridge.cpp
+// which loads files from the LUS ResourceManager instead of ROM DMA.
+
 #include <lb/library.h>
 #include <sys/debug.h>
 #include <sys/dma.h>
@@ -447,3 +451,5 @@ void lbRelocInitSetup(LBRelocSetup *setup)
     sLBRelocInternBuffer.force_status_buffer_max = setup->force_status_buffer_size;
     sLBRelocInternBuffer.force_status_buffer = setup->force_status_buffer;
 }
+
+#endif /* !PORT */
