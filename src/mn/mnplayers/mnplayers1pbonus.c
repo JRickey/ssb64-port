@@ -736,7 +736,7 @@ void mnPlayers1PBonusSetGateLUT(GObj *gobj, s32 player)
 	};
 
 	sobj = SObjGetStruct(gobj);
-	sobj->sprite.LUT = lbRelocGetFileData(int*, sMNPlayers1PBonusFiles[0], offsets[player]);
+	sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNPlayers1PBonusFiles[0], offsets[player]));
 }
 
 // 0x80132EEC

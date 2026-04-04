@@ -873,7 +873,7 @@ void mnPlayers1PGameSetGateLUT(GObj *gobj, s32 player)
 	};
 
 	sobj = SObjGetStruct(gobj);
-	sobj->sprite.LUT = lbRelocGetFileData(int*, sMNPlayers1PGameFiles[0], offsets[player]);
+	sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNPlayers1PGameFiles[0], offsets[player]));
 }
 
 // 0x801331F4

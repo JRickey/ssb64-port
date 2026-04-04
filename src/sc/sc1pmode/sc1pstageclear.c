@@ -2130,7 +2130,15 @@ void sc1PStageClearCopyFramebufToWallpaper(void)
 		SYVIDEO_BORDER_SIZE(320, 10, u16) +
 		SYVIDEO_BORDER_SIZE(1, 10, u16)
 	);
+#ifdef PORT
+	{
+		Sprite *wp_sprite = lbRelocGetFileData(Sprite*, sSC1PStageClearFiles[6], llGRWallpaperTrainingBlackSprite);
+		Bitmap *wp_bitmap = (Bitmap*)PORT_RESOLVE(wp_sprite->bitmap);
+		wallpaper_pixels = (u32*)PORT_RESOLVE(wp_bitmap->buf);
+	}
+#else
 	wallpaper_pixels = (u32*) lbRelocGetFileData(Sprite*, sSC1PStageClearFiles[6], llGRWallpaperTrainingBlackSprite)->bitmap->buf;
+#endif
 
 	for (i = 0; i < 220; i++)
 	{

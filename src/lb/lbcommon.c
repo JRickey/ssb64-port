@@ -2200,15 +2200,15 @@ void lbCommonDecodeSpriteBitmapsSiz4b(Sprite *sprite)
     s32 n;
     Bitmap *bitmap;
     
-    for (n = sprite->nbitmaps, bitmap = sprite->bitmap; n > 0; n--)
+    for (n = sprite->nbitmaps, bitmap = (Bitmap*)PORT_RESOLVE(sprite->bitmap); n > 0; n--)
     {
         s32 res = (bitmap[n - 1].width_img / 2) * bitmap[n - 1].actualHeight;
-            
+
         lbCommonDecodeBitmapSiz4b
         (
-            (u8*) ((u8*)bitmap[n - 1].buf + (res / 2) - 1), 
-            (u8*) ((u8*)bitmap[n - 1].buf + (res - 1)),
-            (u8*) ((u8*)bitmap[n - 1].buf)
+            (u8*) ((u8*)PORT_RESOLVE(bitmap[n - 1].buf) + (res / 2) - 1),
+            (u8*) ((u8*)PORT_RESOLVE(bitmap[n - 1].buf) + (res - 1)),
+            (u8*) ((u8*)PORT_RESOLVE(bitmap[n - 1].buf))
         );
     }
     sprite->bmsiz = G_IM_SIZ_4b;
@@ -2234,7 +2234,7 @@ void lbCommonDrawSObjBitmap
     s32 tex_width, tex_height;
     void *buf;
 
-    if (bitmap->buf == NULL)
+    if (PORT_RESOLVE(bitmap->buf) == NULL)
     {
         while (TRUE)
         {
@@ -2290,12 +2290,12 @@ void lbCommonDrawSObjBitmap
         }
         else ryl = yy * 4;
         
-        if (bitmap->buf != sLBCommonPrevBitmapBuf)
+        if (PORT_RESOLVE(bitmap->buf) != sLBCommonPrevBitmapBuf)
         {
             switch (sprite->bmsiz)
             {
             case G_IM_SIZ_4b:
-                gDPSetTextureImage(dl++, sprite->bmfmt, G_IM_SIZ_16b, 1, bitmap->buf);
+                gDPSetTextureImage(dl++, sprite->bmfmt, G_IM_SIZ_16b, 1, PORT_RESOLVE(bitmap->buf));
                 gDPSetTile
                 (
                     dl++,
@@ -2343,7 +2343,7 @@ void lbCommonDrawSObjBitmap
                 break;
                 
             case G_IM_SIZ_8b:
-                gDPSetTextureImage(dl++, sprite->bmfmt, G_IM_SIZ_8b_LOAD_BLOCK, 1, bitmap->buf);
+                gDPSetTextureImage(dl++, sprite->bmfmt, G_IM_SIZ_8b_LOAD_BLOCK, 1, PORT_RESOLVE(bitmap->buf));
                 gDPSetTile
                 (
                     dl++,
@@ -2391,7 +2391,7 @@ void lbCommonDrawSObjBitmap
                 break;
                 
             case G_IM_SIZ_16b:
-                gDPSetTextureImage(dl++, sprite->bmfmt, G_IM_SIZ_16b_LOAD_BLOCK, 1, bitmap->buf);
+                gDPSetTextureImage(dl++, sprite->bmfmt, G_IM_SIZ_16b_LOAD_BLOCK, 1, PORT_RESOLVE(bitmap->buf));
                 gDPSetTile
                 (
                     dl++,
@@ -2439,7 +2439,7 @@ void lbCommonDrawSObjBitmap
                 break;
                 
             case G_IM_SIZ_32b:
-                gDPSetTextureImage(dl++, G_IM_FMT_RGBA, G_IM_SIZ_32b_LOAD_BLOCK, 1, bitmap->buf);
+                gDPSetTextureImage(dl++, G_IM_FMT_RGBA, G_IM_SIZ_32b_LOAD_BLOCK, 1, PORT_RESOLVE(bitmap->buf));
                 gDPSetTile
                 (
                     dl++,
@@ -2486,8 +2486,8 @@ void lbCommonDrawSObjBitmap
                 );
                 break;
             }
-            sLBCommonPrevBitmapBuf = bitmap->buf;
-        }        
+            sLBCommonPrevBitmapBuf = PORT_RESOLVE(bitmap->buf);
+        }
         gSPTextureRectangle(dl++, rxh, ryh, rxl, ryl, 0, rs, rt, sx, sy);
         gDPPipeSync(dl++);
         
@@ -2603,7 +2603,7 @@ void lbCommonPrepSObjAttr(Gfx **dls, SObj *sobj)
 
         case G_IM_FMT_CI:
             gDPSetTextureLUT(dl++, G_TT_RGBA16);
-            gDPLoadTLUT(dl++, sprite->nTLUT, sprite->startTLUT + 256, sprite->LUT);
+            gDPLoadTLUT(dl++, sprite->nTLUT, sprite->startTLUT + 256, PORT_RESOLVE(sprite->LUT));
             gDPLoadSync(dl++);
 
             /* fallthrough */
@@ -2632,12 +2632,12 @@ void lbCommonPrepSObjAttr(Gfx **dls, SObj *sobj)
         break;
 
     case G_IM_FMT_CI:
-        if (sprite->LUT != sLBCommonPrevSpriteLUT)
+        if (PORT_RESOLVE(sprite->LUT) != sLBCommonPrevSpriteLUT)
         {
-            gDPLoadTLUT(dl++, sprite->nTLUT, sprite->startTLUT + 256, sprite->LUT);
+            gDPLoadTLUT(dl++, sprite->nTLUT, sprite->startTLUT + 256, PORT_RESOLVE(sprite->LUT));
             gDPLoadSync(dl++);
         }
-        break; 
+        break;
     }
     dls[0] = dl;
 }
@@ -2676,8 +2676,8 @@ void lbCommonPrepSObjDraw(Gfx **dls, SObj *sobj)
     {
         return;
     }
-    bitmap = sprite->bitmap;
-    
+    bitmap = (Bitmap*)PORT_RESOLVE(sprite->bitmap);
+
     if (bitmap != NULL)
     {
         pos_x = sobj->pos.x;
@@ -2800,7 +2800,7 @@ void lbCommonSetExternSpriteParams(Sprite *sprite)
 {
     sLBCommonExternSpriteAttr = sprite->attr;
     sLBCommonExternBitmapFmt = sprite->bmfmt;
-    sLBCommonPrevSpriteLUT = sprite->LUT;
+    sLBCommonPrevSpriteLUT = PORT_RESOLVE(sprite->LUT);
 }
 
 // 0x800CCF00

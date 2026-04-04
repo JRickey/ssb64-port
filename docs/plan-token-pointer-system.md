@@ -73,7 +73,9 @@ See Phase 1 section below for details.
 
 ### Phase 2: COMPLETE — AObjEvent32 struct change + PORT_RESOLVE (2026-04-04)
 
-### Phases 3-5: TODO — Remaining struct changes + PORT_RESOLVE at access sites
+### Phase 3a: COMPLETE — Sprite/Bitmap struct changes + PORT_REGISTER (2026-04-04)
+
+### Phases 3b-5: TODO — Remaining struct changes + PORT_RESOLVE at access sites
 
 ## Affected Struct Types
 
@@ -139,12 +141,47 @@ Wrapped 9 access sites in `src/sys/objanim.c` with `PORT_RESOLVE()`:
 All accesses are read-only. 6 are script pointer chaining (SetAnim/Jump),
 3 are interpolation function pointer loads (SetInterp). Build passes clean.
 
-### Phase 3: Sprite / Bitmap (564+ call sites)
+### Phase 3a: Sprite / Bitmap struct changes — COMPLETE (2026-04-04)
 
-Change pointer fields in `include/PR/sp.h` to 32-bit tokens under `#ifdef PORT`.
-Modify `spDraw` and related sprite rendering functions to resolve tokens.
-The sprite stubs in `port/stubs/n64_stubs.c` will eventually become real
-implementations calling the port's rendering layer.
+Changed 5 pointer fields to `u32` under `#ifdef PORT` in `include/PR/sp.h`:
+- `Bitmap.buf`, `Sprite.LUT`, `Sprite.bitmap`, `Sprite.rsp_dl`, `Sprite.rsp_dl_next`
+
+Added `PORT_REGISTER()` macro in `objtypes.h` — wraps `portRelocRegisterPointer()`
+to convert a runtime pointer to a token for storage in token fields.
+
+`_Static_assert` size checks: `sizeof(Bitmap) == 16`, `sizeof(Sprite) == 68`.
+
+Wrapped 14 access sites in lbcommon.c with `PORT_RESOLVE()`:
+- `lbCommonDecodeSpriteBitmapsSiz4b`: sprite->bitmap (1), bitmap[].buf (3)
+- `lbCommonDrawSObjBitmap`: bitmap->buf (7 — NULL check, cache compare, 4 gDPSetTextureImage, cache store)
+- `lbCommonDrawSpriteSetup`: sprite->LUT (3 — gDPLoadTLUT ×2, cache compare)
+- `lbCommonPrepSObjDraw`: sprite->bitmap (1)
+- `lbCommonSetExternSpriteParams`: sprite->LUT (1)
+
+Wrapped `unref_800162C8` in `#ifndef PORT` (objdisplay.c) — unreferenced N64
+sprite draw that writes runtime Gfx* into rsp_dl_next (incompatible with u32).
+
+`PORT_REGISTER()` at 7 direct LUT assignment sites (lbRelocGetFileData → u32 token):
+- `src/mn/mnoption/mnbackupclear.c` (4 assignments, 1 PORT_RESOLVE comparison)
+- `src/mn/mnplayers/mnplayersvs.c` (2), `mnplayers1ptraining.c` (2),
+  `mnplayers1pgame.c` (1), `mnplayers1pbonus.c` (1)
+
+Changed `sMNBackupClearOptionConfirmLUTOrigin` type to `u32` under PORT (mnbackupclear.c).
+
+`#ifdef PORT` block in `sc1pstageclear.c:2133` — chained `->bitmap->buf` dereference
+resolved through two PORT_RESOLVE steps.
+
+Build passes clean on MSVC.
+
+### Phase 3b: FTSprites + stock_luts access sites — TODO
+
+`FTSprites` struct (`fttypes.h`) has 3 pointer fields (`stock_sprite`, `stock_luts`,
+`emblem`) in file data that need the `#ifdef PORT` u32 treatment. The `stock_luts`
+array elements are also reloc'd pointer slots.
+
+~10 sites across ifcommon.c, sc1pgame.c, mnvsresults.c, mnplayers1pgame.c assign
+`sobj->sprite.LUT = fp->attr->sprites->stock_luts[costume]` — these require FTSprites
+changes to work correctly on 64-bit (array element size mismatch without token type).
 
 ### Phase 4: MObjSub (23+ call sites)
 

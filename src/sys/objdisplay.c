@@ -2617,12 +2617,14 @@ void unref_80015F6C(GObj *gobj)
     }
 }
 
-// 0x800162C8
+#ifndef PORT
+// 0x800162C8 — Unreferenced N64 sprite draw via spDraw; uses rsp_dl_next
+// as a runtime Gfx* which is incompatible with u32 token fields on PORT.
 void unref_800162C8(GObj *gobj)
 {
     SObj *sobj = SObjGetStruct(gobj);
 
-    while (sobj != NULL) 
+    while (sobj != NULL)
     {
         if (!(sobj->sprite.attr & SP_HIDDEN))
         {
@@ -2635,6 +2637,7 @@ void unref_800162C8(GObj *gobj)
         sobj = sobj->next;
     }
 }
+#endif
 
 // 0x80016338
 void func_80016338(Gfx **dls, CObj *cobj, s32 buffer_id)

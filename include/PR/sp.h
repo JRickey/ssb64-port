@@ -42,7 +42,11 @@ struct bitmap {
 
 	s16	t;		/* Vertical offset into base	*/
 
+#ifdef PORT
+	u32	buf;		/* Relocation token — use PORT_RESOLVE(bitmap->buf) */
+#else
 	void	*buf;		/* Pointer to bitmap data	*/
+#endif
 				/* Don't re-load if new buf	*/
 				/* is the same as the old one   */
 				/* Skip if NULL */
@@ -53,6 +57,10 @@ struct bitmap {
 };
 
 typedef struct bitmap Bitmap;
+
+#ifdef PORT
+_Static_assert(sizeof(Bitmap) == 16, "Bitmap must be 16 bytes to match file data layout");
+#endif
 
 struct sprite {
 	s16	x,y;		/* Target position		*/
@@ -74,7 +82,11 @@ struct sprite {
 	s16	startTLUT;	/* Lookup Table Entry Starting index */
 	s16	nTLUT;		/* Total number of Lookup Table Entries */
 
+#ifdef PORT
+	u32	LUT;		/* Relocation token — use PORT_RESOLVE(sprite->LUT) */
+#else
 	int	*LUT;		/* Pointer to Lookup Table	*/
+#endif
 
 	s16	istart;		/* Starting bitmap index	*/
 	s16	istep;		/* Bitmaps index step (see SP_INCY) */
@@ -88,17 +100,27 @@ struct sprite {
 	u8	bmfmt;		/* Bitmap Format	 	*/
 	u8	bmsiz;		/* Bitmap Texel Size		*/
 
+#ifdef PORT
+	u32	bitmap;		/* Relocation token — use PORT_RESOLVE(sprite->bitmap) */
+	u32	rsp_dl;		/* Relocation token */
+	u32	rsp_dl_next;	/* Relocation token */
+#else
 	Bitmap	*bitmap;	/* Pointer to first bitmap	*/
 
 	Gfx	*rsp_dl;	/* Pointer to RSP display list	*/
 
 	Gfx	*rsp_dl_next;	/* Pointer to next RSP display entry	*/
+#endif
 
 	s16	frac_s,		/* Fractional Texture offsets */
 		frac_t;		/* These have 5 fraction bits */
 };
 
 typedef struct sprite Sprite;
+
+#ifdef PORT
+_Static_assert(sizeof(Sprite) == 68, "Sprite must be 68 bytes to match file data layout");
+#endif
 
 /*
  * DANGER!

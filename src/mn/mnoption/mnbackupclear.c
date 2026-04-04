@@ -111,7 +111,11 @@ sb32 sMNBackupClearOptionConfirmYesOrNo;
 s32 sMNBackupClearOptionMenuKind;
 
 // 0x801330D4
+#ifdef PORT
+u32 sMNBackupClearOptionConfirmLUTOrigin;	// Relocation token on PORT
+#else
 int *sMNBackupClearOptionConfirmLUTOrigin;
+#endif
 
 // 0x801330D8
 s32 sMNBackupClearPad0x801330D8;
@@ -394,28 +398,28 @@ void mnBackupClearMakeOptionConfirm(sb32 confirm_kind, sb32 yes_or_no)
     if (yes_or_no == 0)
     {
         sobj = lbCommonMakeSObjForGObj(gobj, lbRelocGetFileData(Sprite*, sMNBackupClearFiles[1], llMNBackupClearOptionYesSprite));
-        sobj->sprite.LUT = lbRelocGetFileData(int*, sMNBackupClearFiles[1], llMNBackupClearOptionYesHighlightPalette);
+        sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNBackupClearFiles[1], llMNBackupClearOptionYesHighlightPalette));
     }
     else
     {
         sobj = lbCommonMakeSObjForGObj(gobj, lbRelocGetFileData(Sprite*, sMNBackupClearFiles[1], llMNBackupClearOptionYesSprite));
-        sobj->sprite.LUT = lbRelocGetFileData(int*, sMNBackupClearFiles[1], llMNBackupClearOptionYesNotPalette);
+        sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNBackupClearFiles[1], llMNBackupClearOptionYesNotPalette));
     }
     sobj->sprite.attr &= ~SP_FASTCOPY;
     sobj->sprite.attr |= SP_TRANSPARENT;
-    
+
     sobj->pos.x = 189.0F;
     sobj->pos.y = 106.0F;
-    
+
     if (yes_or_no == 0)
     {
         sobj = lbCommonMakeSObjForGObj(gobj, lbRelocGetFileData(Sprite*, sMNBackupClearFiles[1], llMNBackupClearOptionNoSprite));
-        sobj->sprite.LUT = lbRelocGetFileData(int*, sMNBackupClearFiles[1], llMNBackupClearOptionNoNotPalette);
+        sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNBackupClearFiles[1], llMNBackupClearOptionNoNotPalette));
     }
     else
     {
         sobj = lbCommonMakeSObjForGObj(gobj, lbRelocGetFileData(Sprite*, sMNBackupClearFiles[1], llMNBackupClearOptionNoSprite));
-        sobj->sprite.LUT = lbRelocGetFileData(int*, sMNBackupClearFiles[1], llMNBackupClearOptionNoHighlightPalette);
+        sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNBackupClearFiles[1], llMNBackupClearOptionNoHighlightPalette));
     }
     sobj->sprite.attr &= ~SP_FASTCOPY;
     sobj->sprite.attr |= SP_TRANSPARENT;
@@ -693,12 +697,12 @@ void mnBackupClearUpdateOptionConfirmMenu(sb32 confirm_kind)
             else
             {
                 sMNBackupClearOptionConfirmLUTOrigin = SObjGetStruct(sMNBackupClearOptionConfirmGObj)->sprite.LUT;
-                SObjGetStruct(sMNBackupClearOptionConfirmGObj)->sprite.LUT = lbRelocGetFileData
+                SObjGetStruct(sMNBackupClearOptionConfirmGObj)->sprite.LUT = PORT_REGISTER(lbRelocGetFileData
                 (
-                    int*,
+                    void*,
                     sMNBackupClearFiles[1],
                     llMNBackupClearOptionConfirmPalette
-                );
+                ));
                 sMNBackupClearOptionMenuKind = 0;
                 sMNBackupClearOptionConfirmAnimLength = 60;
 
@@ -776,11 +780,11 @@ void mnBackupClearFuncRun(GObj *gobj)
         {
             SObj *sobj = SObjGetStruct(sMNBackupClearOptionConfirmGObj);
             
-            if (sobj->sprite.LUT == lbRelocGetFileData(int*, sMNBackupClearFiles[1], llMNBackupClearOptionConfirmPalette))
+            if (PORT_RESOLVE(sobj->sprite.LUT) == lbRelocGetFileData(void*, sMNBackupClearFiles[1], llMNBackupClearOptionConfirmPalette))
             {
                 sobj->sprite.LUT = sMNBackupClearOptionConfirmLUTOrigin;
             }
-            else sobj->sprite.LUT = lbRelocGetFileData(int*, sMNBackupClearFiles[1], llMNBackupClearOptionConfirmPalette);
+            else sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNBackupClearFiles[1], llMNBackupClearOptionConfirmPalette));
         }
         if (sMNBackupClearOptionConfirmAnimLength == 0)
         {

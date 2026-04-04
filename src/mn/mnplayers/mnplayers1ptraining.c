@@ -688,9 +688,9 @@ void mnPlayers1PTrainingSetGateLUT(GObj *gobj, s32 player)
 
 	if (player == sMNPlayers1PTrainingManPlayer)
 	{
-		sobj->sprite.LUT = lbRelocGetFileData(int*, sMNPlayers1PTrainingFiles[0], offsets[sMNPlayers1PTrainingManPlayer]);
+		sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNPlayers1PTrainingFiles[0], offsets[sMNPlayers1PTrainingManPlayer]));
 	}
-	else sobj->sprite.LUT = lbRelocGetFileData(int*, sMNPlayers1PTrainingFiles[1], llMNPlayers1PModeGateCPLUT);
+	else sobj->sprite.LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNPlayers1PTrainingFiles[1], llMNPlayers1PModeGateCPLUT));
 }
 
 // 0x80132CA4

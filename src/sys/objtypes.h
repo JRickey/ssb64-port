@@ -378,12 +378,17 @@ struct DObjTransformTypes
 // File-data structs use u32 tokens in place of pointers on 64-bit PC.
 // The relocation bridge writes tokens into 4-byte slots; game code
 // resolves them back to real pointers via PORT_RESOLVE().
-// On non-PORT builds the macro is a no-op passthrough.
+// PORT_REGISTER() converts a runtime pointer to a token for storage
+// in a token field (e.g. when overriding a sprite LUT at runtime).
+// On non-PORT builds both macros are no-op passthroughs.
 #ifdef PORT
 extern void *portRelocResolvePointer(unsigned int token);
+extern unsigned int portRelocRegisterPointer(void *ptr);
 #define PORT_RESOLVE(token) portRelocResolvePointer((unsigned int)(token))
+#define PORT_REGISTER(ptr) portRelocRegisterPointer((void*)(ptr))
 #else
 #define PORT_RESOLVE(token) (token)
+#define PORT_REGISTER(ptr) (ptr)
 #endif
 
 struct DObjDesc

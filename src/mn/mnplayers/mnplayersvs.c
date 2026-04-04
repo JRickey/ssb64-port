@@ -922,9 +922,9 @@ void mnPlayersVSSetGateLUT(GObj *gobj, s32 player, s32 pkind)
 
 	if (pkind == nFTPlayerKindMan)
 	{
-		SObjGetSprite(sobj)->LUT = lbRelocGetFileData(int*, sMNPlayersVSFiles[0], man_offsets[player]);
+		SObjGetSprite(sobj)->LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNPlayersVSFiles[0], man_offsets[player]));
 	}
-	else SObjGetSprite(sobj)->LUT = lbRelocGetFileData(int*, sMNPlayersVSFiles[0], com_offsets[player]);
+	else SObjGetSprite(sobj)->LUT = PORT_REGISTER(lbRelocGetFileData(void*, sMNPlayersVSFiles[0], com_offsets[player]));
 }
 
 // 0x80133378
