@@ -1319,9 +1319,9 @@ void efGroundSetupEffectDObjs(GObj *effect_gobj, DObjDesc *dobjdesc, DObj **dobj
 
         if (id != 0)
         {
-            current_dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], dobjdesc->dl);
+            current_dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
         }
-        else current_dobj = array_dobjs[0] = gcAddChildForDObj(effect_dobj, dobjdesc->dl);
+        else current_dobj = array_dobjs[0] = gcAddChildForDObj(effect_dobj, PORT_RESOLVE(dobjdesc->dl));
 
         gcAddDObj3TransformsKind(current_dobj, tk1, tk2, arg5);
 

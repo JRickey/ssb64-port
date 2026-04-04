@@ -370,10 +370,10 @@ void unref_8000B618(GObj *gobj, DObjTraDesc *dobjtra, DObj **dobjs)
             dobj = array_dobjs[dobjtra->id] = gcAddDObjChildRpyD
             (
                 array_dobjs[dobjtra->id - 1],
-                dobjtra->dl
+                PORT_RESOLVE(dobjtra->dl)
             );
         }
-        else dobj = array_dobjs[0] = gcAddDObjRpyD(gobj, dobjtra->dl);
+        else dobj = array_dobjs[0] = gcAddDObjRpyD(gobj, PORT_RESOLVE(dobjtra->dl));
         
         dobj->translate.vec.f = dobjtra->translate;
 

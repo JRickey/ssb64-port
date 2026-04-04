@@ -791,7 +791,7 @@ void ftParamSetModelPartID(GObj *fighter_gobj, s32 joint_id, s32 modelpart_id)
                     }
                     else detail_id = 1;
 
-                    joint->dl = commonparts_container->commonparts[detail_id].dobjdesc[joint_id - nFTPartsJointCommonStart].dl;
+                    joint->dl = PORT_RESOLVE(commonparts_container->commonparts[detail_id].dobjdesc[joint_id - nFTPartsJointCommonStart].dl);
 
                     if (commonparts_container->commonparts[detail_id].p_mobjsubs != NULL)
                     {
@@ -884,7 +884,7 @@ void ftParamResetModelPartAll(GObj *fighter_gobj)
                         }
                         else detail_id = 1;
 
-                        joint->dl = commonparts_container->commonparts[detail_id].dobjdesc[i].dl;
+                        joint->dl = PORT_RESOLVE(commonparts_container->commonparts[detail_id].dobjdesc[i].dl);
 
                         if (commonparts_container->commonparts[detail_id].p_mobjsubs != NULL)
                         {

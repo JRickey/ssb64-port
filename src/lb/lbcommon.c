@@ -929,14 +929,14 @@ void lbCommonSetupTreeDObjs(DObj *root_dobj, DObjDesc *dobjdesc, DObj **dobjs, u
 
         if (id != 0)
         {
-            current_dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], dobjdesc->dl);
-        } 
-        else current_dobj = array_dobjs[0] = gcAddChildForDObj(root_dobj, dobjdesc->dl);
-        
-        if (dobjdesc->id & 0xF000) 
+            current_dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
+        }
+        else current_dobj = array_dobjs[0] = gcAddChildForDObj(root_dobj, PORT_RESOLVE(dobjdesc->dl));
+
+        if (dobjdesc->id & 0xF000)
         {
             gcDecideDObj3TransformsKind(current_dobj, tk1, tk2, tk3, dobjdesc->id & 0xF000);
-        } 
+        }
         else gcAddDObj3TransformsKind(current_dobj, tk1, tk2, tk3);
         
         current_dobj->translate.vec.f = dobjdesc->translate;
@@ -1056,13 +1056,13 @@ void lbCommonSetupFighterPartsDObjs
                 current_dobj = array_dobjs[id] = gcAddChildForDObj
                 (
                     array_dobjs[id - 1],
-                    commonparts_container->commonparts[detail_id].dobjdesc[i].dl
+                    PORT_RESOLVE(commonparts_container->commonparts[detail_id].dobjdesc[i].dl)
                 );
             }
             else current_dobj = array_dobjs[0] = gcAddChildForDObj
             (
                 root_dobj,
-                commonparts_container->commonparts[detail_id].dobjdesc[i].dl
+                PORT_RESOLVE(commonparts_container->commonparts[detail_id].dobjdesc[i].dl)
             );
             if (dobjdesc->id & 0x8000)
             {
@@ -1127,11 +1127,11 @@ void lbCommonSetupCustomTreeDObjsWithMObj
 
         if (id != 0)
         {
-            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], dobjdesc->dl);
-        } 
-        else dobj = array_dobjs[0] = gcAddChildForDObj(root_dobj, dobjdesc->dl);
-        
-        if (dobjdesc->id & 0x8000) 
+            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
+        }
+        else dobj = array_dobjs[0] = gcAddChildForDObj(root_dobj, PORT_RESOLVE(dobjdesc->dl));
+
+        if (dobjdesc->id & 0x8000)
         {
             gcDecideDObj3TransformsKind(dobj, tk1, tk2, tk3, 0x8000);
         } 

@@ -1815,11 +1815,11 @@ void unref_800147E0(GObj *gobj)
         }
         gGCScaleX = 1.0F;
 
-        if (dist_dl->dl != NULL) 
+        if (dist_dl->dl != NULL)
         {
             num = gcPrepDObjMatrix(gSYTaskmanDLHeads, dobj);
             gcDrawMObjForDObj(dobj, gSYTaskmanDLHeads);
-            gSPDisplayList(gSYTaskmanDLHeads[0]++, dist_dl->dl);
+            gSPDisplayList(gSYTaskmanDLHeads[0]++, PORT_RESOLVE(dist_dl->dl));
 
             if (num != 0)
             {
@@ -1911,7 +1911,7 @@ void unref_80014A84(GObj *gobj)
             if ((dist_dl->dl != NULL) && !(dobj->flags & DOBJ_FLAG_NOTEXTURE))
             {
                 gcDrawMObjForDObj(dobj, gSYTaskmanDLHeads);
-                gSPDisplayList(gSYTaskmanDLHeads[0]++, dist_dl->dl);
+                gSPDisplayList(gSYTaskmanDLHeads[0]++, PORT_RESOLVE(dist_dl->dl));
             }
             if (dobj->child != NULL)
             {
@@ -2087,7 +2087,7 @@ void unref_80014FFC(GObj *gobj)
                 sGCDetailLevel++;
                 dist_dl_link++;
             }
-            dl_link = dist_dl_link->dl_link;
+            dl_link = PORT_RESOLVE(dist_dl_link->dl_link);
             dl = sGCCurrentDL;
             num = gcPrepDObjMatrix(&sGCCurrentDL, dobj);
 
@@ -2113,7 +2113,7 @@ void unref_80014FFC(GObj *gobj)
                             else gSPSegment(gSYTaskmanDLHeads[dl_link->list_id]++, 0xE, ptr);
                         }
                     set_display_list:
-                        gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, dl_link->dl);
+                        gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, PORT_RESOLVE(dl_link->dl));
                     }
                     dl_link++;
                 }
@@ -2243,7 +2243,7 @@ void func_80015520(DObj *dobj)
                 {
                     if (multi_list->dl1 != NULL)
                     {
-                        gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, multi_list->dl1);
+                        gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, PORT_RESOLVE(multi_list->dl1));
                     }
                     while (sGCCurrentDL != sGCForwardDLs[multi_list->id])
                     {
@@ -2261,7 +2261,7 @@ void func_80015520(DObj *dobj)
                         else gSPSegment(gSYTaskmanDLHeads[multi_list->id]++, 0xE, ptr);
                     }
                 set_display_list:
-                    gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, multi_list->dl2);
+                    gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, PORT_RESOLVE(multi_list->dl2));
                 }
                 multi_list++;
             }
@@ -2396,7 +2396,7 @@ void unref_80015A58(GObj *gobj)
             if ((dist_dl->dl != NULL) && !(dobj->flags & DOBJ_FLAG_NOTEXTURE))
             {
                 gcDrawMObjForDObj(dobj, gSYTaskmanDLHeads);
-                gSPDisplayList(gSYTaskmanDLHeads[0]++, dist_dl->dl);
+                gSPDisplayList(gSYTaskmanDLHeads[0]++, PORT_RESOLVE(dist_dl->dl));
             }
             if (dobj->child != NULL)
             {
@@ -2459,7 +2459,7 @@ void func_80015C0C(DObj *dobj)
                 {
                     if (multi_list->dl1 != NULL)
                     { 
-                        gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, multi_list->dl1);
+                        gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, PORT_RESOLVE(multi_list->dl1));
                     }
                     while (sGCCurrentDL != sGCForwardDLs[multi_list->id]) 
                     {
@@ -2477,7 +2477,7 @@ void func_80015C0C(DObj *dobj)
                         else gSPSegment(gSYTaskmanDLHeads[multi_list->id]++, 0xE, ptr);
                     }
                 set_display_list:
-                    gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, multi_list->dl2);
+                    gSPDisplayList(gSYTaskmanDLHeads[multi_list->id]++, PORT_RESOLVE(multi_list->dl2));
                 }
                 multi_list++;
             }
@@ -2550,7 +2550,7 @@ void unref_80015F6C(GObj *gobj)
                 dist_dl_link++;
                 sGCDetailLevel++;
             }
-            dl_link = dist_dl_link->dl_link;
+            dl_link = PORT_RESOLVE(dist_dl_link->dl_link);
             dl = sGCCurrentDL;
             num = gcPrepDObjMatrix(&sGCCurrentDL, dobj);
 
@@ -2576,7 +2576,7 @@ void unref_80015F6C(GObj *gobj)
                             else gSPSegment(gSYTaskmanDLHeads[dl_link->list_id]++, 0xE, ptr);
                         }
                     set_display_list:
-                        gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, dl_link->dl);
+                        gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, PORT_RESOLVE(dl_link->dl));
                     }
                     dl_link++;
                 }

@@ -4111,7 +4111,7 @@ void ftMainUpdateHiddenPartID(FTStruct *fp, s32 hiddenpart_id)
     }
     else commonpart = NULL;
 
-    dl = (commonpart != NULL) ? commonpart->dobjdesc[hiddenpart->root_joint_id - nFTPartsJointCommonStart].dl : NULL;
+    dl = (commonpart != NULL) ? PORT_RESOLVE(commonpart->dobjdesc[hiddenpart->root_joint_id - nFTPartsJointCommonStart].dl) : NULL;
 
     root_joint = gcAddDObjForGObj(fp->fighter_gobj, dl);
     root_joint->sib_prev->sib_next = NULL;

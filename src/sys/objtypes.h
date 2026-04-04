@@ -365,10 +365,31 @@ struct DObjTransformTypes
     u8 tk3;
 };
 
+// // // // // // // // // // // //
+//                               //
+//    PORT TOKEN RESOLUTION      //
+//                               //
+// // // // // // // // // // // //
+
+// File-data structs use u32 tokens in place of pointers on 64-bit PC.
+// The relocation bridge writes tokens into 4-byte slots; game code
+// resolves them back to real pointers via PORT_RESOLVE().
+// On non-PORT builds the macro is a no-op passthrough.
+#ifdef PORT
+extern void *portRelocResolvePointer(unsigned int token);
+#define PORT_RESOLVE(token) portRelocResolvePointer((unsigned int)(token))
+#else
+#define PORT_RESOLVE(token) (token)
+#endif
+
 struct DObjDesc
 {
     s32 id;
+#ifdef PORT
+    u32 dl;     // Relocation token — use PORT_RESOLVE(dobjdesc->dl)
+#else
     void *dl;
+#endif
     Vec3f translate;
     Vec3f rotate;
     Vec3f scale;
@@ -377,33 +398,62 @@ struct DObjDesc
 struct DObjTraDesc
 {
     s32 id;
+#ifdef PORT
+    u32 dl;     // Relocation token
+#else
     void *dl;
+#endif
     Vec3f translate;
 };
 
 struct DObjMultiList
 {
     s32 id;
+#ifdef PORT
+    u32 dl1, dl2;   // Relocation tokens
+#else
     Gfx *dl1, *dl2;
+#endif
 };
 
 struct DObjDLLink
 {
     s32 list_id;
+#ifdef PORT
+    u32 dl;     // Relocation token
+#else
     Gfx *dl;
+#endif
 };
 
 struct DObjDistDL
 {
     f32 target_dist;
+#ifdef PORT
+    u32 dl;     // Relocation token
+#else
     Gfx *dl;
+#endif
 };
 
 struct DObjDistDLLink
 {
     f32 target_dist;
+#ifdef PORT
+    u32 dl_link;    // Relocation token
+#else
     DObjDLLink *dl_link;
+#endif
 };
+
+#ifdef PORT
+_Static_assert(sizeof(DObjDesc) == 44, "DObjDesc must be 44 bytes to match file data layout");
+_Static_assert(sizeof(DObjTraDesc) == 20, "DObjTraDesc must be 20 bytes to match file data layout");
+_Static_assert(sizeof(DObjMultiList) == 12, "DObjMultiList must be 12 bytes to match file data layout");
+_Static_assert(sizeof(DObjDLLink) == 8, "DObjDLLink must be 8 bytes to match file data layout");
+_Static_assert(sizeof(DObjDistDL) == 8, "DObjDistDL must be 8 bytes to match file data layout");
+_Static_assert(sizeof(DObjDistDLLink) == 8, "DObjDistDLLink must be 8 bytes to match file data layout");
+#endif
 
 struct GCGfxLink
 {

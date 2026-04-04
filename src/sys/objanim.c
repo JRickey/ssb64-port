@@ -2167,10 +2167,10 @@ void gcSetupCommonDObjs(GObj *gobj, DObjDesc *dobjdesc, DObj **dobjs)
 
         if (id != 0)
         {
-            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], dobjdesc->dl);
+            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
         }
-        else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, dobjdesc->dl);
-        
+        else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, PORT_RESOLVE(dobjdesc->dl));
+
         if (dobjdesc->id & 0xF000)
         {
             gcAddXObjForDObjFixed(dobj, nGCMatrixKindTra, 0);
@@ -2346,21 +2346,21 @@ void gcSetupCustomDObjs(GObj *gobj, DObjDesc *dobjdesc, DObj **dobjs, u8 tk1, u8
 
         if (id != 0)
         {
-            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], dobjdesc->dl);
-        } 
-        else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, dobjdesc->dl);
-        
-        if (dobjdesc->id & 0xF000) 
+            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
+        }
+        else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, PORT_RESOLVE(dobjdesc->dl));
+
+        if (dobjdesc->id & 0xF000)
         {
             gcDecideDObj3TransformsKind(dobj, tk1, tk2, tk3, dobjdesc->id & 0xF000);
-        } 
+        }
         else gcAddDObj3TransformsKind(dobj, tk1, tk2, tk3);
-        
+
         dobj->translate.vec.f = dobjdesc->translate;
         dobj->rotate.vec.f = dobjdesc->rotate;
         dobj->scale.vec.f = dobjdesc->scale;
 
-        if (dobjs != NULL) 
+        if (dobjs != NULL)
         {
             *dobjs++ = dobj;
         }
@@ -2380,15 +2380,15 @@ void gcSetupCustomDObjsWithMObj(GObj *gobj, DObjDesc *dobjdesc, MObjSub ***p_mob
     {
         array_dobjs[i] = NULL;
     }
-    while (dobjdesc->id != ARRAY_COUNT(array_dobjs)) 
+    while (dobjdesc->id != ARRAY_COUNT(array_dobjs))
     {
         id = dobjdesc->id & 0xFFF;
 
         if (id != 0)
         {
-            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], dobjdesc->dl);
-        } 
-        else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, dobjdesc->dl);
+            dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
+        }
+        else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, PORT_RESOLVE(dobjdesc->dl));
         
         if (dobjdesc->id & 0xF000) 
         {
