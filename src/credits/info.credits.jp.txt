@@ -1,0 +1,255 @@
+Game Design
+Planning
+Direction
+Motion Coaching
+Kirby Original Design
+
+Program Management
+System,Player
+Programming
+
+Library,Map,Display,
+Effect,Computer Player,
+1PGame,Boss,
+Training Mode Programming
+
+Character & GameMode
+SelectScreen,Ranking,
+Opening,ScreenAdjust,
+BackupRam Programming
+
+Item,Device,Sound Test,
+StaffRoll,Title
+Programming
+
+Pikachu,Ness
+SpecialMoves Programming
+
+Link,Kirby,Yoshi,
+C.Falcon
+SpecialMoves Programming
+
+Design Management
+Modeling Support
+
+Mario,Luigi,Fox,Yoshi,
+Pikachu,Kirby,Purin
+Model
+Mario,Luigi,Yoshi Motion
+BonusStageMap Support
+
+D.Kong,Samus,C.Falcon,
+Link,Ness Model
+D.Kong,Link Motion
+BonusStageMap Support
+Motion Capture Actor
+
+Samus Motion
+Item,Effect,
+1PStartScreen
+TrainingScreen Design
+
+Effect Design
+Samus,D.Kong,Fox,Kirby,
+Pikachu,Boss Map Design
+
+Menu,CharacterSelect
+Screen,Mark,Title Design
+Mario,Yoshi,
+ClassicMario
+Map Design
+
+Mario,D.Kong,Samus,Fox
+Motion Support
+Yoshi Damage Motion
+BonusStageMap Support
+
+Fox,Kirby,Boss Motion
+Motion Capture Data
+Convert
+BonusStageMap Support
+
+Pikachu Motion
+Samus,Fox Damage Motion
+
+Item Design
+
+Opening,
+Effect Design
+BonusStageMap
+
+Pokemon Model Confusion
+Design Support
+
+C.Falcon,Ness,
+Purin Motion
+
+C.Falcon,Ness,
+Purin Motion
+
+C.Falcon,Ness,
+Purin Motion
+
+C.Falcon,Ness,
+Purin Motion
+
+Pikachu Motion
+Ness Damage Motion
+
+Pikachu Map
+Design
+
+Opening Design
+
+Opening Design
+
+BGM Compose&Arrange
+FGM Compose
+
+Project Support
+
+Mario,Luigi Voice
+
+Link Voice
+
+Yoshi Voice
+'Yoshi Story'
+Original Sound Compose
+
+Kirby,Ness Voice
+
+Fox Voice
+
+Pikachu Voice
+
+C.Falcon Voice
+
+Purin Voice
+
+Narrator Voice
+
+Mario,Luigi,Link,
+Yoshi Source Model
+
+'Super MarioBros'
+'Legend of Zelda'
+'StarFox64'
+Original Sound Composing
+
+Samus Original Design
+
+'Super Metroid'
+CG Design
+
+'Super Donkey Kong'
+Original Sound Composing
+
+'Metroid' Original
+Sound Composing
+
+'Yoshi Story'Production
+Advice
+
+Yoshi Original Design
+
+'Kirby Super Deluxe'
+Original Sound Composing
+
+'StarFox64'Direction
+
+Fox,C.Falcon
+Original Design
+
+'Pocket Monsters'
+Game Design,
+Direction
+
+'Pokemon Stadium'
+Source Modeling Chief
+
+Pikachu Source Model
+
+Purin Source Model
+
+'F-ZERO X' Original
+Sound Composing
+
+Pocket Monsters
+Products Supervisor
+'Pocket Monsters'
+'Mother2'Produce
+
+'Mother2'Producer
+Title,Story Concept
+Advice
+
+Debug Support
+
+Debug Support
+
+Editorial Support
+
+Model Converter
+Programming
+
+Model Converter
+Programming
+
+SGI Support
+
+Data Support
+
+Motion Capture SE & OP
+
+Motion Capture SE & OP
+
+Data SE
+
+Diplomacy
+
+Advice
+
+SuperMarioClub
+Debug Support
+
+Debug
+Assessment
+
+Debug
+Game Balance Support
+
+Project Management
+Traffic Management
+Motion Capture Actor
+
+Sales Schedule
+Management
+
+Negotiations
+
+Negotiation Chief
+Computer Player,
+Test Version Programming
+Program Support
+
+Diplomacy,
+Advice
+
+Mario,Luigi,Link,D.Kong
+Original Design
+Various games
+Production & Direction
+Advice
+
+Company President
+of Nintendo,Japan
+
+60 KAMITAKAMATSU-CHO
+FUKUINE,HIGASHIYAMA-KU
+KYOTO,605-8660 JAPAN
+http://www.nintendo.co.jp
+
+1999-9 Ryuoushinmachi,
+Ryuou-cho,Nakakomagun,
+Yamanashi,400-0111
+Japan
