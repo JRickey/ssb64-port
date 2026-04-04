@@ -3,4 +3,5 @@
 	url = https://github.com/Kenix3/libultraship.git
 [submodule "torch"]
 	path = torch
-	url = https://github.com/HarbourMasters/Torch.git
+	url = https://github.com/JRickey/Torch.git
+	branch = ssb64
