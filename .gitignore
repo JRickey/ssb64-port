@@ -59,3 +59,4 @@ vcpkg_installed/
 
 # Save data
 *.sav
+x64/
