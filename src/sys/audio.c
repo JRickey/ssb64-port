@@ -232,10 +232,20 @@ u8 gSYAudioGlobalBGMPriority;
 u8 *sSYAudioBGMSequenceDatas[SYAUDIO_BGMPLAYERS_NUM];
 
 // 0x8009D970
+#ifdef PORT
+static u8 sSYAudioCSPlayerStatusesBuf[SYAUDIO_BGMPLAYERS_NUM];
+u8 *sSYAudioCSPlayerStatuses = sSYAudioCSPlayerStatusesBuf;
+#else
 u8 *sSYAudioCSPlayerStatuses;
+#endif
 
 // 0x8009D974
+#ifdef PORT
+static s32 sSYAudioBGMPlayingIDsBuf[SYAUDIO_BGMPLAYERS_NUM];
+s32 *sSYAudioBGMPlayingIDs = sSYAudioBGMPlayingIDsBuf;
+#else
 s32 *sSYAudioBGMPlayingIDs;
+#endif
 
 // 0x8009D978
 s32 sSYAudioBGMVolumeTimers[SYAUDIO_BGMPLAYERS_NUM];

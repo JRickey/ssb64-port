@@ -135,14 +135,25 @@
 #define ftMotionPlayInterruptableVoice(fgm_id) (GC_FIELDSET(nFTMotionEventPlayLoopVoiceStoreInfo, 26, 6) | GC_FIELDSET(fgm_id, 0, 26)) // stops playing on action change
 
 #define ftMotionCommandSubroutineS1() GC_FIELDSET(nFTMotionEventSubroutine, 26, 6)
+#ifdef PORT
+/* PORT: (uintptr_t)addr in an s32[] generates ADDR64 relocations that spill
+   into adjacent variables. Use 0 placeholder — motion scripts need full
+   rework for 64-bit anyway (they encode N64 overlay addresses). */
+#define ftMotionCommandSubroutineS2(addr) 0
+#else
 #define ftMotionCommandSubroutineS2(addr) ((uintptr_t)addr)
+#endif
 
 #define ftMotionCommandSubroutine(addr) ftMotionCommandSubroutineS1(), ftMotionCommandSubroutineS2(addr)
 
 #define ftMotionCommandReturn() GC_FIELDSET(nFTMotionEventReturn, 26, 6)
 
 #define ftMotionCommandGotoS1() GC_FIELDSET(nFTMotionEventGoto, 26, 6)
+#ifdef PORT
+#define ftMotionCommandGotoS2(addr) 0
+#else
 #define ftMotionCommandGotoS2(addr) ((uintptr_t)addr)
+#endif
 
 #define ftMotionCommandGoto(addr) ftMotionCommandGotoS1(), ftMotionCommandGotoS2(addr)
 

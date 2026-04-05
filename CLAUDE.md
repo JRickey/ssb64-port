@@ -189,6 +189,14 @@ In the port, this threading model is collapsed. libultraship runs a single main 
 - libultraship and Torch are git submodules
 - MSVC on Windows, Apple Clang on macOS, GCC/Clang on Linux
 - The decomp's original MIPS toolchain (IDO 7.1) is NOT used for the port
+- Build script: `build.ps1` (PowerShell) — supports `-Clean`, `-SkipExtract`, `-ExtractOnly`
+- Manual build: `cmake -S . -B build && cmake --build build --target ssb64 --config Debug`
+
+### Runtime Logs
+After running `build/Debug/ssb64.exe`:
+- **Game trace log**: `build/Debug/ssb64.log` — `port_log()` output (boot sequence, thread creation, frame milestones)
+- **LUS/spdlog log**: `build/Debug/logs/Super Smash Bros. 64.log` — libultraship logging (resource loading, rendering, errors)
+- The game trace log is overwritten each run; the spdlog log is cumulative
 
 ### IDO 7.1 Compiler Patterns
 The decompiled C code contains patterns that are artifacts of the original IDO 7.1 MIPS compiler. These are intentional and should be preserved in decomp code:
