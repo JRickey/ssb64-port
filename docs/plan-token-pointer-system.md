@@ -77,7 +77,9 @@ See Phase 1 section below for details.
 
 ### Phase 3b: COMPLETE — FTAttributes + FTSprites + stock_luts (2026-04-04)
 
-### Phases 4-5: TODO — Remaining struct changes + PORT_RESOLVE at access sites
+### Phase 4: COMPLETE — MObjSub sprites/palettes (2026-04-04)
+
+### Phase 5: TODO — LBScriptDesc / LBTextureDesc / LBTexture
 
 ## Affected Struct Types
 
@@ -200,10 +202,27 @@ Changed fields: `setup_parts`, `animlock`, `hiddenparts`, `commonparts_container
 
 Build passes clean on MSVC.
 
-### Phase 4: MObjSub (23+ call sites)
+### Phase 4: MObjSub sprites/palettes — COMPLETE (2026-04-04)
 
-`void **sprites` to `u32 sprites_token`, `void **palettes` to `u32 palettes_token`.
-Modify material rendering code in `src/sys/obj.c` / `src/sys/objanim.c`.
+Changed 2 pointer fields to `u32` under `#ifdef PORT` in `src/sys/objtypes.h`:
+- `void **sprites` → `u32 sprites` (token to array of texture image tokens)
+- `void **palettes` → `u32 palettes` (token to array of palette tokens)
+
+`_Static_assert(sizeof(MObjSub) == 0x78)` added.
+
+Wrapped 3 access sites in `src/sys/objdisplay.c` with double PORT_RESOLVE:
+- Line ~1264: `palettes[(s32)mobj->palette_id]` — palette lookup for MOBJ_FLAG_PALETTE
+- Line ~1367: `sprites[mobj->texture_id_next]` — texture image for MOBJ_FLAG_FRAC|SPLIT
+- Line ~1438: `sprites[mobj->texture_id_curr]` — texture image for MOBJ_FLAG_FRAC|ALPHA
+
+Double-resolve pattern: `PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.sprites))[index])`
+— first resolve gets array base, cast to `u32*` (token array), index into it,
+second resolve gets the actual texture/palette data pointer.
+
+Note: `#ifdef PORT` blocks wrap entire `gDPSetTextureImage` calls (not inline in args)
+because preprocessor directives cannot appear inside macro arguments.
+
+Build passes clean on MSVC.
 
 ### Phase 5: LBScriptDesc / LBTextureDesc / LBTexture
 

@@ -306,7 +306,11 @@ struct MObjSub
     u16 pad00;
     u8 fmt;
     u8 siz;
+#ifdef PORT
+    u32 sprites;    // Relocation token — array of texture image tokens
+#else
     void **sprites; // should this be a pointer to an array of images (sprite set)?
+#endif
     u16 unk08;
     u16 unk0A;
     u16 unk0C;
@@ -318,7 +322,11 @@ struct MObjSub
     f32 scav;       // V-Scale?
     f32 unk24;
     f32 unk28;
+#ifdef PORT
+    u32 palettes;   // Relocation token — array of palette tokens
+#else
     void **palettes;  // palette pointers?
+#endif
     u16 flags;      // command flags?
     u8 block_fmt;   // texture image format?
     u8 block_siz;
@@ -463,6 +471,7 @@ _Static_assert(sizeof(DObjDLLink) == 8, "DObjDLLink must be 8 bytes to match fil
 _Static_assert(sizeof(DObjDistDL) == 8, "DObjDistDL must be 8 bytes to match file data layout");
 _Static_assert(sizeof(DObjDistDLLink) == 8, "DObjDistDLLink must be 8 bytes to match file data layout");
 _Static_assert(sizeof(AObjEvent32) == 4, "AObjEvent32 must be 4 bytes to match file data layout");
+_Static_assert(sizeof(MObjSub) == 0x78, "MObjSub must be 0x78 bytes to match file data layout");
 #endif
 
 struct GCGfxLink

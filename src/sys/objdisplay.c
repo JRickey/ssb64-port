@@ -1260,7 +1260,11 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
 
         if (flags & MOBJ_FLAG_PALETTE)
         {
+#ifdef PORT
+            gDPSetTextureImage(branch_dl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.palettes))[(s32)mobj->palette_id]));
+#else
             gDPSetTextureImage(branch_dl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, mobj->sub.palettes[(s32)mobj->palette_id]);
+#endif
 
             if (flags & (MOBJ_FLAG_SPLIT | MOBJ_FLAG_ALPHA))
             {
@@ -1353,6 +1357,9 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
         {
             s32 block_siz = (mobj->sub.block_siz == G_IM_SIZ_32b) ? G_IM_SIZ_32b : G_IM_SIZ_16b;
 
+#ifdef PORT
+            gDPSetTextureImage(branch_dl++, mobj->sub.block_fmt, block_siz, 1, PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.sprites))[mobj->texture_id_next]));
+#else
             gDPSetTextureImage
             (
                 branch_dl++,
@@ -1361,6 +1368,7 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
                 1,
                 mobj->sub.sprites[mobj->texture_id_next]
             );
+#endif
             if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA))
             {
                 gDPLoadSync(branch_dl++);
@@ -1420,6 +1428,9 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
         }
         if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA))
         {
+#ifdef PORT
+            gDPSetTextureImage(branch_dl++, mobj->sub.fmt, mobj->sub.siz, 1, PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.sprites))[mobj->texture_id_curr]));
+#else
             gDPSetTextureImage
             (
                 branch_dl++,
@@ -1428,6 +1439,7 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
                 1,
                 mobj->sub.sprites[mobj->texture_id_curr]
             );
+#endif
         }
         if (flags & 0x20)
         {
