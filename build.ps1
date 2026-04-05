@@ -99,7 +99,7 @@ if (-not $SkipExtract) {
     }
 
     $o2rSize = (Get-Item $O2R).Length / 1MB
-    Write-Host "Assets extracted: ssb64.o2r ({0:N1} MB)" -f $o2rSize -ForegroundColor Green
+    Write-Host ("Assets extracted: ssb64.o2r ({0:N1} MB)" -f $o2rSize) -ForegroundColor Green
 
     # Copy o2r next to exe
     $exeDir = Split-Path $GameExe -Parent

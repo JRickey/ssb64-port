@@ -18,14 +18,20 @@ FILE_COUNT = 2132
 
 
 def parse_yaml_entries(yaml_dir: Path) -> dict[int, str]:
-    """Parse all reloc_*.yml files and return {file_id: entry_name}."""
+    """Parse all reloc_*.yml files and return {file_id: "dir/entry_name"}.
+
+    The directory prefix is the YAML filename stem (e.g., reloc_menus.yml
+    produces paths like "reloc_menus/MNIndex"), matching how Torch stores
+    resources inside the .o2r archive.
+    """
     entries = {}
 
     for fname in sorted(yaml_dir.iterdir()):
         if not fname.name.startswith("reloc_") or not fname.suffix == ".yml":
             continue
 
-        content = fname.read_text(encoding="utf-8")
+        prefix = fname.stem  # e.g. "reloc_menus"
+        content = fname.read_text(encoding="cp1252")
         current_name = None
 
         for line in content.split("\n"):
@@ -37,10 +43,11 @@ def parse_yaml_entries(yaml_dir: Path) -> dict[int, str]:
                 m2 = re.match(r"^\s+file_id:\s+(\d+)", line)
                 if m2:
                     fid = int(m2.group(1))
+                    full_path = f"{prefix}/{current_name}"
                     if fid in entries:
                         print(f"WARNING: duplicate file_id {fid}: "
-                              f"{entries[fid]} vs {current_name}", file=sys.stderr)
-                    entries[fid] = current_name
+                              f"{entries[fid]} vs {full_path}", file=sys.stderr)
+                    entries[fid] = full_path
                     current_name = None
 
     return entries
