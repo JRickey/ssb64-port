@@ -1001,14 +1001,34 @@ void syAudioThreadMain(void *arg)
     sp73 = 2;
 
     syAudioInit();
-    
+
     sSYAudioCurrentSettings = dSYAudioPublicSettings;
-    
+
+#ifdef PORT
+    /* PORT TODO: Remove this guard when audio is implemented via SDL2.
+     *
+     * syAudioLoadAssets() tries to load audio banks from ROM addresses
+     * that are linker symbols on N64.  In the 64-bit port the address-of
+     * these symbols produces PC pointers (>0x80000000), causing the code
+     * to treat them as direct RAM pointers to data that doesn't exist,
+     * resulting in a NULL-dereference crash inside syAudioMakeBGMPlayers.
+     *
+     * Since all audio library functions (n_alInit, n_alAudioFrame, etc.)
+     * are stubbed, we skip asset loading and just keep the thread alive
+     * so the coroutine scheduler can tick it without hanging.
+     */
+    osSendMesg(&gSYMainThreadingMesgQueue, (OSMesg)1, OS_MESG_NOBLOCK);
+    while (TRUE)
+    {
+        osRecvMesg(&sSYAudioTicMesgQueue, NULL, OS_MESG_BLOCK);
+    }
+#endif
+
     syAudioLoadAssets();
     syAudioMakeBGMPlayers();
-    
+
     dSYAudioPublicSettings = sSYAudioCurrentSettings;
-    
+
     osSendMesg(&gSYMainThreadingMesgQueue, (OSMesg)1, OS_MESG_NOBLOCK);
 
     while (TRUE)

@@ -20,6 +20,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "port_log.h"
+
 /* ========================================================================= */
 /*  Threading — coroutine-based emulation                                    */
 /* ========================================================================= */
@@ -69,11 +71,11 @@ static s32 sResumeDebugCount = 0;
 void port_resume_service_threads(void)
 {
 	if (sResumeDebugCount < 3) {
-		fprintf(stderr, "SSB64: port_resume_service_threads: %d threads registered\n",
+		port_log( "SSB64: port_resume_service_threads: %d threads registered\n",
 		        (int)sServiceThreadCount);
 		for (s32 i = 0; i < sServiceThreadCount; i++) {
 			OSThread *t = sServiceThreads[i];
-			fprintf(stderr, "  Thread %d: state=%d coroutine=%p finished=%d\n",
+			port_log( "  Thread %d: state=%d coroutine=%p finished=%d\n",
 			        (int)t->id, (int)t->state,
 			        t->port_coroutine,
 			        t->port_coroutine ? port_coroutine_is_finished((PortCoroutine *)t->port_coroutine) : -1);
@@ -116,7 +118,7 @@ void osCreateThread(OSThread *t, OSId id, void (*entry)(void *), void *arg,
 	t->port_arg = arg;
 	t->port_coroutine = NULL;
 	port_register_service_thread(t);
-	fprintf(stderr, "SSB64: osCreateThread id=%d entry=%p (registered=%d total)\n",
+	port_log( "SSB64: osCreateThread id=%d entry=%p (registered=%d total)\n",
 	        (int)id, (void *)entry, (int)sServiceThreadCount);
 }
 
@@ -131,7 +133,7 @@ void osStartThread(OSThread *t)
 		size_t stack_size = (t->id < 100) ? PORT_STACK_SERVICE : PORT_STACK_GOBJ;
 		t->port_coroutine = port_coroutine_create(t->port_entry, t->port_arg, stack_size);
 		if (t->port_coroutine == NULL) {
-			fprintf(stderr, "SSB64: failed to create coroutine for thread %d\n", (int)t->id);
+			port_log( "SSB64: failed to create coroutine for thread %d\n", (int)t->id);
 			return;
 		}
 	}
@@ -590,6 +592,6 @@ void spFinish(Gfx **glistp)
 
 void __assert(const char *expr, const char *file, int line)
 {
-	fprintf(stderr, "Assertion failed: %s, file %s, line %d\n", expr, file, line);
+	port_log( "Assertion failed: %s, file %s, line %d\n", expr, file, line);
 	abort();
 }

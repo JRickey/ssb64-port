@@ -29,6 +29,8 @@
 #include <cstdio>
 #include <unordered_map>
 
+#include "port_log.h"
+
 /* ========================================================================= */
 /*  External game symbols (C linkage)                                        */
 /* ========================================================================= */
@@ -75,9 +77,9 @@ static PortCoroutine *sGameCoroutine = NULL;
 static void game_coroutine_entry(void *arg)
 {
 	(void)arg;
-	fprintf(stderr, "SSB64: Game coroutine started — entering syMainLoop\n");
+	port_log("SSB64: Game coroutine started — entering syMainLoop\n");
 	syMainLoop();
-	fprintf(stderr, "SSB64: syMainLoop returned — boot chain complete\n");
+	port_log("SSB64: syMainLoop returned — boot chain complete\n");
 	/* All thread coroutines are now created and suspended.
 	 * PortPushFrame will resume them directly via port_resume_service_threads. */
 }
@@ -116,7 +118,7 @@ extern "C" void port_submit_display_list(void *dl)
 
 void PortGameInit(void)
 {
-	fprintf(stderr, "SSB64: PortGameInit — initializing coroutine system\n");
+	port_log("SSB64: PortGameInit — initializing coroutine system\n");
 
 	/* Convert the main thread to a fiber so it can participate in
 	 * coroutine switching. */
@@ -127,7 +129,7 @@ void PortGameInit(void)
 	 * -> scheduler, controller, audio init -> scManagerRunLoop. */
 	sGameCoroutine = port_coroutine_create(game_coroutine_entry, NULL, 1024 * 1024);
 	if (sGameCoroutine == NULL) {
-		fprintf(stderr, "SSB64: FATAL — failed to create game coroutine\n");
+		port_log("SSB64: FATAL — failed to create game coroutine\n");
 		return;
 	}
 
@@ -140,9 +142,9 @@ void PortGameInit(void)
 	 * They all yield when they hit osRecvMesg(BLOCK) on empty queues.
 	 * Eventually control returns here after the entire boot chain has
 	 * progressed as far as it can without VI ticks. */
-	fprintf(stderr, "SSB64: Starting game coroutine (boot sequence)\n");
+	port_log("SSB64: Starting game coroutine (boot sequence)\n");
 	port_coroutine_resume(sGameCoroutine);
-	fprintf(stderr, "SSB64: Boot sequence yielded — entering frame loop\n");
+	port_log("SSB64: Boot sequence yielded — entering frame loop\n");
 }
 
 static int sFrameCount = 0;
@@ -173,7 +175,7 @@ void PortPushFrame(void)
 
 	sFrameCount++;
 	if (sFrameCount <= 5 || (sFrameCount % 60 == 0)) {
-		fprintf(stderr, "SSB64: Frame %d complete\n", sFrameCount);
+		port_log("SSB64: Frame %d complete\n", sFrameCount);
 	}
 }
 
@@ -183,5 +185,5 @@ void PortGameShutdown(void)
 		port_coroutine_destroy(sGameCoroutine);
 		sGameCoroutine = NULL;
 	}
-	fprintf(stderr, "SSB64: Game coroutine destroyed\n");
+	port_log("SSB64: Game coroutine destroyed\n");
 }

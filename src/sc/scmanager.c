@@ -1,3 +1,6 @@
+#ifdef PORT
+#include <port_log.h>
+#endif
 #include <ft/fighter.h>
 #include <wp/weapon.h>
 #include <it/item.h>
@@ -844,6 +847,7 @@ void scManagerRunLoop(sb32 arg)
 	syAudioSetFXType(AL_FX_CUSTOM);
 	/* Skip framebuffer clear — no physical N64 framebuffers on PC.
 	 * Fast3D handles framebuffer management. */
+	port_log("SSB64: scManagerRunLoop — past audio/FB setup\n");
 #else
 	syAudioSetSettingsUpdated();
 
@@ -872,8 +876,16 @@ void scManagerRunLoop(sb32 arg)
 	{
 		gSCManagerSceneData.scene_curr = nSCKindNoController;
 	}
+#ifdef PORT
+	port_log("SSB64: scManagerRunLoop — controllers=%d scene=%d\n",
+	         (int)gSYControllerConnectedNum, (int)gSCManagerSceneData.scene_curr);
+#endif
 	while (TRUE)
 	{
+#ifdef PORT
+		port_log("SSB64: scManagerRunLoop — entering scene %d\n",
+		         (int)gSCManagerSceneData.scene_curr);
+#endif
 		switch (gSCManagerSceneData.scene_curr)
 		{
 			case nSCKindNoController:

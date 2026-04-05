@@ -3,12 +3,11 @@
 // Port-wide header for SSB64 PC port
 // Include this from decomp code that needs port-specific behavior
 
+#include "port_log.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
-
-// Debug trace — prints to stderr. Safe to call from decomp C code.
-void port_trace(const char* msg);
 
 // Initialize the port engine (Ship::Context, resource manager, window, etc.)
 // Called once at startup before the game loop begins.
