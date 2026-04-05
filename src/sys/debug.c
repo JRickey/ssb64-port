@@ -906,7 +906,7 @@ void syDebugStartRmonThread8(void)
 void syDebugFileLoaderThread8(void *arg)
 {
     OSMesg msg;
-    u32 sp50;
+    u32 sp50 = 0;
     OSPri origPri;
     s32 count;
     OSMesgQueue *mq;
