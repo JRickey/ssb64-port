@@ -126,6 +126,11 @@ void unref_80000938(void)
     while ((sSYSchedulerCurrentTaskGfx != NULL) || (scCurrentQueue3Task != NULL) || (scQueue3Head != NULL));
 }
 
+#ifdef PORT
+/* Forward declaration — defined at line ~792. */
+s32 sySchedulerExecuteTask(SYTaskInfo *task);
+#endif
+
 void func_80000970(SYTaskInfo *task) {
     OSMesg msgs[1];
     OSMesgQueue mq;
@@ -134,12 +139,29 @@ void func_80000970(SYTaskInfo *task) {
     task->fnCheck  = NULL;
     task->retVal = 1;
     task->mq = &mq;
+#ifdef PORT
+    /* On PC, process the task synchronously instead of sending it to
+     * the scheduler queue and blocking.  The scheduler coroutine may
+     * not be running when this is called (e.g. during boot). */
+    sySchedulerExecuteTask(task);
+#else
     osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)task, OS_MESG_NOBLOCK);
     osRecvMesg(&mq, NULL, OS_MESG_BLOCK);
+#endif
 }
 
 void sySchedulerAddClient(SYClient *client, OSMesgQueue *mq, OSMesg *msg, u32 count)
 {
+#ifdef PORT
+    /* On PC, add the client directly to the scheduler's linked list.
+     * The normal path sends a task through the scheduler queue and blocks
+     * for completion, which deadlocks when the scheduler coroutine isn't
+     * running (e.g. during boot). */
+    osCreateMesgQueue(mq, msg, count);
+    client->mq = mq;
+    client->next = sSYSchedulerClients;
+    sSYSchedulerClients = client;
+#else
     SYTaskAddClient t;
 
     osCreateMesgQueue(mq, msg, count);
@@ -150,6 +172,7 @@ void sySchedulerAddClient(SYClient *client, OSMesgQueue *mq, OSMesg *msg, u32 co
     t.client = client;
 
     func_80000970(&t.info);
+#endif
 }
 
 // 0x80000A34 - Returns true if task can be executed now

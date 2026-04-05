@@ -1,5 +1,9 @@
 #include "main.h"
 
+#ifdef PORT
+#include "port.h"
+#endif
+
 // #include "scenemgr/scene_manager.h"
 #include <sys/debug.h>
 #include <sys/dma.h>
@@ -133,20 +137,30 @@ void* unref_80000478(void)
 
 void syMainSetImemStatus(void)
 {
+#ifdef PORT
+    /* No RSP IMEM on PC — just report OK. */
+    gSYMainImemOK = TRUE;
+#else
     if (IO_READ(SP_IMEM_START) == 6103)
     {
         gSYMainImemOK = TRUE;
     }
     else gSYMainImemOK = FALSE;
+#endif
 }
 
 void syMainSetDmemStatus(void)
 {
+#ifdef PORT
+    /* No RSP DMEM on PC — just report OK. */
+    gSYMainDmemOK = TRUE;
+#else
     if (IO_READ(SP_DMEM_START) == -1)
     {
         gSYMainDmemOK = TRUE;
-    } 
+    }
     else gSYMainDmemOK = FALSE;
+#endif
 }
 
 void syMainThreadStackOverflow(s32 tid)
@@ -179,31 +193,60 @@ void syMainVerifyStackProbes(void)
 // 0x800005D8
 void syMainThread5(void *arg)
 {
+#ifdef PORT
+    port_trace("SSB64: Thread5 — start\n");
+#endif
     osCreateViManager(OS_PRIORITY_VIMGR);
     gSYDmaRomPiHandle = osCartRomInit();
     syDmaSramPiInit();
     osCreatePiManager(OS_PRIORITY_PIMGR, &sSYMainPiCmdQueue, sSYMainPiCmdMesg, ARRAY_COUNT(sSYMainPiCmdMesg));
     syDmaCreateMesgQueue();
-
+#ifdef PORT
+    port_trace("SSB64: Thread5 — DMA queue created, reading ROM\n");
+#endif
     syDmaReadRom(PHYSICAL_TO_ROM(0xB70), gSYMainRspBootCode, sizeof(gSYMainRspBootCode));
     syMainSetImemStatus();
     syMainSetDmemStatus();
     osCreateMesgQueue(&gSYMainThreadingMesgQueue, sSYMainBlockMesg, ARRAY_COUNT(sSYMainBlockMesg));
+#ifdef PORT
+    port_trace("SSB64: Thread5 — creating scheduler thread\n");
+#endif
 
     osCreateThread(&sSYMainThread3, 3, sySchedulerThreadMain, NULL, &sSYMainThread3Stack[THREAD3_STACK_SIZE], THREAD3_PRI);
     sSYMainThread3Stack[STACK_CANARY_OFFSET] = STACK_CANARY; osStartThread(&sSYMainThread3);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — scheduler started, waiting for ready\n");
+#endif
     osRecvMesg(&gSYMainThreadingMesgQueue, NULL, OS_MESG_BLOCK);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — scheduler ready, creating audio\n");
+#endif
 
     osCreateThread(&sSYMainThread4, 4, syAudioThreadMain, NULL, &sSYMainThread4Stack[THREAD4_STACK_SIZE], THREAD4_PRI);
     sSYMainThread4Stack[STACK_CANARY_OFFSET] = STACK_CANARY; osStartThread(&sSYMainThread4);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — audio started, waiting for ready\n");
+#endif
     osRecvMesg(&gSYMainThreadingMesgQueue, NULL, OS_MESG_BLOCK);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — audio ready, creating controller\n");
+#endif
 
     osCreateThread(&gSYMainThread6, 6, syControllerThreadMain, NULL, &sSYMainThread6Stack[THREAD6_STACK_SIZE], THREAD6_PRI);
     sSYMainThread6Stack[STACK_CANARY_OFFSET] = STACK_CANARY; osStartThread(&gSYMainThread6);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — controller started, waiting for ready\n");
+#endif
     osRecvMesg(&gSYMainThreadingMesgQueue, NULL, OS_MESG_BLOCK);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — all threads ready, loading overlays\n");
+#endif
 
     func_80006B80();
     syDmaLoadOverlay(&dSYMainSceneManagerOverlay);
+#ifdef PORT
+    port_trace("SSB64: Thread5 — entering scManagerRunLoop\n");
+#endif
     scManagerRunLoop(0);
 }
 
@@ -219,7 +262,13 @@ void syMainThread1Idle(void *arg)
     }
     osSetThreadPri(NULL, OS_PRIORITY_IDLE);
 
+#ifdef PORT
+    /* On PC, Thread 1 has no work after starting Thread 5.
+     * Just return — the coroutine will be marked finished. */
+    return;
+#else
     while (TRUE);
+#endif
 }
 
 void syMainLoop(void)

@@ -88,6 +88,11 @@ extern "C"
 		OSId id;				   /* id for debugging */
 		int fp;					   /* thread has used fp unit */
 		__OSThreadContext context; /* register/interrupt mask */
+#ifdef PORT
+		void (*port_entry)(void *); /* captured entry point */
+		void *port_arg;             /* captured argument */
+		void *port_coroutine;       /* PortCoroutine* (opaque to C code) */
+#endif
 	} OSThread;
 
 	typedef u32 OSEvent;

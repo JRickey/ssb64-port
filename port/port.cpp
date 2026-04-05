@@ -1,5 +1,6 @@
 #define SDL_MAIN_HANDLED
 #include "port.h"
+#include "gameloop.h"
 
 #include <libultraship/libultraship.h>
 #include <libultraship/controller/controldeck/ControlDeck.h>
@@ -32,6 +33,11 @@ static void TraceLog(const char* msg) {
 }
 
 extern "C" {
+
+void port_trace(const char* msg) {
+	fprintf(stderr, "%s", msg);
+	fflush(stderr);
+}
 
 int PortInit(int argc, char* argv[]) {
 	TraceLog("SSB64: PortInit entered");
@@ -123,14 +129,18 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
-	// TODO: Once the boot sequence is restructured for single-threaded PC
-	// execution, this loop will be replaced by the game's own frame loop
-	// driven by scManagerRunLoop -> scheduler -> Fast3D rendering.
-	// For now, just keep the window alive with GUI-only frames.
-	auto window = sContext->GetWindow();
+	// Initialize the game boot sequence (coroutines, thread init, etc.)
+	PortGameInit();
+
+	// Main frame loop — each iteration runs one frame of game logic
+	// and rendering through the coroutine system. PortPushFrame posts
+	// a VI tick, resumes the game coroutine, and display lists are
+	// rendered via DrawAndRunGraphicsCommands inside the coroutine.
 	while (WindowIsRunning()) {
-		window->RunGuiOnly();
+		PortPushFrame();
 	}
+
+	PortGameShutdown();
 
 	PortShutdown();
 	return 0;

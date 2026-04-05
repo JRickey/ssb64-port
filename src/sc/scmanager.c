@@ -837,6 +837,14 @@ void scManagerRunLoop(sb32 arg)
 	ftManagerSetupFileSize();
 	dSYAudioPublicSettings.unk31 = 72;
 
+#ifdef PORT
+	/* Audio is stubbed on PC — skip the spin-waits that would hang.
+	 * The audio thread would normally clear these flags. */
+	syAudioSetSettingsUpdated();
+	syAudioSetFXType(AL_FX_CUSTOM);
+	/* Skip framebuffer clear — no physical N64 framebuffers on PC.
+	 * Fast3D handles framebuffer management. */
+#else
 	syAudioSetSettingsUpdated();
 
 	while (syAudioGetSettingsUpdated() != FALSE)
@@ -859,6 +867,7 @@ void scManagerRunLoop(sb32 arg)
 	{
 		*framebuffer++ = GPACK_RGBA5551(0x00, 0x00, 0x00, 0x01);
 	}
+#endif
 	if (gSYControllerConnectedNum == 0)
 	{
 		gSCManagerSceneData.scene_curr = nSCKindNoController;

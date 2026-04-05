@@ -7,50 +7,296 @@
  * single-threaded, RSP tasks are handled by Fast3D/libultraship, and
  * controllers are managed by libultraship's ControlDeck.
  *
- * These stubs exist to satisfy the linker — the decomp code still calls
- * them, but the calls are effectively no-ops in the port.
+ * These provide PC-compatible implementations — coroutine-based threading,
+ * coroutine-aware message queues, and no-ops for hardware operations.
  */
 
 #include <ssb_types.h>
 #include <PR/os.h>
 #include <PR/sptask.h>
+#include <PR/mbi.h>
 #include <PR/os_internal.h>
 
+#include <stdio.h>
+#include <string.h>
+
 /* ========================================================================= */
-/*  Threading stubs                                                          */
+/*  Threading — coroutine-based emulation                                    */
 /* ========================================================================= */
 
 /*
  * On N64, the game uses a multi-threaded model with separate threads for
  * the game loop, scheduler, audio, and controller polling.  In the port,
- * all of these run in a single thread — thread creation and management
- * calls become no-ops.
+ * each N64 OS thread runs as a coroutine (Win32 Fiber / ucontext).
+ *
+ * osCreateThread captures the entry point and argument.
+ * osStartThread creates a coroutine (lazily) and resumes it.
+ * osStopThread(NULL) yields the current coroutine.
+ * osDestroyThread cleans up the coroutine.
  */
+
+#include "coroutine.h"
+
+/* Default stack sizes for coroutines.  N64 stacks are tiny (1-4KB) but
+ * PC calling conventions and 64-bit pointers need much more. */
+#define PORT_STACK_SERVICE  (256 * 1024)  /* OS threads 1-8 */
+#define PORT_STACK_GOBJ     (64 * 1024)   /* GObj thread processes */
+
+/* ---- Thread registry ----
+ * Tracks all service threads (ID < 100) so PortPushFrame can resume them.
+ * GObj threads (ID >= 100) are not registered — they're resumed by
+ * gcRunGObjProcess via osStartThread.
+ */
+#define PORT_MAX_SERVICE_THREADS 16
+static OSThread *sServiceThreads[PORT_MAX_SERVICE_THREADS];
+static s32 sServiceThreadCount = 0;
+
+static void port_register_service_thread(OSThread *t)
+{
+	if (t->id >= 100) return;  /* Skip GObj threads */
+	for (s32 i = 0; i < sServiceThreadCount; i++) {
+		if (sServiceThreads[i] == t) return;  /* Already registered */
+	}
+	if (sServiceThreadCount < PORT_MAX_SERVICE_THREADS) {
+		sServiceThreads[sServiceThreadCount++] = t;
+	}
+}
+
+static s32 sResumeDebugCount = 0;
+
+/* Called by PortPushFrame to resume all service thread coroutines
+ * that have messages waiting in their blocked queues. */
+void port_resume_service_threads(void)
+{
+	if (sResumeDebugCount < 3) {
+		fprintf(stderr, "SSB64: port_resume_service_threads: %d threads registered\n",
+		        (int)sServiceThreadCount);
+		for (s32 i = 0; i < sServiceThreadCount; i++) {
+			OSThread *t = sServiceThreads[i];
+			fprintf(stderr, "  Thread %d: state=%d coroutine=%p finished=%d\n",
+			        (int)t->id, (int)t->state,
+			        t->port_coroutine,
+			        t->port_coroutine ? port_coroutine_is_finished((PortCoroutine *)t->port_coroutine) : -1);
+		}
+		sResumeDebugCount++;
+	}
+
+	/* Resume threads in priority order (higher priority first).
+	 * Simple bubble: scheduler(120) > controller(115) > audio(110) > game(50) */
+	for (s32 round = 0; round < 8; round++) {
+		s32 progress = 0;
+		for (s32 i = 0; i < sServiceThreadCount; i++) {
+			OSThread *t = sServiceThreads[i];
+			if (t == NULL || t->port_coroutine == NULL) continue;
+			if (port_coroutine_is_finished((PortCoroutine *)t->port_coroutine)) continue;
+			if (t->state != OS_STATE_WAITING) continue;
+
+			/* Resume this thread — it will run until it yields again. */
+			t->state = OS_STATE_RUNNING;
+			port_coroutine_resume((PortCoroutine *)t->port_coroutine);
+			if (port_coroutine_is_finished((PortCoroutine *)t->port_coroutine)) {
+				t->state = OS_STATE_STOPPED;
+			} else {
+				t->state = OS_STATE_WAITING;
+			}
+			progress = 1;
+		}
+		if (!progress) break;  /* No thread made progress — done for this frame */
+	}
+}
 
 void osCreateThread(OSThread *t, OSId id, void (*entry)(void *), void *arg,
                     void *sp, OSPri p)
 {
+	memset(t, 0, sizeof(OSThread));
+	t->id = id;
+	t->priority = p;
+	t->state = OS_STATE_STOPPED;
+	t->port_entry = entry;
+	t->port_arg = arg;
+	t->port_coroutine = NULL;
+	port_register_service_thread(t);
+	fprintf(stderr, "SSB64: osCreateThread id=%d entry=%p (registered=%d total)\n",
+	        (int)id, (void *)entry, (int)sServiceThreadCount);
 }
 
 void osStartThread(OSThread *t)
 {
+	if (t == NULL) {
+		return;
+	}
+
+	/* Create the coroutine lazily on first start. */
+	if (t->port_coroutine == NULL && t->port_entry != NULL) {
+		size_t stack_size = (t->id < 100) ? PORT_STACK_SERVICE : PORT_STACK_GOBJ;
+		t->port_coroutine = port_coroutine_create(t->port_entry, t->port_arg, stack_size);
+		if (t->port_coroutine == NULL) {
+			fprintf(stderr, "SSB64: failed to create coroutine for thread %d\n", (int)t->id);
+			return;
+		}
+	}
+
+	/* Resume the coroutine.  It will run until it yields (at an
+	 * osRecvMesg BLOCK or osStopThread) then return here. */
+	if (t->port_coroutine != NULL) {
+		t->state = OS_STATE_RUNNING;
+		port_coroutine_resume((PortCoroutine *)t->port_coroutine);
+		if (port_coroutine_is_finished((PortCoroutine *)t->port_coroutine)) {
+			t->state = OS_STATE_STOPPED;
+		} else {
+			t->state = OS_STATE_WAITING;
+		}
+	}
 }
 
 void osStopThread(OSThread *t)
 {
+	if (t == NULL) {
+		/* Stop current thread = yield the current coroutine. */
+		port_coroutine_yield();
+	}
+	/* Stopping a specific thread other than self is a no-op on PC.
+	 * The N64 OS would remove it from the run queue. */
 }
 
 void osDestroyThread(OSThread *t)
 {
+	if (t == NULL) {
+		return;
+	}
+	if (t->port_coroutine != NULL) {
+		port_coroutine_destroy((PortCoroutine *)t->port_coroutine);
+		t->port_coroutine = NULL;
+	}
+	t->port_entry = NULL;
+	t->state = OS_STATE_STOPPED;
 }
 
 void osSetThreadPri(OSThread *t, OSPri p)
 {
+	if (t != NULL) {
+		t->priority = p;
+	}
 }
 
 OSPri osGetThreadPri(OSThread *t)
 {
+	if (t != NULL) {
+		return t->priority;
+	}
 	return 0;
+}
+
+/* ========================================================================= */
+/*  Message queues — coroutine-aware blocking                                */
+/* ========================================================================= */
+
+/*
+ * These override libultraship's non-blocking message queue functions.
+ * The key difference: osRecvMesg with OS_MESG_BLOCK yields the current
+ * coroutine when the queue is empty, instead of spinning or returning -1.
+ */
+
+void osCreateMesgQueue(OSMesgQueue *mq, OSMesg *msg, s32 count)
+{
+	mq->mtqueue = NULL;
+	mq->fullqueue = NULL;
+	mq->validCount = 0;
+	mq->first = 0;
+	mq->msgCount = count;
+	mq->msg = msg;
+}
+
+s32 osSendMesg(OSMesgQueue *mq, OSMesg msg, s32 flag)
+{
+	if (mq->validCount >= mq->msgCount) {
+		if (flag == OS_MESG_NOBLOCK) {
+			return -1;
+		}
+		/* OS_MESG_BLOCK on full queue — yield until space available. */
+		while (mq->validCount >= mq->msgCount) {
+			if (port_coroutine_in_coroutine()) {
+				port_coroutine_yield();
+			} else {
+				/* Main thread can't yield — drop the message. */
+				return -1;
+			}
+		}
+	}
+
+	s32 idx = (mq->first + mq->validCount) % mq->msgCount;
+	mq->msg[idx] = msg;
+	mq->validCount++;
+	return 0;
+}
+
+s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
+{
+	/* Non-blocking: return immediately if empty. */
+	if (mq->validCount == 0) {
+		if (flag == OS_MESG_NOBLOCK) {
+			return -1;
+		}
+		/* OS_MESG_BLOCK: yield until a message arrives. */
+		while (mq->validCount == 0) {
+			if (port_coroutine_in_coroutine()) {
+				port_coroutine_yield();
+			} else {
+				/* Main thread can't yield — return failure.
+				 * This should only happen during init before coroutines. */
+				return -1;
+			}
+		}
+	}
+
+	if (msg != NULL) {
+		*msg = mq->msg[mq->first];
+	}
+	mq->first = (mq->first + 1) % mq->msgCount;
+	mq->validCount--;
+	return 0;
+}
+
+s32 osJamMesg(OSMesgQueue *mq, OSMesg msg, s32 flag)
+{
+	if (mq->validCount >= mq->msgCount) {
+		if (flag == OS_MESG_NOBLOCK) {
+			return -1;
+		}
+		while (mq->validCount >= mq->msgCount) {
+			if (port_coroutine_in_coroutine()) {
+				port_coroutine_yield();
+			} else {
+				return -1;
+			}
+		}
+	}
+
+	mq->first = (mq->first + mq->msgCount - 1) % mq->msgCount;
+	mq->msg[mq->first] = msg;
+	mq->validCount++;
+	return 0;
+}
+
+/*
+ * Event-message table — maps hardware events to message queues.
+ * On PC, only used for SP/DP completion if needed.  VI events
+ * are posted manually by PortPushFrame.
+ */
+typedef struct {
+	OSMesgQueue *queue;
+	OSMesg msg;
+} __OSEventState;
+
+#define OS_NUM_EVENTS 15
+__OSEventState __osEventStateTab[OS_NUM_EVENTS] = { { 0 } };
+
+void osSetEventMesg(OSEvent event, OSMesgQueue *mq, OSMesg msg)
+{
+	if (event < OS_NUM_EVENTS) {
+		__osEventStateTab[event].queue = mq;
+		__osEventStateTab[event].msg = msg;
+	}
 }
 
 /* ========================================================================= */
@@ -62,20 +308,106 @@ void osInitialize(void)
 }
 
 /* ========================================================================= */
+/*  VI manager — disabled on PC                                              */
+/* ========================================================================= */
+
+/*
+ * On N64, osCreateViManager creates a system thread that sends VI retrace
+ * messages at ~60Hz.  LUS implements this with an SDL timer.  In the port,
+ * we post VI messages manually from PortPushFrame() so we override these
+ * to prevent the SDL timer from flooding the queue.
+ */
+
+void osCreateViManager(OSPri pri)
+{
+	/* No-op: VI messages are posted manually by PortPushFrame. */
+}
+
+void osViSetEvent(OSMesgQueue *mq, OSMesg msg, u32 retrace_count)
+{
+	/* No-op: VI events not needed — we drive timing from PortPushFrame. */
+}
+
+void osViSwapBuffer(void *frameBufPtr)
+{
+	/* No-op: buffer swapping handled by Fast3D/SDL. */
+}
+
+void osViSetMode(OSViMode *mode)
+{
+	/* No-op: video mode managed by the window backend. */
+}
+
+void osViBlack(u8 active)
+{
+	/* No-op: blackout handled at higher level. */
+}
+
+void osViSetSpecialFeatures(u32 func)
+{
+}
+
+void *osViGetNextFramebuffer(void)
+{
+	return NULL;
+}
+
+void *osViGetCurrentFramebuffer(void)
+{
+	return NULL;
+}
+
+void osViSetXScale(f32 value)
+{
+}
+
+void osViSetYScale(f32 value)
+{
+}
+
+/* ========================================================================= */
 /*  RSP task stubs                                                           */
 /* ========================================================================= */
 
 /*
- * RSP task submission is replaced by Fast3D in the port.  Graphics display
- * lists are intercepted by libultraship before they reach these functions.
+ * RSP task submission is replaced by Fast3D in the port.
+ *
+ * When the scheduler submits a GFX task via osSpTaskStart (which calls
+ * osSpTaskLoad + osSpTaskStartGo), we intercept GFX tasks and route the
+ * display list to Fast3D via port_submit_display_list().
+ *
+ * Audio tasks are no-ops (audio is currently stubbed).
  */
+
+/* Defined in gameloop.cpp */
+extern void port_submit_display_list(void *dl);
 
 void osSpTaskLoad(OSTask *tp)
 {
 }
 
+/* Scheduler queue — declared in scheduler.c, externed in scheduler.h */
+extern OSMesgQueue gSYSchedulerTaskMesgQueue;
+
+/* INTR values matching scheduler.c local defines */
+#define PORT_INTR_SP_TASK_DONE 2
+#define PORT_INTR_DP_FULL_SYNC 3
+
 void osSpTaskStartGo(OSTask *tp)
 {
+	if (tp == NULL) {
+		return;
+	}
+
+	if (tp->t.type == M_GFXTASK && tp->t.data_ptr != NULL) {
+		/* Render the display list synchronously via Fast3D. */
+		port_submit_display_list((void *)tp->t.data_ptr);
+	}
+
+	/* Simulate hardware completion: post SP_TASK_DONE and DP_FULL_SYNC
+	 * to the scheduler queue so it can process task completion. */
+	osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)PORT_INTR_SP_TASK_DONE, OS_MESG_NOBLOCK);
+	osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)PORT_INTR_DP_FULL_SYNC, OS_MESG_NOBLOCK);
 }
 
 void osSpTaskYield(void)
@@ -116,6 +448,44 @@ s32 osDpSetNextBuffer(void *buf, u64 size)
 
 s32 osEPiLinkHandle(OSPiHandle *handle)
 {
+	return 0;
+}
+
+/*
+ * DMA transfers — on PC, these are synchronous memcpy.
+ * The original N64 code expects an async DMA that posts a completion
+ * message to the return queue.  We do the copy immediately and post
+ * the message so osRecvMesg(BLOCK) on the return queue doesn't hang.
+ */
+s32 osEPiStartDma(OSPiHandle *pihandle, OSIoMesg *mb, s32 direction)
+{
+	/* On PC, ROM addresses are meaningless — DMA data comes from the
+	 * resource system, not from physical ROM.  For the boot-time RSP
+	 * microcode copy (syDmaReadRom of gSYMainRspBootCode), the data
+	 * is unused so we just zero-fill.  For overlay loading, the resource
+	 * system handles it before this point. */
+	if (mb->dramAddr != NULL && mb->size > 0) {
+		memset(mb->dramAddr, 0, mb->size);
+	}
+
+	/* Post completion message to the return queue so the caller's
+	 * osRecvMesg(BLOCK) unblocks. */
+	if (mb->hdr.retQueue != NULL) {
+		osSendMesg(mb->hdr.retQueue, NULL, OS_MESG_NOBLOCK);
+	}
+	return 0;
+}
+
+s32 osPiStartDma(OSIoMesg *mb, s32 priority, s32 direction,
+                 uintptr_t devAddr, void *vAddr, size_t nbytes,
+                 OSMesgQueue *mq)
+{
+	if (vAddr != NULL && nbytes > 0) {
+		memset(vAddr, 0, nbytes);
+	}
+	if (mq != NULL) {
+		osSendMesg(mq, NULL, OS_MESG_NOBLOCK);
+	}
 	return 0;
 }
 

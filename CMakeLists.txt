@@ -143,6 +143,7 @@ target_compile_definitions(ssb64_game PRIVATE ${SSB64_COMPILE_DEFS})
 target_include_directories(ssb64_game PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include    # Custom C headers (shadows system headers)
     ${CMAKE_CURRENT_SOURCE_DIR}/src        # Game headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/port       # Port headers (coroutine.h, etc.)
 )
 
 ################################################################################
@@ -179,6 +180,10 @@ target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_link_options(${PROJECT_NAME} PRIVATE /SUBSYSTEM:WINDOWS /ENTRY:mainCRTStartup)
+    # Our n64_stubs.c overrides some libultraship OS functions (osRecvMesg,
+    # osCreateViManager, etc.) with coroutine-aware versions.  MSVC's linker
+    # may pull in the LUS versions too — /FORCE:MULTIPLE lets ours win.
+    target_link_options(${PROJECT_NAME} PRIVATE /FORCE:MULTIPLE)
     target_compile_options(${PROJECT_NAME} PRIVATE /utf-8)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,-export-dynamic)
