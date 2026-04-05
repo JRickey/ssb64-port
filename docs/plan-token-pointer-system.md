@@ -266,10 +266,12 @@ in `src/lb/lbtypes.h`.
 
 ## Known Issues / Future Work
 
-- **Endianness**: The blob data is big-endian (raw N64 format). The relocation chain
-  fields are read assuming native byte order in the current bridge. The broader
-  endianness issue (all game data reads from blobs) needs to be addressed separately.
-  The relocation chain field reads may need byte-swap on little-endian hosts.
+- **Endianness**: RESOLVED — `portRelocByteSwapBlob()` in `port/bridge/lbreloc_byteswap.cpp`
+  performs a two-pass byte-swap on each file blob after memcpy, before the reloc chain walk:
+  Pass 1 blanket-swaps every u32 word (fixes DL commands, struct fields, reloc descriptors).
+  Pass 2 parses native-endian DL commands to find vertex/texture regions and applies targeted
+  fixups (vertex: rotate16 + byte-restore; texture 4b/8b: undo swap; 16b: rotate16; palette: rotate16).
+  Remaining edge case: particle bytecode byte order (Phase 4, deferred until runtime testing).
 
 - **Token table lifetime**: RESOLVED — `portRelocResetPointerTable()` now called at
   the top of `lbRelocInitSetup()`, which runs once per scene transition before any
