@@ -2159,6 +2159,15 @@ GObjProcess* gcRunGObjProcess(GObjProcess *gobjproc)
 	{
 	case nGCProcessKindThread:
 		osStartThread(&gobjproc->exec.gobjthread->thread);
+#ifdef PORT
+		/* If the GObj thread's coroutine ran to completion (entry function
+		 * returned) without yielding via gcSleepCurrentGObjThread, no
+		 * message was sent to gGCMesgQueue — skip the blocking recv. */
+		if (gobjproc->exec.gobjthread->thread.state == OS_STATE_STOPPED)
+		{
+			break;
+		}
+#endif
 		osRecvMesg(&gGCMesgQueue, NULL, OS_MESG_BLOCK);
 		break;
 
