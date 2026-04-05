@@ -568,6 +568,10 @@ size_t lbRelocGetAllocSize(u32 *ids, u32 len)
 
 void lbRelocInitSetup(LBRelocSetup *setup)
 {
+	// Clear token table from previous scene — prevents unbounded growth
+	// and stale tokens pointing to freed heap memory
+	portRelocResetPointerTable();
+
 	// ROM addresses (unused in port but stored for completeness)
 	sLBRelocInternBuffer.rom_table_lo = setup->table_addr;
 	sLBRelocInternBuffer.total_files_num = setup->table_files_num;

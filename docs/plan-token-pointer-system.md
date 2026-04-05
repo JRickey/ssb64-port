@@ -271,8 +271,9 @@ in `src/lb/lbtypes.h`.
   endianness issue (all game data reads from blobs) needs to be addressed separately.
   The relocation chain field reads may need byte-swap on little-endian hosts.
 
-- **Token table lifetime**: `portRelocResetPointerTable()` exists but is not yet
-  called. It should be called on scene transitions when all loaded files are freed.
+- **Token table lifetime**: RESOLVED — `portRelocResetPointerTable()` now called at
+  the top of `lbRelocInitSetup()`, which runs once per scene transition before any
+  files are loaded. Prevents unbounded token growth and stale pointers to freed heaps.
 
 ## Verification
 
