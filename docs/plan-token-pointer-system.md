@@ -79,7 +79,7 @@ See Phase 1 section below for details.
 
 ### Phase 4: COMPLETE — MObjSub sprites/palettes (2026-04-04)
 
-### Phase 5: TODO — LBScriptDesc / LBTextureDesc / LBTexture
+### Phase 5: COMPLETE — LBScriptDesc / LBTextureDesc / LBTexture (2026-04-04)
 
 ## Affected Struct Types
 
@@ -224,10 +224,30 @@ because preprocessor directives cannot appear inside macro arguments.
 
 Build passes clean on MSVC.
 
-### Phase 5: LBScriptDesc / LBTextureDesc / LBTexture
+### Phase 5: LBScriptDesc / LBTextureDesc / LBTexture — COMPLETE (2026-04-04)
 
-Pointer arrays become token arrays under `#ifdef PORT`.
-Modify `lbParticleSetupBankID` in `src/lb/lbparticle.c`.
+Changed 3 pointer array fields to `u32` under `#ifdef PORT` in `src/lb/lbtypes.h`:
+- `LBScriptDesc.scripts[1]`, `LBTextureDesc.textures[1]`, `LBTexture.data[1]`
+
+`_Static_assert` size checks: `sizeof(LBScriptDesc) == 8`, `sizeof(LBTextureDesc) == 8`,
+`sizeof(LBTexture) == 28`.
+
+Changed 2 static variable types in `src/lb/lbparticle.c` under `#ifdef PORT`:
+- `sLBParticleScriptBanks` → `u32 *[]` (was `LBScript **[]`)
+- `sLBParticleTextureBanks` → `u32 *[]` (was `LBTexture **[]`)
+
+Wrapped access sites in `src/lb/lbparticle.c`:
+- `lbParticleSetupBankID` (3 loops): `PORT_REGISTER` for offset→token conversion,
+  `PORT_RESOLVE` + local `LBTexture *tex` for inner data resolution loops
+- `lbParticleMakeChildScriptID`: `PORT_RESOLVE` for script bank lookup + texture flags
+- `lbParticleMakePosVel`: same pattern as above
+- `lbParticleCreateGenerator` (~25 lines): `#ifdef PORT` block with local `LBScript*`
+  resolved once, texture bank flags resolved via `PORT_RESOLVE`
+- Render function (~line 1857): `#ifdef PORT` block with local `LBTexture *tex`,
+  double-resolve for `image`/`palette` from `data[]` tokens
+- `p_palette` type changed to `u32*` under PORT (was `void**`)
+
+Build passes clean on MSVC.
 
 ## Build Strategy for the Bridge
 

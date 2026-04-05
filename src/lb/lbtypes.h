@@ -69,8 +69,14 @@ struct LBInternBuffer
 struct LBScriptDesc
 {
     s32 scripts_num;        // Number of scripts in array?
+#ifdef PORT
+    u32 scripts[1];         // Token array — use PORT_RESOLVE(scripts[i])
+#else
     LBScript *scripts[1];   // Dynamic array
+#endif
 };
+
+_Static_assert(sizeof(LBScriptDesc) == 8, "LBScriptDesc size mismatch");
 
 struct LBScript
 {
@@ -92,8 +98,14 @@ struct LBScript
 struct LBTextureDesc
 {
     s32 textures_num;
+#ifdef PORT
+    u32 textures[1];        // Token array — use PORT_RESOLVE(textures[i])
+#else
     LBTexture *textures[1];
+#endif
 };
+
+_Static_assert(sizeof(LBTextureDesc) == 8, "LBTextureDesc size mismatch");
 
 struct LBTexture
 {
@@ -101,8 +113,14 @@ struct LBTexture
     s32 fmt, siz;
     s32 width, height;
     u32 flags;              // Palette flags; if (this value & 1), there is only one palette; otherwise each image has its own palette
+#ifdef PORT
+    u32 data[1];            // Token array — use PORT_RESOLVE(data[i])
+#else
     void *data[1];          // Offsets to image, then palette data
+#endif
 };
+
+_Static_assert(sizeof(LBTexture) == 28, "LBTexture size mismatch");
 
 struct LBGenerator
 {
