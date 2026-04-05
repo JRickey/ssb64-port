@@ -196,6 +196,7 @@ ExternalProject_Add(TorchExternal
     CMAKE_ARGS
         -DCMAKE_BUILD_TYPE=Release
         -DUSE_STANDALONE=ON
+        -DBUILD_SSB64=ON
         -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/torch-install
 )
 
