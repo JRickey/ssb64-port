@@ -16,6 +16,7 @@
 
 #include <cstring>
 #include <memory>
+#include <vector>
 
 #include "resource/RelocFile.h"
 #include "resource/RelocFileTable.h"
@@ -104,6 +105,45 @@ static u32 *sLBRelocExternFileIDs;
 static s32 sLBRelocExternFileIDsNum;
 static s32 sLBRelocExternFileIDsMax;
 static void *sLBRelocExternFileHeap;
+
+static bool portRelocIsFighterFigatreeFile(u32 file_id)
+{
+	static const char sFighterAnimPrefix[] = "reloc_animations/FT";
+	static const char sFighterSubmotionPrefix[] = "reloc_submotions/FT";
+
+	return (file_id < RELOC_FILE_COUNT) &&
+	       (gRelocFileTable[file_id] != NULL) &&
+	       (
+	           (std::strncmp(gRelocFileTable[file_id], sFighterAnimPrefix, sizeof(sFighterAnimPrefix) - 1) == 0) ||
+	           (std::strncmp(gRelocFileTable[file_id], sFighterSubmotionPrefix, sizeof(sFighterSubmotionPrefix) - 1) == 0)
+	       );
+}
+
+static void portRelocFixupFighterFigatree(void *ram_dst, size_t copy_size, const std::vector<uint8_t> &reloc_words)
+{
+	u32 *words;
+	size_t word_count;
+	size_t i;
+
+	if ((ram_dst == NULL) || (copy_size < sizeof(u32)))
+	{
+		return;
+	}
+	words = (u32*)ram_dst;
+	word_count = copy_size / sizeof(u32);
+
+	if (reloc_words.size() < word_count)
+	{
+		word_count = reloc_words.size();
+	}
+	for (i = 0; i < word_count; i++)
+	{
+		if (reloc_words[i] == 0)
+		{
+			words[i] = (words[i] << 16) | (words[i] >> 16);
+		}
+	}
+}
 
 // // // // // // // // // // // //
 //                               //
@@ -250,6 +290,8 @@ void lbRelocAddForceStatusBufferFile(u32 id, void *addr)
 void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 {
 	auto relocFile = portLoadRelocResource(file_id);
+	bool is_fighter_figatree = portRelocIsFighterFigatreeFile(file_id);
+	std::vector<uint8_t> figatree_reloc_words;
 
 	if (!relocFile)
 	{
@@ -264,6 +306,10 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 		spdlog::warn("lbReloc bridge: file_id {} data ({} bytes) exceeds "
 		             "buffer ({} bytes), truncating", file_id, copySize, bytes_num);
 		copySize = bytes_num;
+	}
+	if (is_fighter_figatree)
+	{
+		figatree_reloc_words.resize(copySize / sizeof(u32), 0);
 	}
 	memcpy(ram_dst, relocFile->Data.data(), copySize);
 
@@ -307,6 +353,11 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 
 		// Register in the token table and write the 32-bit token
 		u32 token = portRelocRegisterPointer(target);
+
+		if (is_fighter_figatree && (reloc_intern < figatree_reloc_words.size()))
+		{
+			figatree_reloc_words[reloc_intern] = 1;
+		}
 		*slot = token;
 
 		reloc_intern = next_reloc;
@@ -370,10 +421,20 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 		void *target = (void *)((uintptr_t)vaddr_extern + (words_num * sizeof(u32)));
 
 		u32 token = portRelocRegisterPointer(target);
+
+		if (is_fighter_figatree && (reloc_extern < figatree_reloc_words.size()))
+		{
+			figatree_reloc_words[reloc_extern] = 1;
+		}
 		*slot = token;
 
 		extern_idx++;
 		reloc_extern = next_reloc;
+	}
+
+	if (is_fighter_figatree)
+	{
+		portRelocFixupFighterFigatree(ram_dst, copySize, figatree_reloc_words);
 	}
 }
 

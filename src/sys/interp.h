@@ -10,12 +10,25 @@ typedef struct SYInterpDesc
     u8 kind;
     s16 points_num;
     f32 unk04;          // CR scale? count?
+#ifdef PORT
+    u32 points;         // Relocation token — use PORT_RESOLVE()
+#else
     Vec3f *points;
+#endif
     f32 length;
+#ifdef PORT
+    u32 keyframes;      // Relocation token — use PORT_RESOLVE()
+    u32 quartics;       // Relocation token — use PORT_RESOLVE()
+#else
     f32 *keyframes;     // maybe keyframes as fraction t?
     f32 *quartics;      // quartic coef
+#endif
 
 } SYInterpDesc;
+
+#ifdef PORT
+_Static_assert(sizeof(SYInterpDesc) == 24, "SYInterpDesc must be 24 bytes to match file data layout");
+#endif
 
 typedef enum SYInterpKind
 {

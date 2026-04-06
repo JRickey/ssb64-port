@@ -1314,9 +1314,32 @@ void syAudioStopBGMAll(void)
     }
 }
 
+#ifdef PORT
+static sb32 syAudioHasBGMData(void)
+{
+    return (sSYAudioSeqFile != NULL);
+}
+
+static sb32 syAudioHasBGMPlayer(s32 sngplayer)
+{
+    return (sngplayer >= 0) && (sngplayer < SYAUDIO_BGMPLAYERS_NUM) && (gSYAudioCSPlayers[sngplayer] != NULL);
+}
+
+static sb32 syAudioHasSoundPlayers(void)
+{
+    return (sSYAudioSoundPlayers != NULL);
+}
+#endif
+
 // 0x80020AB4
 s32 syAudioPlayBGM(s32 sngplayer, u32 bgm)
 {
+#ifdef PORT
+    if (syAudioHasBGMData() == FALSE)
+    {
+        return -1;
+    }
+#endif
     if (bgm < sSYAudioSeqFile->seqCount)
     {
         sSYAudioCSPlayerStatuses[sngplayer] = AL_PLAYING;
@@ -1396,6 +1419,12 @@ void syAudioSetBGMPriority(s32 sngplayer, u8 priority)
 // 0x80020D58
 s32 syAudioCheckBGMPlaying(s32 sngplayer)
 {
+#ifdef PORT
+    if (syAudioHasBGMPlayer(sngplayer) == FALSE)
+    {
+        return FALSE;
+    }
+#endif
     if (gSYAudioCSPlayers[sngplayer]->state == AL_STOPPED)
     {
         return FALSE;
@@ -1406,6 +1435,13 @@ s32 syAudioCheckBGMPlaying(s32 sngplayer)
 s32 syAudioPlayFGM(u32 fgm)
 {
     s32 i;
+
+#ifdef PORT
+    if (syAudioHasSoundPlayers() == FALSE)
+    {
+        return -1;
+    }
+#endif
     
     for (i = 0; i < sSYAudioCurrentSettings.sndplayers_num; i++)
     {
@@ -1445,6 +1481,12 @@ void func_80020E64(u32 volume)
 
 void func_80020EA0(s32 sndplayer, u32 arg1)
 {
+#ifdef PORT
+    if (syAudioHasSoundPlayers() == FALSE)
+    {
+        return;
+    }
+#endif
     if (arg1 > 32767)
     {
         arg1 = 32767;
@@ -1459,6 +1501,12 @@ void func_80020EF8(s32 sndplayer, s32 arg1)
 {
     u8 var = arg1;
 
+#ifdef PORT
+    if (syAudioHasSoundPlayers() == FALSE)
+    {
+        return;
+    }
+#endif
     if (var > 127)
     {
         var = 127;
@@ -1473,6 +1521,12 @@ void func_80020F4C(s32 sndplayer, s32 arg1)
 {
     u8 var = arg1;
 
+#ifdef PORT
+    if (syAudioHasSoundPlayers() == FALSE)
+    {
+        return;
+    }
+#endif
     if (var > 127)
     {
         var = 127;
@@ -1492,6 +1546,12 @@ void func_80020FA0_21BA0(s32 sndplayer, s32 arg1)
 // 0x80020FAC
 void syAudioStopFGM(s32 sndplayer)
 {
+#ifdef PORT
+    if (syAudioHasSoundPlayers() == FALSE)
+    {
+        return;
+    }
+#endif
     if (sSYAudioSoundPlayers[sndplayer] != NULL)
     {
         func_80026738_27338(sSYAudioSoundPlayers[sndplayer]);
@@ -1502,6 +1562,12 @@ void syAudioStopFGM(s32 sndplayer)
 // 0x80020FFC
 void func_80020FFC(s32 sndplayer, u8 arg1)
 {
+#ifdef PORT
+    if (syAudioHasSoundPlayers() == FALSE)
+    {
+        return;
+    }
+#endif
     if (sSYAudioSoundPlayers[sndplayer] != NULL)
     {
         sSYAudioSoundPlayers[sndplayer]->unk_0x1F = arg1;

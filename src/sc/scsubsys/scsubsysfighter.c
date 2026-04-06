@@ -73,7 +73,13 @@ void scSubsysFighterProcUpdate(GObj *fighter_gobj)
 // 0x803905CC
 void scSubsysFighterSetStatus(GObj *fighter_gobj, s32 status_id)
 {
+#ifdef PORT
+    port_log("SSB64: scSubsysFighterSetStatus - begin status=0x%x gobj=%p\n", status_id, fighter_gobj);
+#endif
     ftMainSetStatus(fighter_gobj, status_id, FTSTATUS_PRESERVE_NONE, 1.0F, 0.0F);
+#ifdef PORT
+    port_log("SSB64: scSubsysFighterSetStatus - end status=0x%x gobj=%p\n", status_id, fighter_gobj);
+#endif
 }
 
 // 0x803905F4 - Is this to attach models to Master Hand in the opening movie?

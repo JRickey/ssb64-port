@@ -736,6 +736,9 @@ void ftMainUpdateMotionEventsAll(GObj *fighter_gobj)
     {
         FTMotionScript *ms = &fp->motion_scripts[0][i];
         u32 ev_kind;
+#ifdef PORT
+        s32 watchdog = 0;
+#endif
 
         if (ms->p_script != NULL)
         {
@@ -764,6 +767,15 @@ void ftMainUpdateMotionEventsAll(GObj *fighter_gobj)
                         break;
                     }
                     ev_kind = ftMotionEventCast(ms, FTMotionEventMakeEffect1)->opcode;
+#ifdef PORT
+                    if (++watchdog >= 256)
+                    {
+                        port_log("SSB64: ftMainUpdateMotionEventsAll - watchdog script=%d opcode=%u wait=%f ptr=%p frame=%f speed=%f\n",
+                            i, ev_kind, ms->script_wait, ms->p_script, fighter_gobj->anim_frame, DObjGetStruct(fighter_gobj)->anim_speed);
+                        ms->p_script = NULL;
+                        break;
+                    }
+#endif
     
                     if ((ev_kind == nFTMotionEventEffect || ev_kind == nFTMotionEventEffectItemHold) && (fp->is_events_forward))
                     {
@@ -971,8 +983,18 @@ void ftMainPlayAnim(GObj *fighter_gobj)
     {
         fp->anim_vel = fp->joints[nFTPartsJointTransN]->translate.vec.f;
     }
+#ifdef PORT
+    port_log("SSB64: ftMainPlayAnim - before anim keys gobj=%p\n", fighter_gobj);
+#endif
     ftParamUpdateAnimKeys(fighter_gobj);
+#ifdef PORT
+    port_log("SSB64: ftMainPlayAnim - after anim keys gobj=%p\n", fighter_gobj);
+    port_log("SSB64: ftMainPlayAnim - before parts transform joint=%p\n", fp->joints[nFTPartsJointTopN]);
+#endif
     ftParamsUpdateFighterPartsTransform(fp->joints[nFTPartsJointTopN]);
+#ifdef PORT
+    port_log("SSB64: ftMainPlayAnim - after parts transform gobj=%p\n", fighter_gobj);
+#endif
 }
 
 // 0x800E0830 - Play fighter animation and run motion scripts normally
@@ -4644,7 +4666,7 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
         status_struct = dFTCommonNullStatusDescs;
         status_struct_id = status_id;
     }
-    status_desc = &status_struct[status_struct_id];
+    status_desc = (status_struct != NULL) ? &status_struct[status_struct_id] : NULL;
 
     if (fp->pkind != nFTPlayerKindDemo)
     {
@@ -4692,6 +4714,10 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
             fp->figatree = fp->figatree_heap;
         }
         else fp->figatree = NULL;
+#ifdef PORT
+        port_log("SSB64: ftMainSetStatus - status=0x%x motion=%d figatree=%p anim_flags=0x%08x\n",
+            status_id, motion_id, fp->figatree, motion_desc->anim_desc.word);
+#endif
         
         if (fp->figatree != NULL)
         {
@@ -4769,7 +4795,13 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
 
                 joint->flags = DOBJ_FLAG_NONE;
             }
+#ifdef PORT
+            port_log("SSB64: ftMainSetStatus - before figatree attach status=0x%x motion=%d\n", status_id, motion_id);
+#endif
             lbCommonAddFighterPartsFigatree(fp->joints[nFTPartsJointTopN]->child, fp->figatree, frame_begin);
+#ifdef PORT
+            port_log("SSB64: ftMainSetStatus - after figatree attach status=0x%x motion=%d\n", status_id, motion_id);
+#endif
 
             if (anim_speed != DObjGetStruct(fighter_gobj)->anim_speed)
             {
@@ -4837,7 +4869,9 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
         {
             if (motion_desc->offset != 0x80000000)
             {
-                event_script_ptr = (void*) motion_desc->offset;
+                event_file_head = *fp->data->p_file_submotion;
+
+                event_script_ptr = (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head);
             }
             else event_script_ptr = NULL;
 
@@ -4854,11 +4888,21 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
         }
         if (frame_begin != 0.0F)
         {
+#ifdef PORT
+            port_log("SSB64: ftMainSetStatus - before play forward events status=0x%x motion=%d frame_begin=%f\n",
+                status_id, motion_id, frame_begin);
+#endif
             ftMainPlayAnimEventsForward(fighter_gobj);
         }
         else
         {
+#ifdef PORT
+            port_log("SSB64: ftMainSetStatus - before play all events status=0x%x motion=%d\n", status_id, motion_id);
+#endif
             ftMainPlayAnimEventsAll(fighter_gobj);
+#ifdef PORT
+            port_log("SSB64: ftMainSetStatus - after play all events status=0x%x motion=%d\n", status_id, motion_id);
+#endif
             ftMainRunUpdateColAnim(fighter_gobj);
         }
     }

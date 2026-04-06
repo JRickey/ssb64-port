@@ -70,6 +70,11 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
     s32 i;
     u16 command_kind;
     u16 flags;
+#ifdef PORT
+    s32 watchdog = 0;
+    static s32 sFTAnimTranslateInterpLogCount = 0;
+    static s32 sFTAnimTraICommandLogCount = 0;
+#endif
 
     if (root_dobj->anim_wait != AOBJ_ANIM_NULL)
     {
@@ -123,12 +128,35 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
                 return;
             }
             command_kind = root_dobj->anim_joint.event16->command.opcode;
+#ifdef PORT
+            if (++watchdog >= 256)
+            {
+                u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+                u32 raw32 = *(u32*)root_dobj->anim_joint.event16;
+
+                port_log("SSB64: ftAnimParseDObjFigatree - watchdog dobj=%p event16=%p opcode=%u wait=%f frame=%f speed=%f flags=0x%x raw16=[0x%04x 0x%04x] raw32=0x%08x\n",
+                    root_dobj, root_dobj->anim_joint.event16, command_kind, root_dobj->anim_wait, root_dobj->anim_frame, root_dobj->anim_speed, root_dobj->flags,
+                    raw16[0], raw16[1], raw32);
+                root_dobj->anim_wait = AOBJ_ANIM_END;
+                return;
+            }
+#endif
 
             switch (command_kind)
             {
             case nGCAnimEvent16SetVal0RateBlock:
             case nGCAnimEvent16SetVal0Rate:
                 flags = root_dobj->anim_joint.event16->command.flags;
+#ifdef PORT
+                if ((flags & (1 << (nGCAnimTrackTraI - nGCAnimTrackJointStart))) && (sFTAnimTraICommandLogCount < 32))
+                {
+                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+
+                    sFTAnimTraICommandLogCount++;
+                    port_log("SSB64: ftAnim TraI command - dobj=%p cmd=%u flags=0x%x event16=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x]\n",
+                        root_dobj, command_kind, flags, root_dobj->anim_joint.event16, raw16[0], raw16[1], raw16[2], raw16[3], raw16[4], raw16[5], raw16[6], raw16[7]);
+                }
+#endif
                 payload = (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle) ? AObjAnimAdvance(root_dobj->anim_joint.event16)->u : 0.0F;
 
                 for (i = 0; i < ARRAY_COUNT(track_aobjs); i++, flags = flags >> 1)
@@ -167,6 +195,16 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
             case nGCAnimEvent16SetValBlock:
             case nGCAnimEvent16SetVal:
                 flags = root_dobj->anim_joint.event16->command.flags;
+#ifdef PORT
+                if ((flags & (1 << (nGCAnimTrackTraI - nGCAnimTrackJointStart))) && (sFTAnimTraICommandLogCount < 32))
+                {
+                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+
+                    sFTAnimTraICommandLogCount++;
+                    port_log("SSB64: ftAnim TraI command - dobj=%p cmd=%u flags=0x%x event16=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x]\n",
+                        root_dobj, command_kind, flags, root_dobj->anim_joint.event16, raw16[0], raw16[1], raw16[2], raw16[3], raw16[4], raw16[5], raw16[6], raw16[7]);
+                }
+#endif
                 payload = (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle) ? AObjAnimAdvance(root_dobj->anim_joint.event16)->u : 0.0F;
 
                 for (i = 0; i < ARRAY_COUNT(track_aobjs); i++, flags = flags >> 1)
@@ -203,6 +241,16 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
             case nGCAnimEvent16SetValRateBlock:
             case nGCAnimEvent16SetValRate:
                 flags = root_dobj->anim_joint.event16->command.flags;
+#ifdef PORT
+                if ((flags & (1 << (nGCAnimTrackTraI - nGCAnimTrackJointStart))) && (sFTAnimTraICommandLogCount < 32))
+                {
+                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+
+                    sFTAnimTraICommandLogCount++;
+                    port_log("SSB64: ftAnim TraI command - dobj=%p cmd=%u flags=0x%x event16=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x]\n",
+                        root_dobj, command_kind, flags, root_dobj->anim_joint.event16, raw16[0], raw16[1], raw16[2], raw16[3], raw16[4], raw16[5], raw16[6], raw16[7]);
+                }
+#endif
                 payload = (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle) ? AObjAnimAdvance(root_dobj->anim_joint.event16)->u : 0.0F;
 
                 for (i = 0; i < ARRAY_COUNT(track_aobjs); i++, flags = flags >> 1)
@@ -240,6 +288,16 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
 
             case nGCAnimEvent16SetTargetRate:
                 flags = root_dobj->anim_joint.event16->command.flags;
+#ifdef PORT
+                if ((flags & (1 << (nGCAnimTrackTraI - nGCAnimTrackJointStart))) && (sFTAnimTraICommandLogCount < 32))
+                {
+                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+
+                    sFTAnimTraICommandLogCount++;
+                    port_log("SSB64: ftAnim TraI command - dobj=%p cmd=%u flags=0x%x event16=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x]\n",
+                        root_dobj, command_kind, flags, root_dobj->anim_joint.event16, raw16[0], raw16[1], raw16[2], raw16[3], raw16[4], raw16[5], raw16[6], raw16[7]);
+                }
+#endif
 
                 payload = (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle) ? AObjAnimAdvance(root_dobj->anim_joint.event16)->u : 0.0F;
 
@@ -270,6 +328,16 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
             case nGCAnimEvent16SetValAfterBlock:
             case nGCAnimEvent16SetValAfter:
                 flags = root_dobj->anim_joint.event16->command.flags;
+#ifdef PORT
+                if ((flags & (1 << (nGCAnimTrackTraI - nGCAnimTrackJointStart))) && (sFTAnimTraICommandLogCount < 32))
+                {
+                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+
+                    sFTAnimTraICommandLogCount++;
+                    port_log("SSB64: ftAnim TraI command - dobj=%p cmd=%u flags=0x%x event16=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x]\n",
+                        root_dobj, command_kind, flags, root_dobj->anim_joint.event16, raw16[0], raw16[1], raw16[2], raw16[3], raw16[4], raw16[5], raw16[6], raw16[7]);
+                }
+#endif
                 payload = (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle) ? AObjAnimAdvance(root_dobj->anim_joint.event16)->u : 0.0F;
 
                 for (i = 0; i < ARRAY_COUNT(track_aobjs); i++, flags = flags >> 1)
@@ -320,6 +388,16 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
 
             case nGCAnimEvent1611:
                 flags = root_dobj->anim_joint.event16->command.flags;
+#ifdef PORT
+                if ((flags & (1 << (nGCAnimTrackTraI - nGCAnimTrackJointStart))) && (sFTAnimTraICommandLogCount < 32))
+                {
+                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
+
+                    sFTAnimTraICommandLogCount++;
+                    port_log("SSB64: ftAnim TraI command - dobj=%p cmd=%u flags=0x%x event16=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x 0x%04x]\n",
+                        root_dobj, command_kind, flags, root_dobj->anim_joint.event16, raw16[0], raw16[1], raw16[2], raw16[3], raw16[4], raw16[5], raw16[6], raw16[7]);
+                }
+#endif
 
                 payload = (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle) ? AObjAnimAdvance(root_dobj->anim_joint.event16)->u : 0.0F;
 
@@ -347,9 +425,36 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
                 {
                     track_aobjs[nGCAnimTrackTraI - nGCAnimTrackJointStart] = gcAddAObjForDObj(root_dobj, nGCAnimTrackTraI);
                 }
+#ifdef PORT
+                {
+                    u32 interp_token = *(u32*)root_dobj->anim_joint.event16;
+                    void *interp = PORT_RESOLVE(interp_token);
+
+                    track_aobjs[nGCAnimTrackTraI - nGCAnimTrackJointStart]->interpolate = interp;
+
+                    if (sFTAnimTranslateInterpLogCount < 16)
+                    {
+                        sFTAnimTranslateInterpLogCount++;
+
+                        if (interp != NULL)
+                        {
+                            u32 *interp_words = (u32*)interp;
+
+                            port_log("SSB64: ftAnim SetTranslateInterp - dobj=%p token=0x%08x interp=%p words=[0x%08x 0x%08x 0x%08x 0x%08x 0x%08x 0x%08x]\n",
+                                root_dobj, interp_token, interp,
+                                interp_words[0], interp_words[1], interp_words[2], interp_words[3], interp_words[4], interp_words[5]);
+                        }
+                        else port_log("SSB64: ftAnim SetTranslateInterp - dobj=%p token=0x%08x interp=NULL\n",
+                            root_dobj, interp_token);
+                    }
+                }
+
+                root_dobj->anim_joint.event16 = (AObjEvent16*)(((u32*)root_dobj->anim_joint.event16) + 1);
+#else
                 track_aobjs[nGCAnimTrackTraI - nGCAnimTrackJointStart]->interpolate = root_dobj->anim_joint.event16 + (root_dobj->anim_joint.event16->s / 2);
 
                 AObjAnimAdvance(root_dobj->anim_joint.event16);
+#endif
                 break;
 
             case nGCAnimEvent32End:

@@ -69,7 +69,7 @@ GObj *sMVOpeningRoomBossGObj;
 s32 sMVOpeningRoomPulledFighterKind;
 
 // 0x80134CFC
-GObj *sMVOpeningRoomDroppedFighterKind;
+s32 sMVOpeningRoomDroppedFighterKind;
 
 // 0x80134D00
 GObj *sMVOpeningRoomLogoGObj;
@@ -1320,42 +1320,88 @@ void mvOpeningRoomFuncStart(void)
 	rl_setup.force_status_buffer = sMVOpeningRoomForceStatusBuffer;
 	rl_setup.force_status_buffer_size = ARRAY_COUNT(sMVOpeningRoomForceStatusBuffer);
 
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - init reloc setup\n");
+#endif
 	lbRelocInitSetup(&rl_setup);
 	lbRelocLoadFilesListed(dMVOpeningRoomFileIDs, sMVOpeningRoomFiles);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - reloc files loaded\n");
+#endif
 	gcMakeGObjSPAfter(0, mvOpeningRoomFuncRun, 0, GOBJ_PRIORITY_DEFAULT);
 	sMVOpeningRoomCameraGObj = gcMakeDefaultCameraGObj(0, GOBJ_PRIORITY_DEFAULT, 100, COBJ_FLAG_FILLCOLOR | COBJ_FLAG_ZBUFFER, GPACK_RGBA8888(0x00, 0x00, 0x00, 0xFF));
 	efParticleInitAll();
 	mvOpeningRoomInitVars();
 	efManagerInitEffects();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - scene managers initialized\n");
+#endif
 	ftManagerAllocFighter(FTDATA_FLAG_SUBMOTION, 3);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - fighter alloc done pulled=%d dropped=%d boss=%d\n",
+		sMVOpeningRoomPulledFighterKind, sMVOpeningRoomDroppedFighterKind, nFTKindBoss);
+#endif
 	ftManagerSetupFilesAllKind(sMVOpeningRoomPulledFighterKind);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - pulled fighter files ready\n");
+#endif
 	ftManagerSetupFilesAllKind(sMVOpeningRoomDroppedFighterKind);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - dropped fighter files ready\n");
+#endif
 	ftManagerSetupFilesAllKind(nFTKindBoss);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - boss fighter files ready\n");
+#endif
 	
 	sMVOpeningRoomBossFigatreeHeap = syTaskmanMalloc(gFTManagerFigatreeHeapSize, 0x10);
 	sMVOpeningRoomPluckedFigatreeHeap = syTaskmanMalloc(gFTManagerFigatreeHeapSize, 0x10);
 	sMVOpeningRoomDroppedFigatreeHeap = syTaskmanMalloc(gFTManagerFigatreeHeapSize, 0x10);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - figatree heaps allocated size=0x%x\n", (unsigned)gFTManagerFigatreeHeapSize);
+#endif
 
 	mvOpeningRoomMakeScene1Cameras();
 	mvOpeningRoomMakeCloseUpOverlayCamera();
 	mvOpeningRoomMakeWallpaperCamera();
 	mvOpeningRoomMakeLogoCamera();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - cameras created\n");
+#endif
 	mvOpeningRoomMakeOutside();
 	mvOpeningRoomMakeHaze();
 	mvOpeningRoomMakeBackground();
 	mvOpeningRoomMakeSunlight();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - early room objects created\n");
+#endif
 	mvOpeningRoomMakeDesk();
 	mvOpeningRoomMakeLogoWallpaper();
 	mvOpeningRoomMakeLogo();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - desk/logo objects created\n");
+#endif
 	mvOpeningRoomMakeBooks();
 	mvOpeningRoomMakeLamp();
 	mvOpeningRoomMakeTissues();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - animated prop objects created\n");
+#endif
 	mvOpeningRoomMakeBoss();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - boss created\n");
+#endif
 	mvOpeningRoomMakeBossShadow();
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - boss shadow created\n");
+#endif
 	scSubsysFighterSetLightParams(45.0F, 45.0F, 0xFF, 0xFF, 0xFF, 0xFF);
 	func_800266A0_272A0();
 	syAudioPlayBGM(0, nSYAudioBGMOpening);
 	sySchedulerSetTicCount(0);
+#ifdef PORT
+	port_log("SSB64: mvOpeningRoomFuncStart - final scene init complete\n");
+#endif
 
 	gSCManagerUnkown0x800A50F0 = 0;
 }

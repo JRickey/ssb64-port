@@ -692,6 +692,10 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
     fp->fkind = desc->fkind;
     fp->data = dFTManagerDataFiles[fp->fkind];
     attr = fp->attr = lbRelocGetFileData(FTAttributes*, *fp->data->p_file_main, fp->data->o_attributes);
+#ifdef PORT
+    port_log("SSB64: ftManagerMakeFighter - begin fkind=%d costume=%d shade=%d detail=%d attr=%p\n",
+        desc->fkind, desc->costume, desc->shade, desc->detail, attr);
+#endif
     fp->figatree_heap = desc->figatree_heap;
     fp->team = desc->team;
     fp->player = desc->player;
@@ -763,6 +767,10 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
 
     fp->joints[nFTPartsJointTopN]->xobjs[0]->unk05 = desc->unk_rebirth_0x1D;
 
+#ifdef PORT
+    port_log("SSB64: ftManagerMakeFighter - before parts setup fkind=%d commonparts=%p setup_parts=%p\n",
+        fp->fkind, PORT_RESOLVE(attr->commonparts_container), PORT_RESOLVE(attr->setup_parts));
+#endif
     lbCommonSetupFighterPartsDObjs
     (
         DObjGetStruct(fighter_gobj),
@@ -776,6 +784,9 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
         fp->costume,
         fp->unk_ft_0x149
     );
+#ifdef PORT
+    port_log("SSB64: ftManagerMakeFighter - after parts setup fkind=%d\n", fp->fkind);
+#endif
     for (i = 0; i < ARRAY_COUNT(fp->joints); i++)
     {
         if (fp->joints[i] != NULL)
@@ -800,6 +811,9 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
             }
         }
     }
+#ifdef PORT
+    port_log("SSB64: ftManagerMakeFighter - parts metadata initialized fkind=%d\n", fp->fkind);
+#endif
     for (i = nFTPartsJointCommonStart; i < ARRAY_COUNT(fp->joints); i++)
     {
         if (fp->joints[i] != NULL)
@@ -865,6 +879,9 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
     else gcAddGObjProcess(fighter_gobj, scSubsysFighterProcUpdate, nGCProcessKindFunc, 5);
 
     ftManagerInitFighter(fighter_gobj, desc);
+#ifdef PORT
+    port_log("SSB64: ftManagerMakeFighter - fighter init complete fkind=%d pkind=%d\n", fp->fkind, fp->pkind);
+#endif
 
     if (fp->pkind == nFTPlayerKindCom)
     {
@@ -906,5 +923,8 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
     {
         ftShadowMakeShadow(fighter_gobj);
     }
+#ifdef PORT
+    port_log("SSB64: ftManagerMakeFighter - return fkind=%d\n", fp->fkind);
+#endif
     return fighter_gobj;
 }

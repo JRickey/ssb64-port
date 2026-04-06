@@ -1,4 +1,7 @@
 #include <sys/obj.h>
+#ifdef PORT
+#include <port_log.h>
+#endif
 
 extern void syInterpCubic(Vec3f*, void*, f32);
 
@@ -845,6 +848,9 @@ void gcPlayDObjAnimJoint(DObj *dobj)
     f32 temp_f20;
     f32 temp_f22;
     f32 temp_f24;
+#ifdef PORT
+    static s32 sGCPlayDObjTraILogCount = 0;
+#endif
 
     if (dobj->anim_wait != AOBJ_ANIM_NULL) 
     {
@@ -912,6 +918,14 @@ void gcPlayDObjAnimJoint(DObj *dobj)
                         {
                             value = 1.0F;
                         }
+#ifdef PORT
+                        if (sGCPlayDObjTraILogCount < 16)
+                        {
+                            sGCPlayDObjTraILogCount++;
+                            port_log("SSB64: gcPlayDObjAnimJoint - TraI dobj=%p aobj=%p interp=%p value=%f kind=%u len=%f wait=%f speed=%f\n",
+                                dobj, aobj, aobj->interpolate, value, aobj->kind, aobj->length, dobj->anim_wait, dobj->anim_speed);
+                        }
+#endif
                         syInterpCubic(&dobj->translate.vec.f, aobj->interpolate, value);
                         break;
 
