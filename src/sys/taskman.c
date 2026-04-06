@@ -110,7 +110,11 @@ OSMesgQueue D_800454C8;
 SYClient sSYTaskmanClient;
 
 // 0x800454E8
+#ifdef PORT
+uintptr_t *sSYTaskmanSegmentFBase; // pointer to Gfx.w1 (segment base addr?)
+#else
 unsigned int *sSYTaskmanSegmentFBase; // pointer to Gfx.w1 (segment base addr?)
+#endif
 
 // 0x800454F0
 OSMesg sSYTaskmanContextMesgs[3];
