@@ -6,6 +6,12 @@
 
 #include <config.h>
 #include "libc/math.h"
+#ifdef PORT
+#include "port_log.h"
+#ifdef _MSC_VER
+#include <excpt.h>
+#endif
+#endif
 
 /* These should no longer be required as they're included in obj.h
 #include <macros.h>
@@ -63,6 +69,115 @@ Gfx *sGCBufferDLs[4];
 
 // 0x800472C0
 Gfx *sGCCameraDL;
+
+#ifdef PORT
+static s32 sGCMObjResolveWarningCount;
+static s32 sGCDLPointerWarningCount;
+
+static void gcLogMObjResolveWarning(const char *issue, DObj *dobj, MObj *mobj, u32 array_token, void *array_ptr, s32 index, u32 value_token)
+{
+    if (sGCMObjResolveWarningCount < 64)
+    {
+        port_log
+        (
+            "SSB64: gcDrawMObjForDObj - %s dobj=%p dl=%p mobj=%p flags=0x%04x array_token=0x%08x array=%p index=%d value_token=0x%08x curr=%u next=%u lfrac=%f palette=%f fmt=%u siz=%u block_fmt=%u block_siz=%u unk10=%d\n",
+            issue,
+            dobj,
+            dobj->dl,
+            mobj,
+            mobj->sub.flags,
+            array_token,
+            array_ptr,
+            index,
+            value_token,
+            mobj->texture_id_curr,
+            mobj->texture_id_next,
+            mobj->lfrac,
+            mobj->palette_id,
+            mobj->sub.fmt,
+            mobj->sub.siz,
+            mobj->sub.block_fmt,
+            mobj->sub.block_siz,
+            mobj->sub.unk10
+        );
+    }
+    sGCMObjResolveWarningCount++;
+}
+
+static sb32 gcTryReadTokenSlot(u32 *tokens, s32 index, u32 *out_token)
+{
+#ifdef _MSC_VER
+    __try
+    {
+        *out_token = tokens[index];
+        return TRUE;
+    }
+    __except (EXCEPTION_EXECUTE_HANDLER)
+    {
+        *out_token = 0;
+        return FALSE;
+    }
+#else
+    *out_token = tokens[index];
+    return TRUE;
+#endif
+}
+
+static void* gcTryResolveTokenArrayEntry(const char *issue, DObj *dobj, MObj *mobj, u32 array_token, u32 *tokens, s32 index, u32 *out_token)
+{
+    void *resolved;
+
+    *out_token = 0;
+
+    if (tokens == NULL)
+    {
+        gcLogMObjResolveWarning(issue, dobj, mobj, array_token, NULL, index, 0);
+        return NULL;
+    }
+    if (gcTryReadTokenSlot(tokens, index, out_token) == FALSE)
+    {
+        gcLogMObjResolveWarning("token-read-av", dobj, mobj, array_token, tokens, index, 0);
+        return NULL;
+    }
+
+    resolved = PORT_RESOLVE(*out_token);
+
+    if (resolved == NULL)
+    {
+        gcLogMObjResolveWarning(issue, dobj, mobj, array_token, tokens, index, *out_token);
+    }
+    return resolved;
+}
+
+static void gcLogSuspiciousDLPointer(const char *issue, DObj *dobj, unsigned long long draw_dl_raw, s32 list_id, DObjDLLink *dl_link)
+{
+    void *draw_dl = (void*)draw_dl_raw;
+
+    if ((draw_dl == NULL) || (draw_dl_raw >= 0x10000ULL))
+    {
+        return;
+    }
+    if (sGCDLPointerWarningCount < 64)
+    {
+        port_log
+        (
+            "SSB64: gcDrawDObj - suspicious-dl issue=%s dobj=%p dobj_dl=%p draw_dl=%p draw_dl_raw=0x%llx dl_link=%p list_id=%d flags=0x%04x mobj=%p child=%p sib=%p\n",
+            issue,
+            dobj,
+            dobj->dl,
+            draw_dl,
+            draw_dl_raw,
+            dl_link,
+            list_id,
+            dobj->flags,
+            dobj->mobj,
+            dobj->child,
+            dobj->sib_next
+        );
+    }
+    sGCDLPointerWarningCount++;
+}
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -1217,6 +1332,16 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
     f32 scrollv;
     s32 uls, ult;
     s32 s, t;
+#ifdef PORT
+    u32 *sprite_tokens;
+    u32 *palette_tokens;
+    void *palette_data;
+    void *current_sprite;
+    void *next_sprite;
+    u32 palette_token;
+    u32 current_sprite_token;
+    u32 next_sprite_token;
+#endif
 
     if (dobj->mobj == NULL)
     {
@@ -1235,6 +1360,16 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
     for (i = 0; i < mobj_count; i++, mobj = mobj->next)
     {
         flags = mobj->sub.flags;
+#ifdef PORT
+        sprite_tokens = NULL;
+        palette_tokens = NULL;
+        palette_data = NULL;
+        current_sprite = NULL;
+        next_sprite = NULL;
+        palette_token = 0;
+        current_sprite_token = 0;
+        next_sprite_token = 0;
+#endif
 
         if (flags == MOBJ_FLAG_NONE)
         {
@@ -1261,12 +1396,23 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
         if (flags & MOBJ_FLAG_PALETTE)
         {
 #ifdef PORT
-            gDPSetTextureImage(branch_dl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.palettes))[(s32)mobj->palette_id]));
+            palette_tokens = (u32*)PORT_RESOLVE(mobj->sub.palettes);
+            palette_data = gcTryResolveTokenArrayEntry("palette-null", dobj, mobj, mobj->sub.palettes, palette_tokens, (s32)mobj->palette_id, &palette_token);
+
+            if (palette_data != NULL)
+            {
+                gDPSetTextureImage(branch_dl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, palette_data);
+            }
 #else
             gDPSetTextureImage(branch_dl++, G_IM_FMT_RGBA, G_IM_SIZ_16b, 1, mobj->sub.palettes[(s32)mobj->palette_id]);
 #endif
 
-            if (flags & (MOBJ_FLAG_SPLIT | MOBJ_FLAG_ALPHA))
+            if (
+#ifdef PORT
+                (palette_data != NULL) &&
+#endif
+                (flags & (MOBJ_FLAG_SPLIT | MOBJ_FLAG_ALPHA))
+            )
             {
                 gDPTileSync(branch_dl++);
                 gDPSetTile
@@ -1353,12 +1499,47 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
                 mobj->sub.blendcolor.s.a
             );
         }
+#ifdef PORT
+        if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_SPLIT | MOBJ_FLAG_ALPHA))
+        {
+            sprite_tokens = (u32*)PORT_RESOLVE(mobj->sub.sprites);
+
+            if (sprite_tokens == NULL)
+            {
+                gcLogMObjResolveWarning("sprite-array-null", dobj, mobj, mobj->sub.sprites, NULL, -1, 0);
+            }
+            else
+            {
+                if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_SPLIT))
+                {
+                    next_sprite = gcTryResolveTokenArrayEntry("next-sprite-null", dobj, mobj, mobj->sub.sprites, sprite_tokens, mobj->texture_id_next, &next_sprite_token);
+                }
+                if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA))
+                {
+                    current_sprite = gcTryResolveTokenArrayEntry("current-sprite-null", dobj, mobj, mobj->sub.sprites, sprite_tokens, mobj->texture_id_curr, &current_sprite_token);
+                }
+                if ((next_sprite == NULL) && (current_sprite != NULL) && (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_SPLIT)))
+                {
+                    gcLogMObjResolveWarning("next-sprite-fallback-current", dobj, mobj, mobj->sub.sprites, sprite_tokens, mobj->texture_id_next, next_sprite_token);
+                    next_sprite = current_sprite;
+                }
+                if ((current_sprite == NULL) && (next_sprite != NULL) && (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA)))
+                {
+                    gcLogMObjResolveWarning("current-sprite-fallback-next", dobj, mobj, mobj->sub.sprites, sprite_tokens, mobj->texture_id_curr, current_sprite_token);
+                    current_sprite = next_sprite;
+                }
+            }
+        }
+#endif
         if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_SPLIT))
         {
             s32 block_siz = (mobj->sub.block_siz == G_IM_SIZ_32b) ? G_IM_SIZ_32b : G_IM_SIZ_16b;
 
 #ifdef PORT
-            gDPSetTextureImage(branch_dl++, mobj->sub.block_fmt, block_siz, 1, PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.sprites))[mobj->texture_id_next]));
+            if (next_sprite != NULL)
+            {
+                gDPSetTextureImage(branch_dl++, mobj->sub.block_fmt, block_siz, 1, next_sprite);
+            }
 #else
             gDPSetTextureImage
             (
@@ -1369,7 +1550,12 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
                 mobj->sub.sprites[mobj->texture_id_next]
             );
 #endif
-            if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA))
+            if (
+#ifdef PORT
+                (next_sprite != NULL) &&
+#endif
+                (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA))
+            )
             {
                 gDPLoadSync(branch_dl++);
 
@@ -1429,7 +1615,10 @@ void gcDrawMObjForDObj(DObj *dobj, Gfx **dl_head)
         if (flags & (MOBJ_FLAG_FRAC | MOBJ_FLAG_ALPHA))
         {
 #ifdef PORT
-            gDPSetTextureImage(branch_dl++, mobj->sub.fmt, mobj->sub.siz, 1, PORT_RESOLVE(((u32*)PORT_RESOLVE(mobj->sub.sprites))[mobj->texture_id_curr]));
+            if (current_sprite != NULL)
+            {
+                gDPSetTextureImage(branch_dl++, mobj->sub.fmt, mobj->sub.siz, 1, current_sprite);
+            }
 #else
             gDPSetTextureImage
             (
@@ -1528,6 +1717,9 @@ void gcDrawDObjForGObj(GObj *gobj, Gfx **dl_head)
         {
             num = gcPrepDObjMatrix(dl_head, dobj);
             gcDrawMObjForDObj(dobj, dl_head);
+#ifdef PORT
+            gcLogSuspiciousDLPointer("dobj", dobj, (unsigned long long)dobj->dl, -1, NULL);
+#endif
             gSPDisplayList(dl_head[0]++, dobj->dl);
 
             if (num != 0)
@@ -1580,6 +1772,9 @@ void gcDrawDObjTree(DObj *this_dobj)
         if ((this_dobj->dv != NULL) && !(this_dobj->flags & DOBJ_FLAG_NOTEXTURE))
         {
             gcDrawMObjForDObj(this_dobj, gSYTaskmanDLHeads);
+#ifdef PORT
+            gcLogSuspiciousDLPointer("tree-dobj", this_dobj, (unsigned long long)this_dobj->dl, 0, NULL);
+#endif
             gSPDisplayList(gSYTaskmanDLHeads[0]++, this_dobj->dl);
         }
         if (this_dobj->child != NULL)
@@ -1637,7 +1832,10 @@ void gcDrawDObjDLLinks(DObj *dobj, DObjDLLink *dl_link)
             ptr = gSYTaskmanGraphicsHeap.ptr;
 
             gcDrawMObjForDObj(dobj, &gSYTaskmanDLHeads[dl_link->list_id]);
-            gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, dl_link->dl);
+#ifdef PORT
+            gcLogSuspiciousDLPointer("dl-link", dobj, (unsigned long long)dl_link->dl, dl_link->list_id, dl_link);
+#endif
+            gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, PORT_RESOLVE(dl_link->dl));
 
             if (num != 0)
             {
@@ -1663,7 +1861,10 @@ void gcDrawDObjDLLinks(DObj *dobj, DObjDLLink *dl_link)
                 {
                     gSPSegment(gSYTaskmanDLHeads[dl_link->list_id]++, 0xE, ptr);
                 }
-                gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, dl_link->dl);
+#ifdef PORT
+                gcLogSuspiciousDLPointer("dl-link-copy", dobj, (unsigned long long)dl_link->dl, dl_link->list_id, dl_link);
+#endif
+                gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, PORT_RESOLVE(dl_link->dl));
 
                 if (num != 0)
                 {
@@ -1745,7 +1946,7 @@ void gcDrawDObjTreeDLLinks(DObj *dobj)
                         else gSPSegment(gSYTaskmanDLHeads[dl_link->list_id]++, 0xE, ptr);
                     }
                 set_display_list:
-                    gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, dl_link->dl);
+                    gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, PORT_RESOLVE(dl_link->dl));
                 }
                 dl_link++;
             }
@@ -1974,7 +2175,7 @@ void unref_80014C38(GObj *gobj)
             { 
                 dist_dl_link++;
             }
-            gcDrawDObjDLLinks(dobj, dist_dl_link->dl_link);
+            gcDrawDObjDLLinks(dobj, PORT_RESOLVE(dist_dl_link->dl_link));
         }
     }
 }
@@ -2026,7 +2227,7 @@ void func_80014CD0(DObj *dobj)
                         else gSPSegment(gSYTaskmanDLHeads[dl_link->list_id]++, 0xE, ptr);
                     }
                 set_display_list:
-                    gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, dl_link->dl);
+                    gSPDisplayList(gSYTaskmanDLHeads[dl_link->list_id]++, PORT_RESOLVE(dl_link->dl));
                 }
                 dl_link++;
             }

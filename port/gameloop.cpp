@@ -94,10 +94,15 @@ static void game_coroutine_entry(void *arg)
  */
 static int sDLSubmitCount = 0;
 
+extern "C" int port_get_display_submit_count(void)
+{
+	return sDLSubmitCount;
+}
+
 extern "C" void port_submit_display_list(void *dl)
 {
 	sDLSubmitCount++;
-	if (sDLSubmitCount <= 5 || (sDLSubmitCount % 60 == 0)) {
+	if (sDLSubmitCount <= 60 || (sDLSubmitCount % 60 == 0)) {
 		port_log("SSB64: port_submit_display_list #%d dl=%p\n", sDLSubmitCount, dl);
 	}
 
@@ -121,7 +126,7 @@ extern "C" void port_submit_display_list(void *dl)
 	std::unordered_map<Mtx *, MtxF> mtxReplacements;
 	window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
 
-	if (sDLSubmitCount <= 5) {
+	if (sDLSubmitCount <= 60) {
 		port_log("SSB64: DrawAndRunGraphicsCommands returned OK\n");
 	}
 }
@@ -188,7 +193,7 @@ void PortPushFrame(void)
 	port_resume_service_threads();
 
 	sFrameCount++;
-	if (sFrameCount <= 5 || (sFrameCount % 60 == 0)) {
+	if (sFrameCount <= 60 || (sFrameCount % 60 == 0)) {
 		port_log("SSB64: Frame %d complete\n", sFrameCount);
 	}
 }

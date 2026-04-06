@@ -427,7 +427,7 @@ void osSpTaskStartGo(OSTask *tp)
 		return;
 	}
 
-	if (sTaskGoCount <= 5 || (sTaskGoCount % 60 == 0)) {
+	if (sTaskGoCount <= 60 || (sTaskGoCount % 60 == 0)) {
 		port_log("SSB64: osSpTaskStartGo #%d type=%d data_ptr=%p\n",
 		         (int)sTaskGoCount, (int)tp->t.type, (void *)tp->t.data_ptr);
 	}

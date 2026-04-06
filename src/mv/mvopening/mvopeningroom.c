@@ -172,6 +172,34 @@ void mvOpeningRoomBackgroundProcUpdate(GObj *gobj)
 	}
 }
 
+#ifdef PORT
+static sb32 sMVOpeningRoomLogoDisplayLogged;
+
+static void mvOpeningRoomLogDObjTree(const char *label, GObj *gobj)
+{
+	DObj *dobj;
+	s32 index;
+
+	for (index = 0, dobj = DObjGetStruct(gobj); dobj != NULL; dobj = gcGetTreeDObjNext(dobj), index++)
+	{
+		port_log("SSB64: mvOpeningRoom %s gobj=%p dobj[%d]=%p dl=%p mobj=%p child=%p sib=%p\n",
+			label, gobj, index, dobj, dobj->dl, dobj->mobj, dobj->child, dobj->sib_next);
+	}
+}
+
+static void mvOpeningRoomLogoProcDisplay(GObj *gobj)
+{
+	if (sMVOpeningRoomLogoDisplayLogged == FALSE)
+	{
+		sMVOpeningRoomLogoDisplayLogged = TRUE;
+		port_log("SSB64: mvOpeningRoom logo display-begin gobj=%p dobj=%p\n", gobj, DObjGetStruct(gobj));
+		gcDrawDObjTreeDLLinksForGObj(gobj);
+		port_log("SSB64: mvOpeningRoom logo display-end gobj=%p dobj=%p\n", gobj, DObjGetStruct(gobj));
+	}
+	else gcDrawDObjTreeDLLinksForGObj(gobj);
+}
+#endif
+
 // 0x80131BA8
 void mvOpeningRoomMakeBackground(void)
 {
@@ -184,6 +212,9 @@ void mvOpeningRoomMakeBackground(void)
 	gcAddMatAnimJointAll(gobj, lbRelocGetFileData(AObjEvent32***, sMVOpeningRoomFiles[0], llMVCommonRoomBackgroundMatAnimJoint), 0.0F);
 	gcAddGObjProcess(gobj, mvOpeningRoomBackgroundProcUpdate, nGCProcessKindFunc, 1);
 	gcPlayAnimAll(gobj);
+#ifdef PORT
+	mvOpeningRoomLogDObjTree("background", gobj);
+#endif
 }
 
 // 0x80131C84
@@ -413,11 +444,18 @@ void mvOpeningRoomMakeLogo(void)
 
 	sMVOpeningRoomLogoGObj = gobj = gcMakeGObjSPAfter(0, NULL, 21, GOBJ_PRIORITY_DEFAULT);
 	gcSetupCommonDObjs(gobj, lbRelocGetFileData(DObjDesc*, sMVOpeningRoomFiles[0], llMVCommonRoomLogoDObjDesc), NULL);
+#ifdef PORT
+	gcAddGObjDisplay(gobj, mvOpeningRoomLogoProcDisplay, 29, GOBJ_PRIORITY_DEFAULT, ~0);
+#else
 	gcAddGObjDisplay(gobj, gcDrawDObjTreeDLLinksForGObj, 29, GOBJ_PRIORITY_DEFAULT, ~0);
+#endif
 	gcAddMObjAll(gobj, lbRelocGetFileData(MObjSub***, sMVOpeningRoomFiles[0], llMVCommonRoomLogoMObjSub));
 	gcAddMatAnimJointAll(gobj, lbRelocGetFileData(AObjEvent32***, sMVOpeningRoomFiles[0], llMVCommonRoomLogoMatAnimJoint), 0.0F);
 	gcAddGObjProcess(gobj, gcPlayAnimAll, nGCProcessKindFunc, 1);
 	gcPlayAnimAll(gobj);
+#ifdef PORT
+	mvOpeningRoomLogDObjTree("logo", gobj);
+#endif
 }
 
 // 0x80132680
@@ -452,6 +490,9 @@ void mvOpeningRoomMakeCloseUpEffect(void)
 	gcAddGObjProcess(gobj, gcPlayAnimAll, nGCProcessKindFunc, 1);
 	gcAddAnimJointAll(gobj, lbRelocGetFileData(AObjEvent32**, sMVOpeningRoomFiles[0], llMVCommonRoomCloseUpEffectAirAnimJoint), 0.0F);
 	gcPlayAnimAll(gobj);
+#ifdef PORT
+	mvOpeningRoomLogDObjTree("closeup-air", gobj);
+#endif
 
 	// Close-up effect ground
 	gobj = gcMakeGObjSPAfter(0, NULL, 17, GOBJ_PRIORITY_DEFAULT);
@@ -467,6 +508,9 @@ void mvOpeningRoomMakeCloseUpEffect(void)
 	gcAddGObjProcess(gobj, gcPlayAnimAll, nGCProcessKindFunc, 1);
 	gcAddAnimJointAll(gobj, lbRelocGetFileData(AObjEvent32**, sMVOpeningRoomFiles[0], llMVCommonRoomCloseUpEffectGroundAnimJoint), 0.0F);
 	gcPlayAnimAll(gobj);
+#ifdef PORT
+	mvOpeningRoomLogDObjTree("closeup-ground", gobj);
+#endif
 }
 
 // 0x80132928
@@ -522,6 +566,9 @@ void mvOpeningRoomMakeDeskGround(void)
 	gcAddMatAnimJointAll(gobj, lbRelocGetFileData(AObjEvent32***, sMVOpeningRoomFiles[0], llMVCommonRoomDeskGroundMatAnimJoint), 0.0F);
 	gcAddGObjProcess(gobj, mvOpeningRoomDeskGroundProcUpdate, nGCProcessKindFunc, 1);
 	gcPlayAnimAll(gobj);
+#ifdef PORT
+	mvOpeningRoomLogDObjTree("desk-ground", gobj);
+#endif
 }
 
 // 0x80132BB8
@@ -677,6 +724,9 @@ void mvOpeningRoomMakeSpotlight(void)
 	gcAddMatAnimJointAll(gobj, lbRelocGetFileData(AObjEvent32***, sMVOpeningRoomFiles[0], llMVCommonRoomSpotlightMatAnimJoint), 0.0F);
 	gcAddGObjProcess(gobj, gcPlayAnimAll, nGCProcessKindFunc, 1);
 	gcPlayAnimAll(gobj);
+#ifdef PORT
+	mvOpeningRoomLogDObjTree("spotlight", gobj);
+#endif
 
 	mvOpeningRoomSetSpotlightPosition(gobj, sMVOpeningRoomPulledFighterKind);
 }
