@@ -406,6 +406,11 @@ GObj* gcGetGObjSetNextAlloc(void)
 		if (gobj == NULL)
 		{
 			sGCCommonHead = syTaskmanMalloc(sGCCommonSize, 0x8);
+			if (sGCCommonHead == NULL)
+			{
+				syDebugPrintf("om : couldn't get GObj (size=%d)\n", sGCCommonSize);
+				while (TRUE);
+			}
 			sGCCommonHead->link_next = NULL;
 			gobj = sGCCommonHead;
 		}

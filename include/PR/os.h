@@ -880,8 +880,13 @@ extern "C"
 	extern void osWritebackDCache(void*, s32);
 	extern void osWritebackDCacheAll(void);
 
+#ifdef PORT
+#define OS_DCACHE_ROUNDUP_ADDR(x) (void*)(((((u64)(x) + 0xfULL) / 0x10ULL) * 0x10ULL))
+#define OS_DCACHE_ROUNDUP_SIZE(x) (u64)(((((u64)(x) + 0xfULL) / 0x10ULL) * 0x10ULL))
+#else
 #define OS_DCACHE_ROUNDUP_ADDR(x) (void*)(((((u32)(x) + 0xf) / 0x10) * 0x10))
 #define OS_DCACHE_ROUNDUP_SIZE(x) (u32)(((((u32)(x) + 0xf) / 0x10) * 0x10))
+#endif
 
 	/* TLB management routines */
 

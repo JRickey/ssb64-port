@@ -92,24 +92,38 @@ static void game_coroutine_entry(void *arg)
  * Called from osSpTaskStartGo (n64_stubs.c) when a GFX task is submitted.
  * Routes the N64 display list through Fast3D for rendering.
  */
+static int sDLSubmitCount = 0;
+
 extern "C" void port_submit_display_list(void *dl)
 {
+	sDLSubmitCount++;
+	if (sDLSubmitCount <= 5 || (sDLSubmitCount % 60 == 0)) {
+		port_log("SSB64: port_submit_display_list #%d dl=%p\n", sDLSubmitCount, dl);
+	}
+
 	if (dl == NULL) {
+		port_log("SSB64: WARNING — display list is NULL!\n");
 		return;
 	}
 
 	auto context = Ship::Context::GetInstance();
 	if (!context) {
+		port_log("SSB64: WARNING — no Ship::Context in display list submit!\n");
 		return;
 	}
 
 	auto window = std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow());
 	if (!window) {
+		port_log("SSB64: WARNING — no Fast3dWindow in display list submit!\n");
 		return;
 	}
 
 	std::unordered_map<Mtx *, MtxF> mtxReplacements;
 	window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
+
+	if (sDLSubmitCount <= 5) {
+		port_log("SSB64: DrawAndRunGraphicsCommands returned OK\n");
+	}
 }
 
 /* ========================================================================= */

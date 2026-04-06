@@ -101,10 +101,21 @@ void port_resume_service_threads(void)
 			} else {
 				t->state = OS_STATE_WAITING;
 			}
+			if (sResumeDebugCount <= 5) {
+				port_log("  round %d: resumed thread %d (finished=%d)\n",
+				         (int)round, (int)t->id,
+				         port_coroutine_is_finished((PortCoroutine *)t->port_coroutine));
+			}
 			progress = 1;
 		}
-		if (!progress) break;  /* No thread made progress — done for this frame */
+		if (!progress) {
+			if (sResumeDebugCount <= 5) {
+				port_log("  round %d: no progress, breaking\n", (int)round);
+			}
+			break;  /* No thread made progress — done for this frame */
+		}
 	}
+	if (sResumeDebugCount <= 5) sResumeDebugCount++;
 }
 
 void osCreateThread(OSThread *t, OSId id, void (*entry)(void *), void *arg,
@@ -232,6 +243,8 @@ s32 osSendMesg(OSMesgQueue *mq, OSMesg msg, s32 flag)
 	return 0;
 }
 
+static s32 sRecvDebugCount = 0;
+
 s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
 {
 	/* Non-blocking: return immediately if empty. */
@@ -240,6 +253,11 @@ s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
 			return -1;
 		}
 		/* OS_MESG_BLOCK: yield until a message arrives. */
+		if (sRecvDebugCount < 50) {
+			port_log("SSB64: osRecvMesg BLOCK on mq=%p (valid=%d cap=%d) — yielding\n",
+			         (void *)mq, (int)mq->validCount, (int)mq->msgCount);
+			sRecvDebugCount++;
+		}
 		while (mq->validCount == 0) {
 			if (port_coroutine_in_coroutine()) {
 				port_coroutine_yield();
@@ -248,6 +266,10 @@ s32 osRecvMesg(OSMesgQueue *mq, OSMesg *msg, s32 flag)
 				 * This should only happen during init before coroutines. */
 				return -1;
 			}
+		}
+		if (sRecvDebugCount < 50) {
+			port_log("SSB64: osRecvMesg BLOCK on mq=%p — woke up (valid=%d)\n",
+			         (void *)mq, (int)mq->validCount);
 		}
 	}
 
@@ -395,10 +417,19 @@ extern OSMesgQueue gSYSchedulerTaskMesgQueue;
 #define PORT_INTR_SP_TASK_DONE 2
 #define PORT_INTR_DP_FULL_SYNC 3
 
+static s32 sTaskGoCount = 0;
+
 void osSpTaskStartGo(OSTask *tp)
 {
+	sTaskGoCount++;
 	if (tp == NULL) {
+		port_log("SSB64: osSpTaskStartGo #%d — NULL task!\n", (int)sTaskGoCount);
 		return;
+	}
+
+	if (sTaskGoCount <= 5 || (sTaskGoCount % 60 == 0)) {
+		port_log("SSB64: osSpTaskStartGo #%d type=%d data_ptr=%p\n",
+		         (int)sTaskGoCount, (int)tp->t.type, (void *)tp->t.data_ptr);
 	}
 
 	if (tp->t.type == M_GFXTASK && tp->t.data_ptr != NULL) {

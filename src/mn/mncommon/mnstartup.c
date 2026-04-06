@@ -264,11 +264,23 @@ void mnStartupFuncLights(Gfx **dls)
 // 0x80131EF0
 void mnStartupStartScene(void)
 {
+#ifdef PORT
+	port_log("SSB64: mnStartupStartScene — entered\n");
+#endif
 	syAudioStopBGMAll();
-	
+#ifdef PORT
+	port_log("SSB64: mnStartupStartScene — past syAudioStopBGMAll\n");
+#endif
+
 	dMNStartupVideoSetup.zbuffer = SYVIDEO_ZBUFFER_START(320, 240, 0, 10, u16);
 	syVideoInit(&dMNStartupVideoSetup);
+#ifdef PORT
+	port_log("SSB64: mnStartupStartScene — past syVideoInit\n");
+#endif
 
 	dMNStartupTaskmanSetup.scene_setup.arena_size = (size_t) ((uintptr_t)&ovl1_VRAM - (uintptr_t)&ovl58_BSS_END);
 	syTaskmanStartTask(&dMNStartupTaskmanSetup);
+#ifdef PORT
+	port_log("SSB64: mnStartupStartScene — past syTaskmanStartTask (should not reach here)\n");
+#endif
 }

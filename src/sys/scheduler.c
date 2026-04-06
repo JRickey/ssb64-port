@@ -837,7 +837,7 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
             sSYSchedulerClients = temp;
 
             if (t->info.mq != NULL) {
-                osSendMesg(t->info.mq, (OSMesg) t->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(t->info.mq, (OSMesg)(intptr_t)t->info.retVal, OS_MESG_NOBLOCK);
             }
             break;
         }
@@ -847,7 +847,7 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
             sySchedulerUpdateViMode(t->width, t->height, t->flags, t->edgeOffsetLeft, t->edgeOffsetRight, t->edgeOffsetTop, t->edgeOffsetBottom);
 
             if (t->info.mq != NULL) {
-                osSendMesg(t->info.mq, (OSMesg) t->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(t->info.mq, (OSMesg)(intptr_t)t->info.retVal, OS_MESG_NOBLOCK);
             }
             break;
         }
@@ -862,7 +862,7 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
             }
 
             if (t->info.mq != NULL) {
-                osSendMesg(t->info.mq, (OSMesg) t->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(t->info.mq, (OSMesg)(intptr_t)t->info.retVal, OS_MESG_NOBLOCK);
             }
             break;
         }
@@ -875,7 +875,7 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
                 v1 = sSYSchedulerCurrentTaskGfx;
             }
 
-            v0 = &sSYSchedulerPausedQueueHead->info;
+            v0 = (sSYSchedulerPausedQueueHead != NULL) ? &sSYSchedulerPausedQueueHead->info : NULL;
             while (v0 != NULL) {
                 if (v0->type == nSYTaskTypeGfx) {
                     if (((SYTaskGfx*) v0)->task_id == t->task_id) {
@@ -896,16 +896,16 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
                 v0 = v0->next;
             }
 
-            v0 = &scCurrentQueue3Task->info;
+            v0 = (scCurrentQueue3Task != NULL) ? &scCurrentQueue3Task->info : NULL;
             if (v0 != NULL) {
                 if (v0->type == nSYTaskTypeGfx) {
-                    if (sSYSchedulerCurrentTaskGfx->task_id == t->task_id) {
+                    if (((SYTaskGfx*)v0)->task_id == t->task_id) {
                         v1 = (void*) v0;
                     }
                 }
             }
 
-            v0 = &scQueue3Head->info;
+            v0 = (scQueue3Head != NULL) ? &scQueue3Head->info : NULL;
             while (v0 != NULL) {
                 if (v0->type == nSYTaskTypeGfx) {
                     if (((SYTaskGfx*) v0)->task_id == t->task_id) {
@@ -925,14 +925,14 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
                 }
 
                 if (t->info.mq != NULL) {
-                    osSendMesg(t->info.mq, (OSMesg) t->info.retVal, OS_MESG_NOBLOCK);
+                    osSendMesg(t->info.mq, (OSMesg)(intptr_t)t->info.retVal, OS_MESG_NOBLOCK);
                 }
             }
             break;
         }
         case nSYTaskTypeNoOp:
             if (task->mq != NULL) {
-                osSendMesg(task->mq, (OSMesg) task->retVal, OS_MESG_NOBLOCK);
+                osSendMesg(task->mq, (OSMesg)(intptr_t)task->retVal, OS_MESG_NOBLOCK);
             }
             break;
         case nSYTaskTypeRdpBuffer: {
@@ -941,7 +941,7 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
             sSYSchedulerRdpOutputBuffer = t->buffer;
             sSYSchedulerRdpOutputBufferSize = t->size;
             if (t->info.mq != NULL) {
-                osSendMesg(t->info.mq, (OSMesg) t->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(t->info.mq, (OSMesg)(intptr_t)t->info.retVal, OS_MESG_NOBLOCK);
             }
             break;
         }
@@ -953,14 +953,14 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
 
             if (t->info.mq != NULL)
             {
-                osSendMesg(t->info.mq, (OSMesg) t->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(t->info.mq, (OSMesg)(intptr_t)t->info.retVal, OS_MESG_NOBLOCK);
             }
             break;
         }
         case nSYTaskTypeDefaultBuffer:
             scUseCustomSwapBufferFunc = FALSE;
             if (task->mq != NULL) {
-                osSendMesg(task->mq, (OSMesg) task->retVal, OS_MESG_NOBLOCK);
+                osSendMesg(task->mq, (OSMesg)(intptr_t)task->retVal, OS_MESG_NOBLOCK);
             }
             break;
         case SC_TASK_TYPE_11: {
@@ -977,7 +977,7 @@ s32 sySchedulerExecuteTask(SYTaskInfo *task)
 
             sSYSchedulerCustomFramebuffer = NULL;
             if (task->mq != NULL) {
-                osSendMesg(task->mq, (OSMesg) task->retVal, OS_MESG_NOBLOCK);
+                osSendMesg(task->mq, (OSMesg)(intptr_t)task->retVal, OS_MESG_NOBLOCK);
             }
             break;
         }
@@ -1148,7 +1148,7 @@ void sySchedulerDpFullSync(void)
             }
             if (sSYSchedulerCurrentTaskGfx->info.mq != NULL)
             {
-                osSendMesg(sSYSchedulerCurrentTaskGfx->info.mq, (OSMesg)sSYSchedulerCurrentTaskGfx->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(sSYSchedulerCurrentTaskGfx->info.mq, (OSMesg)(intptr_t)sSYSchedulerCurrentTaskGfx->info.retVal, OS_MESG_NOBLOCK);
             }
             if (sSYSchedulerCurrentTaskGfx->info.state == nSYSchedulerStatusTaskSuspending)
             {
@@ -1167,7 +1167,7 @@ void sySchedulerDpFullSync(void)
         }
         if (scCurrentQueue3Task->info.mq != NULL)
         {
-            osSendMesg(scCurrentQueue3Task->info.mq, (OSMesg)scCurrentQueue3Task->info.retVal, OS_MESG_NOBLOCK);
+            osSendMesg(scCurrentQueue3Task->info.mq, (OSMesg)(intptr_t)scCurrentQueue3Task->info.retVal, OS_MESG_NOBLOCK);
         }
         scCurrentQueue3Task = NULL;
         func_80001FF4();
@@ -1182,7 +1182,7 @@ void sySchedulerDpFullSync(void)
             }
             if (sSYSchedulerPausedQueueHead->info.mq != NULL)
             {
-                osSendMesg(sSYSchedulerPausedQueueHead->info.mq, (OSMesg)sSYSchedulerPausedQueueHead->info.retVal, OS_MESG_NOBLOCK);
+                osSendMesg(sSYSchedulerPausedQueueHead->info.mq, (OSMesg)(intptr_t)sSYSchedulerPausedQueueHead->info.retVal, OS_MESG_NOBLOCK);
             }
             sySchedulerRemovePausedQueue(sSYSchedulerPausedQueueHead);
         }
@@ -1210,7 +1210,8 @@ void sySchedulerSoftReset(void);
 // jp: 0x8000241C 
 void sySchedulerThreadMain(void *arg)
 {
-    s32 mesg;
+    OSMesg mesg;
+    intptr_t mesg_code;
 
     // the wonders of matching
     sSYSchedulerClients = NULL;
@@ -1278,9 +1279,10 @@ void sySchedulerThreadMain(void *arg)
 
     while (TRUE)
     {
-        osRecvMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)&mesg, OS_MESG_BLOCK);
+        osRecvMesg(&gSYSchedulerTaskMesgQueue, &mesg, OS_MESG_BLOCK);
+        mesg_code = (intptr_t)mesg;
 
-        switch (mesg)
+        switch (mesg_code)
         {
         case INTR_VRETRACE:
             sySchedulerVRetrace();
@@ -1311,7 +1313,7 @@ void sySchedulerThreadMain(void *arg)
         default:
             if (gSYSchedulerIsSoftReset == FALSE)
             {
-                sySchedulerPrepTask(mesg);
+                sySchedulerPrepTask((SYTaskInfo*)mesg);
             }
         }
     }
