@@ -125,9 +125,15 @@ if (Test-Path $F3DO2R) {
     Remove-Item -Force $F3DO2R
 }
 
-# Compress-Archive only accepts .zip; use ZipFile directly so we can name it .o2r
+# The resource manager loads shaders as "shaders/opengl/...", "shaders/directx/...", etc.
+# Stage under a "shaders/" subdirectory so ZipFile preserves the right internal paths.
+$ShaderStaging = Join-Path $env:TEMP "ssb64_f3d_staging"
+if (Test-Path $ShaderStaging) { Remove-Item -Recurse -Force $ShaderStaging }
+$null = New-Item -ItemType Directory -Path (Join-Path $ShaderStaging "shaders")
+Copy-Item -Recurse $Fast3DShaderDir\* (Join-Path $ShaderStaging "shaders")
 Add-Type -AssemblyName System.IO.Compression.FileSystem
-[System.IO.Compression.ZipFile]::CreateFromDirectory($Fast3DShaderDir, $F3DO2R)
+[System.IO.Compression.ZipFile]::CreateFromDirectory($ShaderStaging, $F3DO2R)
+Remove-Item -Recurse -Force $ShaderStaging
 
 if (-not (Test-Path $F3DO2R)) {
     Write-Host "ERROR: f3d.o2r was not created" -ForegroundColor Red
