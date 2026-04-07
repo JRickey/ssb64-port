@@ -25,9 +25,13 @@
 
 #include <libultraship/libultraship.h>
 #include <fast/Fast3dWindow.h>
+#include <fast/interpreter.h>
 
 #include <cstdio>
 #include <unordered_map>
+
+/* GBI trace system */
+#include "../debug_tools/gbi_trace/gbi_trace.h"
 
 #include "port_log.h"
 
@@ -93,6 +97,13 @@ static void game_coroutine_entry(void *arg)
  * Routes the N64 display list through Fast3D for rendering.
  */
 static int sDLSubmitCount = 0;
+static int sGbiTraceInitDone = 0;
+
+/* Thin C wrapper for the trace callback (matches GbiTraceCallbackFn signature) */
+static void gbi_trace_callback(uintptr_t w0, uintptr_t w1, int dl_depth)
+{
+	gbi_trace_log_cmd((unsigned long long)w0, (unsigned long long)w1, dl_depth);
+}
 
 extern "C" int port_get_display_submit_count(void)
 {
@@ -104,6 +115,15 @@ extern "C" void port_submit_display_list(void *dl)
 	sDLSubmitCount++;
 	if (sDLSubmitCount <= 60 || (sDLSubmitCount % 60 == 0)) {
 		port_log("SSB64: port_submit_display_list #%d dl=%p\n", sDLSubmitCount, dl);
+	}
+
+	/* Lazy-init the GBI trace system on first DL submit */
+	if (!sGbiTraceInitDone) {
+		sGbiTraceInitDone = 1;
+		gbi_trace_init();
+		if (gbi_trace_is_enabled()) {
+			gfx_set_trace_callback(gbi_trace_callback);
+		}
 	}
 
 	if (dl == NULL) {
@@ -123,8 +143,14 @@ extern "C" void port_submit_display_list(void *dl)
 		return;
 	}
 
+	/* Begin trace frame before Fast3D processes the display list */
+	gbi_trace_begin_frame();
+
 	std::unordered_map<Mtx *, MtxF> mtxReplacements;
 	window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
+
+	/* End trace frame after processing */
+	gbi_trace_end_frame();
 
 	if (sDLSubmitCount <= 60) {
 		port_log("SSB64: DrawAndRunGraphicsCommands returned OK\n");
