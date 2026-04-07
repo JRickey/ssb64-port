@@ -1039,12 +1039,15 @@ void syAudioThreadMain(void *arg)
     osSendMesg(&gSYMainThreadingMesgQueue, (OSMesg)1, OS_MESG_NOBLOCK);
 
 #ifdef PORT
-    /* PORT (Phase 3D): Audio synthesis loop.
+    /* PORT (Phase 4): Full audio synthesis loop with BGM/FGM game API processing.
      * n_alAudioFrame runs the synthesis pull chain.  With mixer.h's macro
      * replacement active, the ABI macros (aSetBuffer, aLoadBuffer, etc.)
      * call CPU functions directly instead of building RSP command lists.
-     * After n_alAudioFrame returns, the output buffer contains interleaved
-     * stereo s16 PCM.  We feed it to AudioPlayerPlayFrame via LUS. */
+     * After synthesis, per-frame processing handles:
+     *   - FGM sound player cleanup (finished effects)
+     *   - BGM state machine (stop → load → play → track)
+     *   - BGM volume fading
+     *   - Audio settings update and restart */
     {
         s32 port_cmdLen;
         s32 port_id_mod3;
@@ -1068,6 +1071,162 @@ void syAudioThreadMain(void *arg)
                                  dSYAudioSampleCounts[port_id_mod3]);
 
             dSYAudioCurrentTic++;
+
+            /* --- Per-frame FGM cleanup: null out finished sound players --- */
+            for (port_i = 0; port_i < sSYAudioCurrentSettings.sndplayers_num; port_i++)
+            {
+                if ((sSYAudioSoundPlayers[port_i] != NULL) && (sSYAudioSoundPlayers[port_i]->unk_0x10 == 0))
+                {
+                    sSYAudioSoundPlayers[port_i] = NULL;
+                }
+            }
+
+            /* --- Per-frame BGM state machine --- */
+            for (port_i = 0; port_i < SYAUDIO_BGMPLAYERS_NUM; port_i++)
+            {
+                switch (sSYAudioCSPlayerStatuses[port_i])
+                {
+                case 1:
+                    if (gSYAudioCSPlayers[port_i]->state != AL_STOPPED)
+                    {
+                        n_alCSPStop(gSYAudioCSPlayers[port_i]);
+                        continue;
+                    }
+                    else if (sSYAudioBGMPlayingIDs[port_i] < 0)
+                    {
+                        sSYAudioCSPlayerStatuses[port_i]--;
+                        continue;
+                    }
+                    else
+                    {
+                        /* PORT: Sequence data offsets are already memory pointers
+                         * (audio_bridge's parseSeqFile converts ROM offsets).
+                         * Use memcpy instead of syAudioReadRom. */
+                        memcpy(sSYAudioBGMSequenceDatas[port_i],
+                               sSYAudioSeqFile->seqArray[sSYAudioBGMPlayingIDs[port_i]].offset,
+                               sSYAudioSeqFile->seqArray[sSYAudioBGMPlayingIDs[port_i]].len);
+                        sSYAudioCSPlayerStatuses[port_i]++;
+                        continue;
+                    }
+                    break;
+
+                case 2:
+                    n_alCSeqNew(sSYAudioCSeqs[port_i], sSYAudioBGMSequenceDatas[port_i]);
+                    n_alCSPSetSeq(gSYAudioCSPlayers[port_i], sSYAudioCSeqs[port_i]);
+                    n_alCSPPlay(gSYAudioCSPlayers[port_i]);
+
+                    for (port_cmdLen = 0; port_cmdLen < AL_MAX_CHANNELS; port_cmdLen++)
+                    {
+                        n_alCSPSetChlPriority(gSYAudioCSPlayers[port_i], port_cmdLen, gSYAudioGlobalBGMPriority);
+                    }
+                    sSYAudioCSPlayerStatuses[port_i]++;
+                    break;
+
+                case 3:
+                    if (gSYAudioCSPlayers[port_i]->state == AL_STOPPED)
+                    {
+                        sSYAudioCSPlayerStatuses[port_i] = AL_STOPPED;
+                        sSYAudioBGMPlayingIDs[port_i] = -1;
+                    }
+                    break;
+                }
+            }
+
+            /* --- Per-frame BGM volume fading --- */
+            for (port_i = 0; port_i < ARRAY_COUNT(sSYAudioBGMVolumeTimers); port_i++)
+            {
+                if (sSYAudioBGMVolumeTimers[port_i] != 0)
+                {
+                    sSYAudioBGMVolumeTimers[port_i]--;
+
+                    sSYAudioBGMVolumes[port_i] += sSYAudioBGMVolumeRates[port_i];
+
+                    if (sSYAudioBGMVolumes[port_i] < 0.0F)
+                    {
+                        sSYAudioBGMVolumes[port_i] = 0.0F;
+                    }
+                    else if (sSYAudioBGMVolumes[port_i] > 30720.0F)
+                    {
+                        sSYAudioBGMVolumes[port_i] = 30720.0F;
+                    }
+                    n_alCSPSetVol(gSYAudioCSPlayers[port_i], sSYAudioBGMVolumes[port_i]);
+                }
+            }
+
+            /* --- Audio settings update (scene change, etc.) --- */
+            if (dSYAudioIsSettingsUpdated != FALSE)
+            {
+                port_cmdLen = sSYAudioCurrentSettings.sndplayers_num + 1;
+
+                for (port_i = 0; port_i < sSYAudioCurrentSettings.sndplayers_num; port_i++)
+                {
+                    if (sSYAudioSoundPlayers[port_i] == NULL)
+                    {
+                        port_cmdLen--;
+                    }
+                }
+                for (port_i = 0; port_i < SYAUDIO_BGMPLAYERS_NUM; port_i++)
+                {
+                    if (sSYAudioCSPlayerStatuses[port_i] == AL_STOPPED)
+                    {
+                        port_cmdLen--;
+                    }
+                }
+                if (port_cmdLen == 0)
+                {
+                    n_alClose(&sSYAudioGlobals);
+
+                    sSYAudioCurrentSettings = dSYAudioPublicSettings;
+
+                    portAudioLoadAssets();
+                    syAudioMakeBGMPlayers();
+
+                    dSYAudioPublicSettings = sSYAudioCurrentSettings;
+
+                    dSYAudioIsSettingsUpdated = FALSE;
+                    osSendMesg(&gSYMainThreadingMesgQueue, (OSMesg)1, OS_MESG_NOBLOCK);
+                }
+                else
+                {
+                    syAudioStopBGMAll();
+                    func_80020E28();
+                }
+            }
+
+            /* --- Audio restart (FX type change) --- */
+            if (dSYAudioIsRestarting != FALSE)
+            {
+                port_cmdLen = sSYAudioCurrentSettings.sndplayers_num + 1;
+
+                for (port_i = 0; port_i < sSYAudioCurrentSettings.sndplayers_num; port_i++)
+                {
+                    if (sSYAudioSoundPlayers[port_i] == NULL)
+                    {
+                        port_cmdLen--;
+                    }
+                }
+                for (port_i = 0; port_i < SYAUDIO_BGMPLAYERS_NUM; port_i++)
+                {
+                    if (sSYAudioCSPlayerStatuses[port_i] == AL_STOPPED)
+                    {
+                        port_cmdLen--;
+                    }
+                }
+                if (port_cmdLen == 0)
+                {
+                    n_alClose(&sSYAudioGlobals);
+                    sSYAudioHeap.cur = sSYAudioHeapBase;
+                    sSYAudioHeap.count = sSYAudioHeapSize;
+                    syAudioMakeBGMPlayers();
+                    dSYAudioPublicSettings = sSYAudioCurrentSettings;
+                    dSYAudioIsRestarting = FALSE;
+                }
+                else
+                {
+                    syAudioStopBGMAll();
+                    func_80020E28();
+                }
+            }
         }
     }
 #endif
