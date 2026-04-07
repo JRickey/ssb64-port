@@ -3,6 +3,12 @@
 #include <gr/ground.h>
 #include <sys/video.h>
 
+#ifdef PORT
+extern void portFixupSprite(void *sprite);
+extern void portFixupBitmap(void *bitmap);
+extern void portFixupBitmapArray(void *bitmaps, unsigned int count);
+#endif
+
 extern void syInterpCubic(void*, void*, f32);
 extern void* func_80026A10_27610(u16);
 
@@ -2974,6 +2980,19 @@ void lbCommonDrawSObjNoAttr(GObj *gobj)
 SObj* lbCommonMakeSObjForGObj(GObj *gobj, Sprite *sprite)
 {
     SObj *sobj;
+
+#ifdef PORT
+    // Fix byte order for Sprite + its Bitmap array after blanket u32 swap.
+    // Must happen before ANY field access (e.g. bmsiz check below).
+    portFixupSprite(sprite);
+    {
+        Bitmap *bitmaps = (Bitmap*)PORT_RESOLVE(sprite->bitmap);
+        if (bitmaps != NULL)
+        {
+            portFixupBitmapArray(bitmaps, sprite->nbitmaps);
+        }
+    }
+#endif
 
     if (sprite->bmsiz == G_IM_SIZ_4c)
     {

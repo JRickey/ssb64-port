@@ -355,3 +355,162 @@ extern "C" void portResetStructFixups(void)
 {
 	sStructU16Fixups.clear();
 }
+
+// ============================================================
+//  Sprite / Bitmap / MObjSub — struct-level byte-swap fixups
+// ============================================================
+//
+// After the blanket u32 swap, u32 and f32 fields are correct but
+// u16-pair words and u8-quad words are garbled.
+//
+// rotate16: fixes two u16 values packed in one u32 word
+// bswap32:  undoes the blanket swap for a u8-quad word
+//
+// Each function is idempotent: tracked by the same sStructU16Fixups set.
+
+static void fixup_rotate16(uint32_t *word)
+{
+	*word = (*word << 16) | (*word >> 16);
+}
+
+static void fixup_bswap32(uint32_t *word)
+{
+	*word = BSWAP32(*word);
+}
+
+extern "C" void portFixupSprite(void *sprite)
+{
+	if (sprite == NULL)
+		return;
+
+	uintptr_t key = reinterpret_cast<uintptr_t>(sprite);
+	if (sStructU16Fixups.count(key))
+		return;
+	sStructU16Fixups.insert(key);
+
+	uint32_t *w = static_cast<uint32_t *>(sprite);
+
+	// Sprite layout (17 words = 68 bytes):
+	//  Word  Offset  Fields                   Fixup
+	//  0     0x00    s16 x, s16 y             rotate16
+	//  1     0x04    s16 width, s16 height    rotate16
+	//  2     0x08    f32 scalex               (ok)
+	//  3     0x0C    f32 scaley               (ok)
+	//  4     0x10    s16 expx, s16 expy       rotate16
+	//  5     0x14    u16 attr, s16 zdepth     rotate16
+	//  6     0x18    u8 r,g,b,a               bswap32
+	//  7     0x1C    s16 startTLUT, s16 nTLUT rotate16
+	//  8     0x20    u32 LUT (token)          (ok)
+	//  9     0x24    s16 istart, s16 istep    rotate16
+	//  10    0x28    s16 nbitmaps, s16 ndisplist rotate16
+	//  11    0x2C    s16 bmheight, s16 bmHreal rotate16
+	//  12    0x30    u8 bmfmt, u8 bmsiz, pad  bswap32
+	//  13    0x34    u32 bitmap (token)        (ok)
+	//  14    0x38    u32 rsp_dl (token)        (ok)
+	//  15    0x3C    u32 rsp_dl_next (token)   (ok)
+	//  16    0x40    s16 frac_s, s16 frac_t   rotate16
+
+	fixup_rotate16(&w[0]);   // x, y
+	fixup_rotate16(&w[1]);   // width, height
+	// w[2], w[3]: f32 scalex, scaley — ok
+	fixup_rotate16(&w[4]);   // expx, expy
+	fixup_rotate16(&w[5]);   // attr, zdepth
+	fixup_bswap32(&w[6]);    // rgba
+	fixup_rotate16(&w[7]);   // startTLUT, nTLUT
+	// w[8]: u32 LUT — ok
+	fixup_rotate16(&w[9]);   // istart, istep
+	fixup_rotate16(&w[10]);  // nbitmaps, ndisplist
+	fixup_rotate16(&w[11]);  // bmheight, bmHreal
+	fixup_bswap32(&w[12]);   // bmfmt, bmsiz, pad
+	// w[13..15]: u32 tokens — ok
+	fixup_rotate16(&w[16]);  // frac_s, frac_t
+}
+
+extern "C" void portFixupBitmap(void *bitmap)
+{
+	if (bitmap == NULL)
+		return;
+
+	uintptr_t key = reinterpret_cast<uintptr_t>(bitmap);
+	if (sStructU16Fixups.count(key))
+		return;
+	sStructU16Fixups.insert(key);
+
+	uint32_t *w = static_cast<uint32_t *>(bitmap);
+
+	// Bitmap layout (4 words = 16 bytes):
+	//  Word  Offset  Fields                        Fixup
+	//  0     0x00    s16 width, s16 width_img      rotate16
+	//  1     0x04    s16 s, s16 t                  rotate16
+	//  2     0x08    u32 buf (token)               (ok)
+	//  3     0x0C    s16 actualHeight, s16 LUToffset rotate16
+
+	fixup_rotate16(&w[0]);
+	fixup_rotate16(&w[1]);
+	// w[2]: u32 buf — ok
+	fixup_rotate16(&w[3]);
+}
+
+extern "C" void portFixupBitmapArray(void *bitmaps, unsigned int count)
+{
+	if (bitmaps == NULL || count == 0)
+		return;
+
+	uint8_t *ptr = static_cast<uint8_t *>(bitmaps);
+	for (unsigned int i = 0; i < count; i++)
+	{
+		portFixupBitmap(ptr + i * 16);
+	}
+}
+
+extern "C" void portFixupMObjSub(void *mobjsub)
+{
+	if (mobjsub == NULL)
+		return;
+
+	uintptr_t key = reinterpret_cast<uintptr_t>(mobjsub);
+	if (sStructU16Fixups.count(key))
+		return;
+	sStructU16Fixups.insert(key);
+
+	uint32_t *w = static_cast<uint32_t *>(mobjsub);
+
+	// MObjSub layout (30 words = 0x78 bytes):
+	//  Word  Offset  Fields                           Fixup
+	//  0     0x00    u16 pad00, u8 fmt, u8 siz        bswap32 (mixed u16+u8)
+	//  1     0x04    u32 sprites (token)               (ok)
+	//  2     0x08    u16 unk08, u16 unk0A              rotate16
+	//  3     0x0C    u16 unk0C, u16 unk0E              rotate16
+	//  4     0x10    s32 unk10                          (ok)
+	//  5-10  0x14    f32 trau..unk28                    (ok)
+	//  11    0x2C    u32 palettes (token)               (ok)
+	//  12    0x30    u16 flags, u8 block_fmt, u8 block_siz  bswap32
+	//  13    0x34    u16 block_dxt, u16 unk36           rotate16
+	//  14    0x38    u16 unk38, u16 unk3A               rotate16
+	//  15-18 0x3C    f32 scrollu..unk48                 (ok)
+	//  19    0x4C    u32 unk4C                          (ok)
+	//  20    0x50    SYColorPack primcolor (u8 rgba)    bswap32
+	//  21    0x54    u8 prim_l, u8 prim_m, u8[2] pad   bswap32
+	//  22    0x58    SYColorPack envcolor               bswap32
+	//  23    0x5C    SYColorPack blendcolor             bswap32
+	//  24    0x60    SYColorPack light1color            bswap32
+	//  25    0x64    SYColorPack light2color            bswap32
+	//  26-29 0x68    s32 unk68..unk74                   (ok)
+
+	fixup_bswap32(&w[0]);    // pad00 + fmt + siz
+	// w[1]: sprites token — ok
+	fixup_rotate16(&w[2]);   // unk08, unk0A
+	fixup_rotate16(&w[3]);   // unk0C, unk0E
+	// w[4..11]: s32/f32/u32 — ok
+	fixup_bswap32(&w[12]);   // flags + block_fmt + block_siz
+	fixup_rotate16(&w[13]);  // block_dxt, unk36
+	fixup_rotate16(&w[14]);  // unk38, unk3A
+	// w[15..19]: f32/u32 — ok
+	fixup_bswap32(&w[20]);   // primcolor
+	fixup_bswap32(&w[21]);   // prim_l, prim_m, pad
+	fixup_bswap32(&w[22]);   // envcolor
+	fixup_bswap32(&w[23]);   // blendcolor
+	fixup_bswap32(&w[24]);   // light1color
+	fixup_bswap32(&w[25]);   // light2color
+	// w[26..29]: s32 — ok
+}

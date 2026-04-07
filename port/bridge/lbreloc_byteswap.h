@@ -42,6 +42,37 @@ void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_w
  */
 void portResetStructFixups(void);
 
+/**
+ * Fix byte order for a Sprite struct (68 bytes) after blanket u32 swap.
+ *
+ * rotate16 for s16/u16 pair words (x/y, width/height, etc.)
+ * bswap32 for u8 quad words (rgba, bmfmt/bmsiz)
+ * Idempotent: tracked to prevent double-fixup.
+ */
+void portFixupSprite(void *sprite);
+
+/**
+ * Fix byte order for a Bitmap struct (16 bytes) after blanket u32 swap.
+ *
+ * rotate16 for s16 pair words (width/width_img, s/t, actualHeight/LUToffset)
+ * Idempotent: tracked to prevent double-fixup.
+ */
+void portFixupBitmap(void *bitmap);
+
+/**
+ * Fix byte order for an array of Bitmap structs.
+ */
+void portFixupBitmapArray(void *bitmaps, unsigned int count);
+
+/**
+ * Fix byte order for a MObjSub struct (0x78 bytes) after blanket u32 swap.
+ *
+ * Handles the mixed u16/u8 fields: pad00+fmt+siz, unk08-unk0E,
+ * flags+block_fmt+block_siz, block_dxt+unk36, unk38+unk3A.
+ * Idempotent: tracked to prevent double-fixup.
+ */
+void portFixupMObjSub(void *mobjsub);
+
 #ifdef __cplusplus
 }
 #endif

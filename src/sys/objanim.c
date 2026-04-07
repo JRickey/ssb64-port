@@ -1,6 +1,7 @@
 #include <sys/obj.h>
 #ifdef PORT
 #include <port_log.h>
+extern void portFixupMObjSub(void *mobjsub);
 #endif
 
 extern void syInterpCubic(Vec3f*, void*, f32);
@@ -2666,6 +2667,7 @@ void gcSetupCustomDObjsWithMObj(GObj *gobj, DObjDesc *dobjdesc, MObjSub ***p_mob
                         {
                             break;
                         }
+                        portFixupMObjSub(mobjsub);
                         gcAddMObjForDObj(dobj, mobjsub);
 
                         mobjsubs++;
@@ -2729,6 +2731,7 @@ void gcAddMObjAll(GObj *gobj, MObjSub ***p_mobjsubs)
                         {
                             break;
                         }
+                        portFixupMObjSub(mobjsub);
                         gcAddMObjForDObj(dobj, mobjsub);
 
                         mobjsubs++;
