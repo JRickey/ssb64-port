@@ -4850,15 +4850,23 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
                 // Actually subaction scripts?
                 if (fp->anim_desc.flags.is_use_submotion_script)
                 {
+#ifdef PORT
+                    event_file_head = (fp->data->p_file_submotion != NULL) ? *fp->data->p_file_submotion : NULL;
+#else
                     event_file_head = *fp->data->p_file_submotion;
+#endif
 
-                    event_script_ptr = (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head);
+                    event_script_ptr = (event_file_head != NULL) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
                 }
                 else
                 {
+#ifdef PORT
+                    event_file_head = (fp->data->p_file_mainmotion != NULL) ? *fp->data->p_file_mainmotion : NULL;
+#else
                     event_file_head = *fp->data->p_file_mainmotion;
+#endif
 
-                    event_script_ptr = (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head);
+                    event_script_ptr = (event_file_head != NULL) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
                 }
             }
             else event_script_ptr = NULL;
@@ -4869,9 +4877,13 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
         {
             if (motion_desc->offset != 0x80000000)
             {
+#ifdef PORT
+                event_file_head = (fp->data->p_file_submotion != NULL) ? *fp->data->p_file_submotion : NULL;
+#else
                 event_file_head = *fp->data->p_file_submotion;
+#endif
 
-                event_script_ptr = (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head);
+                event_script_ptr = (event_file_head != NULL) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
             }
             else event_script_ptr = NULL;
 

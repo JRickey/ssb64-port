@@ -78,6 +78,13 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
 
     if (root_dobj->anim_wait != AOBJ_ANIM_NULL)
     {
+#ifdef PORT
+        if (root_dobj->parent_gobj == NULL)
+        {
+            root_dobj->anim_wait = AOBJ_ANIM_NULL;
+            return;
+        }
+#endif
         if (root_dobj->anim_wait == AOBJ_ANIM_CHANGED)
         {
             root_dobj->anim_wait = -root_dobj->anim_frame;
