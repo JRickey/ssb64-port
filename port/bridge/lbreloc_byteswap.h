@@ -73,6 +73,15 @@ void portFixupBitmapArray(void *bitmaps, unsigned int count);
  */
 void portFixupMObjSub(void *mobjsub);
 
+/**
+ * Fix byte order for an FTAttributes struct (0x348 bytes) after blanket u32 swap.
+ *
+ * rotate16 for u16 pair words (dead_fgm_ids, sfx, throw scales)
+ * bswap32 for SYColorRGBA u8 quad words (shade_color[3], fog_color)
+ * Idempotent: tracked to prevent double-fixup.
+ */
+void portFixupFTAttributes(void *attr);
+
 #ifdef __cplusplus
 }
 #endif

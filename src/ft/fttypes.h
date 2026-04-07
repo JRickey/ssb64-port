@@ -16,6 +16,9 @@
 
 #include <ft/ftcommon.h>
 #include <ft/ftchar.h>
+#ifdef PORT
+#include <stddef.h>
+#endif
 
 // Structs
 struct FTSpecialColl
@@ -1308,6 +1311,15 @@ struct FTAttributes
 
 #ifdef PORT
 _Static_assert(sizeof(FTAttributes) == 0x348, "FTAttributes must be 0x348 bytes to match file data layout");
+_Static_assert(offsetof(FTAttributes, dead_fgm_ids) == 0xB4, "dead_fgm_ids offset mismatch");
+_Static_assert(offsetof(FTAttributes, deadup_sfx) == 0xB8, "deadup_sfx offset mismatch");
+_Static_assert(offsetof(FTAttributes, smash_sfx) == 0xBC, "smash_sfx offset mismatch");
+_Static_assert(offsetof(FTAttributes, itemthrow_vel_scale) == 0xE4, "itemthrow_vel_scale offset mismatch");
+_Static_assert(offsetof(FTAttributes, heavyget_sfx) == 0xE8, "heavyget_sfx offset mismatch");
+_Static_assert(offsetof(FTAttributes, shade_color) == 0xF0, "shade_color offset mismatch");
+_Static_assert(offsetof(FTAttributes, fog_color) == 0xFC, "fog_color offset mismatch");
+_Static_assert(offsetof(FTAttributes, unused_0x2CC) == 0x2CC, "unused_0x2CC offset mismatch");
+_Static_assert(offsetof(FTAttributes, filler_0x30C) == 0x30C, "filler_0x30C offset mismatch");
 #endif
 
 // Main fighter struct

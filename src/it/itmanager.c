@@ -256,6 +256,8 @@ GObj* itManagerMakeItem(GObj *parent_gobj, ITDesc *item_desc, Vec3f *pos, Vec3f 
     // Byte-swap u16/s16 non-bitfield fields: Vec3h[2](6) + s16[4](8) + u16(2) + pad(2) = 24 bytes = 6 words
     // These fields start at offset 0x20 (after 4 pointer tokens at 0x00 and bitfield region A at 0x10).
     portFixupStructU16(attr, 0x20, 6);
+    // spin_speed (u16) at offset 0x4C, after bitfield region B
+    portFixupStructU16(attr, 0x4C, 1);
 #endif
 
     if (attr->is_display_colanim)

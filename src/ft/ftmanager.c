@@ -3,6 +3,9 @@
 #include <sys/develop.h>
 #include <lb/library.h>
 #include <reloc_data.h>
+#ifdef PORT
+extern void portFixupFTAttributes(void *attr);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -693,6 +696,7 @@ GObj* ftManagerMakeFighter(FTDesc *desc) // Create fighter
     fp->data = dFTManagerDataFiles[fp->fkind];
     attr = fp->attr = lbRelocGetFileData(FTAttributes*, *fp->data->p_file_main, fp->data->o_attributes);
 #ifdef PORT
+    portFixupFTAttributes(attr);
     port_log("SSB64: ftManagerMakeFighter - begin fkind=%d costume=%d shade=%d detail=%d attr=%p\n",
         desc->fkind, desc->costume, desc->shade, desc->detail, attr);
 #endif

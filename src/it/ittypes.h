@@ -11,6 +11,9 @@
 
 #include <it/itdef.h>
 #include <it/itvars.h>
+#ifdef PORT
+#include <stddef.h>
+#endif
 
 // Structs
 struct ITMonsterData
@@ -327,6 +330,8 @@ struct ITAttributes
 
 #ifdef PORT
 _Static_assert(sizeof(ITAttributes) == 0x50, "ITAttributes must be 80 bytes to match ROM data layout");
+_Static_assert(offsetof(ITAttributes, damage_coll_offset) == 0x20, "damage_coll_offset offset mismatch");
+_Static_assert(offsetof(ITAttributes, spin_speed) == 0x4C, "spin_speed offset mismatch");
 #endif
 
 struct ITStruct 						// Common items, stage hazards, fighter items and Pokémon

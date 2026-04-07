@@ -514,3 +514,46 @@ extern "C" void portFixupMObjSub(void *mobjsub)
 	fixup_bswap32(&w[25]);   // light2color
 	// w[26..29]: s32 — ok
 }
+
+extern "C" void portFixupFTAttributes(void *attr)
+{
+	if (attr == NULL)
+		return;
+
+	uintptr_t key = reinterpret_cast<uintptr_t>(attr);
+	if (sStructU16Fixups.count(key))
+		return;
+	sStructU16Fixups.insert(key);
+
+	uint32_t *w = static_cast<uint32_t *>(attr);
+
+	// FTAttributes layout (0x348 bytes = 210 words):
+	// Words 0x00..0x2C: f32/s32 physics fields — ok
+	// Words 0x27..0x2B: MPObjectColl (4 f32) + Vec2f (2 f32) — ok
+	//
+	//  Word  Offset  Fields                               Fixup
+	//  0x2D  0x0B4   u16 dead_fgm_ids[0], [1]            rotate16
+	//  0x2E  0x0B8   u16 deadup_sfx, u16 damage_sfx      rotate16
+	//  0x2F  0x0BC   u16 smash_sfx[0], smash_sfx[1]      rotate16
+	//  0x30  0x0C0   u16 smash_sfx[2], pad                rotate16
+	// Words 0x31..0x38: FTItemPickup (8 f32) — ok
+	//  0x39  0x0E4   u16 itemthrow_vel_scale, damage_scale rotate16
+	//  0x3A  0x0E8   u16 heavyget_sfx, pad                rotate16
+	// Word 0x3B: f32 halo_size — ok
+	//  0x3C  0x0F0   SYColorRGBA shade_color[0]           bswap32
+	//  0x3D  0x0F4   SYColorRGBA shade_color[1]           bswap32
+	//  0x3E  0x0F8   SYColorRGBA shade_color[2]           bswap32
+	//  0x3F  0x0FC   SYColorRGBA fog_color                bswap32
+	// Words 0x40..end: bitfields, DamageCollDescs (s32/f32), pointers (u32 tokens) — ok
+
+	fixup_rotate16(&w[0x2D]);  // dead_fgm_ids[0], [1]
+	fixup_rotate16(&w[0x2E]);  // deadup_sfx, damage_sfx
+	fixup_rotate16(&w[0x2F]);  // smash_sfx[0], smash_sfx[1]
+	fixup_rotate16(&w[0x30]);  // smash_sfx[2], pad
+	fixup_rotate16(&w[0x39]);  // itemthrow_vel_scale, itemthrow_damage_scale
+	fixup_rotate16(&w[0x3A]);  // heavyget_sfx, pad
+	fixup_bswap32(&w[0x3C]);   // shade_color[0] rgba
+	fixup_bswap32(&w[0x3D]);   // shade_color[1] rgba
+	fixup_bswap32(&w[0x3E]);   // shade_color[2] rgba
+	fixup_bswap32(&w[0x3F]);   // fog_color rgba
+}
