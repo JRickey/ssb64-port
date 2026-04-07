@@ -65,6 +65,12 @@ file(GLOB_RECURSE SSB64_SRC_WP      "src/wp/*.c"      "src/wp/*.h")
 file(GLOB_RECURSE SSB64_SRC_PORT "port/*.cpp" "port/*.c" "port/*.h")
 list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/stubs/")
 
+# Debug tools (GBI trace + Acmd trace systems)
+file(GLOB SSB64_DEBUG_TOOLS
+    "debug_tools/gbi_trace/*.c" "debug_tools/gbi_trace/*.h"
+    "debug_tools/acmd_trace/*.c" "debug_tools/acmd_trace/*.h"
+)
+
 set(SSB64_DECOMP_SOURCES
     ${SSB64_SRC_CREDITS}
     ${SSB64_SRC_EF}
@@ -150,7 +156,7 @@ target_include_directories(ssb64_game PRIVATE
 # Executable target — port C++ code + decomp object library
 ################################################################################
 
-add_executable(${PROJECT_NAME} ${SSB64_SRC_PORT} $<TARGET_OBJECTS:ssb64_game>)
+add_executable(${PROJECT_NAME} ${SSB64_SRC_PORT} ${SSB64_DEBUG_TOOLS} $<TARGET_OBJECTS:ssb64_game>)
 
 ################################################################################
 # Compile definitions
@@ -165,6 +171,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE ${SSB64_COMPILE_DEFS})
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
     ${CMAKE_CURRENT_SOURCE_DIR}/port
+    ${CMAKE_CURRENT_SOURCE_DIR}/debug_tools
 )
 
 ################################################################################

@@ -1,10 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(m64p-trace-plugins C)
 
-# === RSP Trace Plugin (primary — for emulator-side DL capture) ===
+# === RSP Trace Plugin (primary — for emulator-side DL + audio capture) ===
 add_library(mupen64plus-rsp-trace SHARED
     rsp_trace_plugin.c
     ../gbi_trace/gbi_decoder.c
+    ../acmd_trace/acmd_decoder.c
 )
 
 target_include_directories(mupen64plus-rsp-trace PRIVATE

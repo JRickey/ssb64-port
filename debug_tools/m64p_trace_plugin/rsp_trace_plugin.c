@@ -1,9 +1,9 @@
 /**
  * rsp_trace_plugin.c — Mupen64Plus RSP trace plugin
  *
- * A minimal RSP plugin that intercepts GFX tasks, reads the display list
- * address from the intact OSTask in DMEM, and walks the DL through RDRAM
- * to produce a structured trace file.
+ * A minimal RSP plugin that intercepts GFX and audio tasks, reading
+ * display lists / audio command lists from RDRAM to produce structured
+ * trace files for comparison against the PC port.
  *
  * This runs as an RSP plugin (not GFX) because the RSP plugin's DoRspCycles
  * is called with DMEM intact, before the HLE overwrites it with ucode data.
@@ -13,17 +13,24 @@
  *
  * Usage:
  *   mupen64plus --rsp mupen64plus-rsp-trace.dll --gfx <any_video_plugin> <rom>
- *   Output: emu_trace.gbi (in M64P_TRACE_DIR or current directory)
+ *   Output: emu_trace.gbi + emu_acmd_trace.acmd (in M64P_TRACE_DIR or cwd)
+ *
+ * Env vars:
+ *   M64P_TRACE_DIR=path        Output directory (default: ".")
+ *   M64P_TRACE_FRAMES=N        Max GFX frames to trace (0=unlimited, default 300)
+ *   M64P_ACMD_TRACE=1          Enable audio command tracing (default: off)
+ *   M64P_ACMD_TRACE_TASKS=N    Max audio tasks to trace (0=unlimited, default 600)
  */
 #include "m64p_plugin_api.h"
 #include "gbi_trace/gbi_decoder.h"
+#include "acmd_trace/acmd_decoder.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 /* ========================================================================= */
-/*  State                                                                    */
+/*  State — GBI (display list) tracing                                       */
 /* ========================================================================= */
 
 static RSP_INFO  sRspInfo;
@@ -36,6 +43,16 @@ static char      sTraceDir[512] = ".";
 
 /* N64 segment table — maintained by tracking G_MOVEWORD SEGMENT commands */
 static uint32_t  sSegmentTable[16];
+
+/* ========================================================================= */
+/*  State — Acmd (audio command) tracing                                     */
+/* ========================================================================= */
+
+static FILE     *sAcmdTraceFile  = NULL;
+static int       sAcmdTaskNum    = 0;
+static int       sAcmdCmdIndex   = 0;
+static int       sAcmdMaxTasks   = 600;  /* default: 10 seconds @ 60 tasks/sec */
+static int       sAcmdEnabled    = 0;
 
 /* ========================================================================= */
 /*  Memory access — M64P stores memory in native byte order                  */
@@ -147,6 +164,37 @@ static void walk_display_list(uint32_t phys_addr, int depth)
 }
 
 /* ========================================================================= */
+/*  Audio command list walker                                                */
+/* ========================================================================= */
+
+/**
+ * Walk a linear Acmd list in RDRAM and log each command.
+ * Audio command lists are flat (no branching/recursion like GBI DLs).
+ * Each Acmd is 8 bytes (w0 + w1).
+ */
+static void walk_audio_list(uint32_t phys_addr, uint32_t data_size)
+{
+	uint32_t addr = phys_addr;
+	/* data_size is in bytes; each Acmd is 8 bytes */
+	int max_cmds = (data_size > 0) ? (int)(data_size / 8) : 4096;
+	int i;
+
+	for (i = 0; i < max_cmds; i++) {
+		uint32_t w0 = rdram_read32(addr);
+		uint32_t w1 = rdram_read32(addr + 4);
+
+		if (sAcmdTraceFile) {
+			char decoded[512];
+			acmd_decode_cmd(w0, w1, decoded, sizeof(decoded));
+			fprintf(sAcmdTraceFile, "[%04d] %s\n", sAcmdCmdIndex, decoded);
+			sAcmdCmdIndex++;
+		}
+
+		addr += 8;
+	}
+}
+
+/* ========================================================================= */
 /*  RSP Plugin API                                                           */
 /* ========================================================================= */
 
@@ -171,6 +219,19 @@ EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle handle,
 		if (val == 0) sMaxFrames = 0;
 	}
 
+	/* Audio trace config */
+	env = getenv("M64P_ACMD_TRACE");
+	if (env && (env[0] == '1' || env[0] == 'y' || env[0] == 'Y')) {
+		sAcmdEnabled = 1;
+	}
+
+	env = getenv("M64P_ACMD_TRACE_TASKS");
+	if (env) {
+		int val = atoi(env);
+		if (val > 0) sAcmdMaxTasks = val;
+		if (val == 0) sAcmdMaxTasks = 0;
+	}
+
 	return M64ERR_SUCCESS;
 }
 
@@ -180,6 +241,11 @@ EXPORT m64p_error CALL PluginShutdown(void)
 		fprintf(sTraceFile, "# END OF TRACE — %d frames captured\n", sFrameNum);
 		fclose(sTraceFile);
 		sTraceFile = NULL;
+	}
+	if (sAcmdTraceFile) {
+		fprintf(sAcmdTraceFile, "# END OF TRACE — %d audio tasks captured\n", sAcmdTaskNum);
+		fclose(sAcmdTraceFile);
+		sAcmdTraceFile = NULL;
 	}
 	sInitialized = 0;
 	return M64ERR_SUCCESS;
@@ -192,7 +258,7 @@ EXPORT m64p_error CALL PluginGetVersion(m64p_plugin_type *type, int *version,
 	if (type)        *type = M64PLUGIN_RSP;
 	if (version)     *version = 0x010000;     /* 1.0.0 */
 	if (api_version) *api_version = 0x020000; /* RSP API 2.0.0 */
-	if (name)        *name = "GBI Trace RSP Plugin";
+	if (name)        *name = "GBI + Acmd Trace RSP Plugin";
 	if (caps)        *caps = 0;
 	return M64ERR_SUCCESS;
 }
@@ -219,8 +285,25 @@ EXPORT void CALL InitiateRSP(RSP_INFO rsp_info, unsigned int *cycle_count)
 	fprintf(sTraceFile, "#\n");
 	fflush(sTraceFile);
 
-	fprintf(stderr, "[rsp_trace] Trace plugin initialized, writing to %s (max %d frames)\n",
+	fprintf(stderr, "[rsp_trace] GBI trace initialized, writing to %s (max %d frames)\n",
 	        path, sMaxFrames);
+
+	/* Open audio trace file if enabled */
+	if (sAcmdEnabled) {
+		snprintf(path, sizeof(path), "%s/emu_acmd_trace.acmd", sTraceDir);
+		sAcmdTraceFile = fopen(path, "w");
+		if (!sAcmdTraceFile) {
+			fprintf(stderr, "[rsp_trace] ERROR: cannot open %s\n", path);
+		} else {
+			fprintf(sAcmdTraceFile, "# Acmd Trace — Mupen64Plus Emulator (RSP Plugin)\n");
+			fprintf(sAcmdTraceFile, "# Format: [cmd_index] A_OPCODE  w0=XXXXXXXX w1=XXXXXXXX  params...\n");
+			fprintf(sAcmdTraceFile, "# Source: emu (RDRAM audio command list walk via RSP task interception)\n");
+			fprintf(sAcmdTraceFile, "#\n");
+			fflush(sAcmdTraceFile);
+			fprintf(stderr, "[rsp_trace] Acmd trace initialized, writing to %s (max %d tasks)\n",
+			        path, sAcmdMaxTasks);
+		}
+	}
 
 	if (cycle_count) *cycle_count = 0;
 }
@@ -248,11 +331,43 @@ EXPORT unsigned int CALL DoRspCycles(unsigned int cycles)
 		}
 	}
 
-	/* Only trace GFX tasks (type 1). Pass audio tasks through. */
-	if (task_type != M_GFXTASK) {
-		if (sRspInfo.ProcessAList && task_type == M_AUDTASK) {
+	/* Handle audio tasks */
+	if (task_type == M_AUDTASK) {
+		/* Trace audio command list if enabled */
+		if (sAcmdEnabled && sAcmdTraceFile &&
+		    (sAcmdMaxTasks == 0 || sAcmdTaskNum < sAcmdMaxTasks))
+		{
+			uint32_t alist_addr = dmem_read32(TASK_DATA_PTR);
+			uint32_t alist_size = dmem_read32(TASK_DATA_SIZE);
+
+			alist_addr &= 0x00FFFFFF; /* Strip KSEG0/KSEG1 */
+
+			fprintf(sAcmdTraceFile, "\n=== AUDIO TASK %d ===\n", sAcmdTaskNum);
+			sAcmdCmdIndex = 0;
+
+			walk_audio_list(alist_addr, alist_size);
+
+			fprintf(sAcmdTraceFile, "=== END AUDIO TASK %d — %d commands ===\n",
+			        sAcmdTaskNum, sAcmdCmdIndex);
+			fflush(sAcmdTraceFile);
+			sAcmdTaskNum++;
+
+			if (sAcmdMaxTasks > 0 && sAcmdTaskNum >= sAcmdMaxTasks) {
+				fprintf(sAcmdTraceFile, "# TRACE STOPPED — task limit %d reached\n",
+				        sAcmdMaxTasks);
+				fflush(sAcmdTraceFile);
+			}
+		}
+
+		/* Still let the audio plugin process normally */
+		if (sRspInfo.ProcessAList) {
 			sRspInfo.ProcessAList();
 		}
+		goto done;
+	}
+
+	/* Only trace GFX tasks (type 1) below this point */
+	if (task_type != M_GFXTASK) {
 		goto done;
 	}
 
@@ -304,4 +419,5 @@ EXPORT void CALL RomClosed(void)
 {
 	/* Reset segment table */
 	memset(sSegmentTable, 0, sizeof(sSegmentTable));
+	sAcmdTaskNum = 0;
 }
