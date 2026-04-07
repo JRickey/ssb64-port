@@ -856,14 +856,21 @@ void lbCommonAddFighterPartsFigatree(DObj *root_dobj, void **figatree, f32 anim_
 void lbCommonAddTreeDObjsAnimAll(DObj *root_dobj, AObjEvent32 **anim_joints, AObjEvent32 ***p_matanim_joints, f32 anim_frame)
 {
     DObj *current_dobj = root_dobj;
-    
+#ifdef PORT
+    u32 joint_idx = 0;
+#endif
+
     root_dobj->parent_gobj->anim_frame = anim_frame;
 
     while (current_dobj != NULL)
     {
         if (anim_joints != NULL)
         {
+#ifdef PORT
+            AObjEvent32 *anim_joint = (AObjEvent32 *)PORT_RESOLVE_ARRAY(anim_joints, joint_idx);
+#else
             AObjEvent32 *anim_joint = *anim_joints;
+#endif
 
             if (anim_joint != NULL)
             {
@@ -871,10 +878,32 @@ void lbCommonAddTreeDObjsAnimAll(DObj *root_dobj, AObjEvent32 **anim_joints, AOb
             }
             else current_dobj->anim_wait = AOBJ_ANIM_NULL;
 
+#ifndef PORT
             anim_joints++;
+#endif
         }
         if (p_matanim_joints != NULL)
         {
+#ifdef PORT
+            void *matanim_joints_inner = PORT_RESOLVE_ARRAY(p_matanim_joints, joint_idx);
+            if (matanim_joints_inner != NULL)
+            {
+                MObj *mobj = current_dobj->mobj;
+                u32 matanim_idx = 0;
+
+                while (mobj != NULL)
+                {
+                    AObjEvent32 *matanim_joint = (AObjEvent32 *)PORT_RESOLVE_ARRAY(matanim_joints_inner, matanim_idx);
+
+                    if (matanim_joint != NULL)
+                    {
+                        gcAddMObjMatAnimJoint(mobj, matanim_joint, anim_frame);
+                    }
+                    mobj = mobj->next;
+                    matanim_idx++;
+                }
+            }
+#else
             if (*p_matanim_joints != NULL)
             {
                 MObj *mobj = current_dobj->mobj;
@@ -893,7 +922,11 @@ void lbCommonAddTreeDObjsAnimAll(DObj *root_dobj, AObjEvent32 **anim_joints, AOb
                 }
             }
             p_matanim_joints++;
+#endif
         }
+#ifdef PORT
+        joint_idx++;
+#endif
         current_dobj = lbCommonGetTreeDObjNextFromRoot(current_dobj, root_dobj);
     }
 }
@@ -981,6 +1014,41 @@ void lbCommonAddMObjForFighterPartsDObj
 {
     if (mobjsubs != NULL)
     {
+#ifdef PORT
+        u32 idx = 0;
+        MObjSub *mobjsub = (MObjSub *)PORT_RESOLVE_ARRAY(mobjsubs, idx);
+
+        while (mobjsub != NULL)
+        {
+            MObj *mobj = gcAddMObjForDObj(dobj, mobjsub);
+
+            if (costume_matanim_joints != NULL)
+            {
+                AObjEvent32 *costume_matanim_joint = (AObjEvent32 *)PORT_RESOLVE_ARRAY(costume_matanim_joints, idx);
+
+                if (costume_matanim_joint != NULL)
+                {
+                    gcAddMObjMatAnimJoint(mobj, costume_matanim_joint, anim_frame);
+                    gcParseMObjMatAnimJoint(mobj);
+                    gcPlayMObjMatAnim(mobj);
+                    gcRemoveAObjFromMObj(mobj);
+                }
+            }
+            if (main_matanim_joints != NULL)
+            {
+                AObjEvent32 *main_matanim_joint = (AObjEvent32 *)PORT_RESOLVE_ARRAY(main_matanim_joints, idx);
+
+                if (main_matanim_joint != NULL)
+                {
+                    gcAddMObjMatAnimJoint(mobj, main_matanim_joint, 0.0F);
+                    gcParseMObjMatAnimJoint(mobj);
+                    gcPlayMObjMatAnim(mobj);
+                }
+            }
+            idx++;
+            mobjsub = (MObjSub *)PORT_RESOLVE_ARRAY(mobjsubs, idx);
+        }
+#else
         MObjSub *mobjsub = *mobjsubs;
 
         while (mobjsub != NULL)
@@ -1015,6 +1083,7 @@ void lbCommonAddMObjForFighterPartsDObj
             mobjsubs++;
             mobjsub = *mobjsubs;
         }
+#endif
     }
 }
 
@@ -1104,8 +1173,13 @@ void lbCommonSetupFighterPartsDObjs
             lbCommonAddMObjForFighterPartsDObj
             (
                 current_dobj,
+#ifdef PORT
+                (detail_p_mobjsubs != NULL) ? (MObjSub **)PORT_RESOLVE_ARRAY(detail_p_mobjsubs, i) : NULL,
+                (detail_p_costume_matanim_joints != NULL) ? (AObjEvent32 **)PORT_RESOLVE_ARRAY(detail_p_costume_matanim_joints, i) : NULL,
+#else
                 (detail_p_mobjsubs != NULL) ? detail_p_mobjsubs[i] : NULL,
                 (detail_p_costume_matanim_joints != NULL) ? detail_p_costume_matanim_joints[i] : NULL,
+#endif
                 NULL,
                 anim_frame
             );
@@ -1141,12 +1215,15 @@ void lbCommonSetupCustomTreeDObjsWithMObj
     DObj *dobj;
     s32 id;
     DObj *array_dobjs[DOBJ_ARRAY_MAX];
+#ifdef PORT
+    u32 outer_idx = 0;
+#endif
 
     for (i = 0; i < ARRAY_COUNT(array_dobjs); i++)
     {
         array_dobjs[i] = NULL;
     }
-    while (dobjdesc->id != ARRAY_COUNT(array_dobjs)) 
+    while (dobjdesc->id != ARRAY_COUNT(array_dobjs))
     {
         id = dobjdesc->id & 0xFFF;
 
@@ -1159,15 +1236,30 @@ void lbCommonSetupCustomTreeDObjsWithMObj
         if (dobjdesc->id & 0x8000)
         {
             gcDecideDObj3TransformsKind(dobj, tk1, tk2, tk3, 0x8000);
-        } 
+        }
         else gcAddDObj3TransformsKind(dobj, tk1, tk2, tk3);
-        
+
         dobj->translate.vec.f = dobjdesc->translate;
         dobj->rotate.vec.f = dobjdesc->rotate;
         dobj->scale.vec.f = dobjdesc->scale;
 
         if (p_mobjsubs != NULL)
         {
+#ifdef PORT
+            void *mobjsubs_inner = PORT_RESOLVE_ARRAY(p_mobjsubs, outer_idx);
+            if (mobjsubs_inner != NULL)
+            {
+                u32 inner_idx = 0;
+                MObjSub *mobjsub = (MObjSub *)PORT_RESOLVE_ARRAY(mobjsubs_inner, inner_idx);
+                while (mobjsub != NULL)
+                {
+                    gcAddMObjForDObj(dobj, mobjsub);
+                    inner_idx++;
+                    mobjsub = (MObjSub *)PORT_RESOLVE_ARRAY(mobjsubs_inner, inner_idx);
+                }
+            }
+            outer_idx++;
+#else
             if (*p_mobjsubs != NULL)
             {
                 MObjSub **mobjsubs = *p_mobjsubs;
@@ -1176,13 +1268,12 @@ void lbCommonSetupCustomTreeDObjsWithMObj
                 while (mobjsub != NULL)
                 {
                     gcAddMObjForDObj(dobj, mobjsub);
-
                     mobjsubs++;
-
                     mobjsub = *mobjsubs;
                 }
             }
             p_mobjsubs++;
+#endif
         }
         if (dobjs != NULL)
         {
@@ -1196,25 +1287,43 @@ void lbCommonSetupCustomTreeDObjsWithMObj
 void lbCommonAddMObjForTreeDObjs(DObj *root_dobj, MObjSub ***p_mobjsubs)
 {
     DObj *current_dobj = root_dobj;
-    
+#ifdef PORT
+    u32 outer_idx = 0;
+#endif
+
     while (current_dobj != NULL)
     {
         if (p_mobjsubs != NULL)
         {
+#ifdef PORT
+            void *mobjsubs_inner = PORT_RESOLVE_ARRAY(p_mobjsubs, outer_idx);
+            if (mobjsubs_inner != NULL)
+            {
+                u32 inner_idx = 0;
+                MObjSub *mobjsub = (MObjSub *)PORT_RESOLVE_ARRAY(mobjsubs_inner, inner_idx);
+                while (mobjsub != NULL)
+                {
+                    gcAddMObjForDObj(current_dobj, mobjsub);
+                    inner_idx++;
+                    mobjsub = (MObjSub *)PORT_RESOLVE_ARRAY(mobjsubs_inner, inner_idx);
+                }
+            }
+            outer_idx++;
+#else
             if (*p_mobjsubs != NULL)
             {
                 MObjSub **mobjsubs = *p_mobjsubs;
                 MObjSub *mobjsub = *mobjsubs;
-                    
+
                 while (mobjsub != NULL)
                 {
                     gcAddMObjForDObj(current_dobj, mobjsub);
-                        
                     mobjsubs++;
                     mobjsub = *mobjsubs;
                 }
             }
             p_mobjsubs++;
+#endif
         }
         current_dobj = lbCommonGetTreeDObjNextFromRoot(current_dobj, root_dobj);
     }
