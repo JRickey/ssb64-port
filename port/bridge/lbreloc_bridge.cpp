@@ -357,21 +357,48 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	{
 		u32 *slot = (u32 *)((uintptr_t)ram_dst + (reloc_intern * sizeof(u32)));
 
-		// Read the reloc info before we overwrite the slot
+		// Read the reloc descriptor before we overwrite the slot.
+		// After the blanket u32 byte-swap, native u32 reads produce the
+		// same values as on the N64 (big-endian).  The struct layout is:
+		//   bits [31:16] = next descriptor offset (word index), 0xFFFF = end
+		//   bits [15:0]  = target offset within this file (word index)
 		u16 next_reloc = (u16)(*slot >> 16);
 		u16 words_num  = (u16)(*slot & 0xFFFF);
 
-		// Compute the real target pointer (within this file's data)
-		void *target = (void *)((uintptr_t)ram_dst + (words_num * sizeof(u32)));
-
-		// Register in the token table and write the 32-bit token
-		u32 token = portRelocRegisterPointer(target);
-
-		if (is_fighter_figatree && (reloc_intern < figatree_reloc_words.size()))
+		// Check if this reloc slot is the w1 field of a G_DL command.
+		// G_DL commands that reference segment 0x0E for runtime-dynamic
+		// display lists (graphics heap) must NOT be tokenized — they need
+		// to be resolved at runtime through the Fast3D segment table when
+		// the game sets segment 0x0E via gSPSegment().
+		bool skip_tokenize = false;
+		if (reloc_intern > 0)
 		{
-			figatree_reloc_words[reloc_intern] = 1;
+			u32 *prev_word = slot - 1;
+			u8 prev_opcode = (u8)(*prev_word >> 24);
+
+			if (prev_opcode == 0xDE)  // G_DL opcode
+			{
+				// Restore the original segment 0x0E address.
+				u32 original_seg_addr = 0x0E000000 | (words_num * sizeof(u32));
+				*slot = original_seg_addr;
+				skip_tokenize = true;
+			}
 		}
-		*slot = token;
+
+		if (!skip_tokenize)
+		{
+			// Compute the real target pointer (within this file's data)
+			void *target = (void *)((uintptr_t)ram_dst + (words_num * sizeof(u32)));
+
+			// Register in the token table and write the 32-bit token
+			u32 token = portRelocRegisterPointer(target);
+
+			if (is_fighter_figatree && (reloc_intern < figatree_reloc_words.size()))
+			{
+				figatree_reloc_words[reloc_intern] = 1;
+			}
+			*slot = token;
+		}
 
 		reloc_intern = next_reloc;
 	}
