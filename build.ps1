@@ -125,7 +125,9 @@ if (Test-Path $F3DO2R) {
     Remove-Item -Force $F3DO2R
 }
 
-Compress-Archive -Path $Fast3DShaderDir -DestinationPath $F3DO2R -Force
+# Compress-Archive only accepts .zip; use ZipFile directly so we can name it .o2r
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+[System.IO.Compression.ZipFile]::CreateFromDirectory($Fast3DShaderDir, $F3DO2R)
 
 if (-not (Test-Path $F3DO2R)) {
     Write-Host "ERROR: f3d.o2r was not created" -ForegroundColor Red
