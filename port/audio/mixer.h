@@ -79,6 +79,7 @@ void aPoleFilterImpl(uint8_t flags, uint16_t gain, int16_t *state);
 #define aSetBuffer(pkt, f, i, o, c) aSetBufferImpl(f, i, o, c)
 #define aLoadBuffer(pkt, s)         aLoadBufferImpl((uintptr_t)(s))
 #define aSaveBuffer(pkt, s)         aSaveBufferImpl((uintptr_t)(s))
+#define aInterleave(pkt, l, r)      aInterleaveImpl(l, r)
 #define aDMEMMove(pkt, i, o, c)     aDMEMMoveImpl(i, o, c)
 #define aLoadADPCM(pkt, c, d)       aLoadADPCMImpl(c, (uintptr_t)(d))
 #define aSetLoop(pkt, a)            aSetLoopImpl((uintptr_t)(a))

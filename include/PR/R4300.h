@@ -60,6 +60,17 @@
 
 #else /* _LANGUAGE_C */
 
+#ifdef PORT
+/* PORT: On 64-bit, address conversion macros pass pointers through unchanged.
+ * N64 kseg0/kseg1 masking would destroy 64-bit addresses. */
+#define	K0_TO_K1(x)	((uintptr_t)(x))
+#define	K1_TO_K0(x)	((uintptr_t)(x))
+#define	K0_TO_PHYS(x)	((uintptr_t)(x))
+#define	K1_TO_PHYS(x)	((uintptr_t)(x))
+#define	KDM_TO_PHYS(x)	((uintptr_t)(x))
+#define	PHYS_TO_K0(x)	((void*)(uintptr_t)(x))
+#define	PHYS_TO_K1(x)	((void*)(uintptr_t)(x))
+#else
 #define	K0_TO_K1(x)	((u32)(x)|0xA0000000)	/* kseg0 to kseg1 */
 #define	K1_TO_K0(x)	((u32)(x)&0x9FFFFFFF)	/* kseg1 to kseg0 */
 #define	K0_TO_PHYS(x)	((u32)(x)&0x1FFFFFFF)	/* kseg0 to physical */
@@ -67,6 +78,7 @@
 #define	KDM_TO_PHYS(x)	((u32)(x)&0x1FFFFFFF)	/* direct mapped to physical */
 #define	PHYS_TO_K0(x)	((u32)(x)|0x80000000)	/* physical to kseg0 */
 #define	PHYS_TO_K1(x)	((u32)(x)|0xA0000000)	/* physical to kseg1 */
+#endif
 
 #endif	/* _LANGUAGE_ASSEMBLY */
 

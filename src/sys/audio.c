@@ -7,6 +7,7 @@
 
 #ifdef PORT
 #include "audio/audio_playback.h"
+#include "audio/audio_dma.h"
 #include "bridge/audio_bridge.h"
 #endif
 
@@ -909,7 +910,11 @@ void syAudioMakeBGMPlayers(void)
     syn_config.maxVVoices = sSYAudioCurrentSettings.vvoices_num_max;
     syn_config.maxPVoices = sSYAudioCurrentSettings.pvoices_num_max;
     syn_config.maxUpdates = sSYAudioCurrentSettings.updates_num_max;
+#ifdef PORT
+    syn_config.dmaproc = (ALDMANew)(void *)portAudioDmaNew;
+#else
     syn_config.dmaproc = syAudioDmaNew;
+#endif
     syn_config.outputRate = osAiSetFrequency(sSYAudioCurrentSettings.output_rate);
     syn_config.heap = &sSYAudioHeap;
 
@@ -1034,13 +1039,36 @@ void syAudioThreadMain(void *arg)
     osSendMesg(&gSYMainThreadingMesgQueue, (OSMesg)1, OS_MESG_NOBLOCK);
 
 #ifdef PORT
-    /* PORT: Audio assets are loaded but synthesis is not yet wired.
-     * Push silence until the Acmd interpreter is implemented (Phase 3C/3D).
-     * This loop will be replaced with real synthesis later. */
-    while (TRUE)
+    /* PORT (Phase 3D): Audio synthesis loop.
+     * n_alAudioFrame runs the synthesis pull chain.  With mixer.h's macro
+     * replacement active, the ABI macros (aSetBuffer, aLoadBuffer, etc.)
+     * call CPU functions directly instead of building RSP command lists.
+     * After n_alAudioFrame returns, the output buffer contains interleaved
+     * stereo s16 PCM.  We feed it to AudioPlayerPlayFrame via LUS. */
     {
-        osRecvMesg(&sSYAudioTicMesgQueue, NULL, OS_MESG_BLOCK);
-        portAudioPushSilence();
+        s32 port_cmdLen;
+        s32 port_id_mod3;
+        s32 port_i;
+
+        while (TRUE)
+        {
+            osRecvMesg(&sSYAudioTicMesgQueue, NULL, OS_MESG_BLOCK);
+
+            port_i = dSYAudioCurrentTic & 1;
+            sSYAudioCurrentAcmdListBuffer = sSYAudioAcmdListBuffers[port_i];
+            port_id_mod3 = dSYAudioCurrentTic % 3;
+
+            dSYAudioSampleCounts[port_id_mod3] = sSYAudioFrequency;
+
+            n_alAudioFrame(sSYAudioCurrentAcmdListBuffer, &port_cmdLen,
+                           sSYAudioDataBuffers[port_id_mod3],
+                           dSYAudioSampleCounts[port_id_mod3]);
+
+            portAudioSubmitFrame(sSYAudioDataBuffers[port_id_mod3],
+                                 dSYAudioSampleCounts[port_id_mod3]);
+
+            dSYAudioCurrentTic++;
+        }
     }
 #endif
 

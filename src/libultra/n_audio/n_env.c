@@ -2,6 +2,14 @@
 #include <n_audio/n_synthInternals.h>
 #include <n_audio/n_seqp.h>
 
+#ifdef PORT
+/* PORT: Replace standard N64 ABI macros (aSetBuffer, aLoadBuffer, etc.)
+ * with CPU function calls.  Must come AFTER abi.h (via mbi.h → n_libaudio.h)
+ * so the original macros exist to be #undef'd. */
+#include "audio/mixer.h"
+#include <assert.h>
+#endif
+
 #define KILL_TIME	50000	/* 50 ms */
 
 typedef struct ALWhatever80026094_sub
@@ -717,7 +725,11 @@ s32
     /* Get loop info according to table type. */
     if (a->dc_table)
       {
+#ifdef PORT
+	a->dc_memin  = (uintptr_t) a->dc_table->base;
+#else
 	a->dc_memin  = (s32) a->dc_table->base;
+#endif
 	if (a->dc_table->type == AL_ADPCM_WAVE)
 	  {
 	    if (a->dc_table->waveInfo.adpcmWave.loop)
@@ -740,7 +752,12 @@ s32
 Acmd *_decodeChunk(Acmd *ptr, N_PVoice *f, s32 tsam,
 		   s32 nbytes, s16 outp, s16 inp, u32 flags)
 {
+#ifdef PORT
+  uintptr_t dramLoc;
+  s32 dramAlign;
+#else
   s32 dramAlign, dramLoc;
+#endif
   
   if (nbytes > 0){
     dramLoc = (f->dc_dma)(f->dc_memin, nbytes, f->dc_dmaState);
@@ -811,9 +828,17 @@ s16 n_eqpower[ N_EQPOWER_LENGTH ] = {
 };
 
 #ifndef N_MICRO
+#ifdef PORT
+/* PORT: IDO math → standard C math library */
+#include <math.h>
+#define __pow   pow
+#define _frexpf frexp
+#define _ldexpf ldexp
+#else
 extern	f64	__pow(f64, f64);
 extern f64 _frexpf(f64 value, s32 *eptr);
 extern f64 _ldexpf(f64 in, s32 ex);
+#endif
 #endif
 
 /*
@@ -2187,7 +2212,11 @@ Acmd *n_alAudioFrame(Acmd *cmdList, s32 *cmdLen, s16 *outBuf, s32 outLen)
 #ifndef N_MICRO
     aSegment(cmdPtr++, 0, 0);
 #endif
+#ifdef PORT
+    n_syn->sv_dramout = (uintptr_t)lOutBuf;
+#else
     n_syn->sv_dramout = (s32)lOutBuf;
+#endif
     cmdlEnd = n_alSavePull(n_syn->curSamples, cmdPtr);
     
     outLen -= nOut;

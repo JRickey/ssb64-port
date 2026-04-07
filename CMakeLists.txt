@@ -144,6 +144,38 @@ set(SSB64_LIBULTRA_PORT
 )
 target_sources(ssb64_game PRIVATE ${SSB64_LIBULTRA_PORT})
 
+# N64 audio library — synthesis driver, sequence player, voice management.
+# These decomp files are compiled with PORT defines; the CPU Acmd interpreter
+# (port/audio/mixer.h) replaces RSP microcode via macro substitution.
+set(SSB64_NAUDIO_PORT
+    src/libultra/n_audio/n_env.c             # Core: synth driver, audio frame, pull chain, CSP, FX, event queue
+    src/libultra/n_audio/n_synaddplayer.c     # Add player to synth driver
+    src/libultra/n_audio/n_synallocfx.c       # FX bus allocation
+    src/libultra/n_audio/n_synallocvoice.c    # Voice allocation + stealing
+    src/libultra/n_audio/n_synfreevoice.c     # Voice free
+    src/libultra/n_audio/n_syndelete.c        # Synth delete
+    src/libultra/n_audio/n_synsetfxmix.c      # Voice FX mix
+    src/libultra/n_audio/n_synsetpan.c        # Voice pan
+    src/libultra/n_audio/n_synsetpitch.c      # Voice pitch
+    src/libultra/n_audio/n_synsetpriority.c   # Voice priority
+    src/libultra/n_audio/n_synsetvol.c        # Voice volume
+    src/libultra/n_audio/n_synstartvoiceparam.c # Voice start with params
+    src/libultra/n_audio/n_synstopvoice.c     # Voice stop
+    src/libultra/n_audio/n_cspplay.c          # CSP play
+    src/libultra/n_audio/n_cspsetbank.c       # CSP set bank
+    src/libultra/n_audio/n_cspsetfxmix.c      # CSP set FX mix
+    src/libultra/n_audio/n_cspsetpriority.c   # CSP set priority
+    src/libultra/n_audio/n_cspsetseq.c        # CSP set sequence
+    src/libultra/n_audio/n_cspsetvol.c        # CSP set volume
+    src/libultra/n_audio/n_cspstop.c          # CSP stop
+    src/libultra/n_audio/n_seq.c              # Sequence data reader
+    src/libultra/n_audio/n_seqplayer.c        # Sequence player voice handler
+    src/libultra/n_audio/n_seqpgetchlvol.c    # Get channel volume
+    src/libultra/n_audio/n_seqpgetvol.c       # Get master volume
+    src/libultra/audio/cents2ratio.c          # alCents2Ratio — pitch conversion
+)
+target_sources(ssb64_game PRIVATE ${SSB64_NAUDIO_PORT})
+
 target_compile_definitions(ssb64_game PRIVATE ${SSB64_COMPILE_DEFS})
 
 target_include_directories(ssb64_game PRIVATE

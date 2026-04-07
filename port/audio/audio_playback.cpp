@@ -61,3 +61,17 @@ extern "C" void portAudioPushSilence(void)
 
     AudioPlayerPlayFrame(reinterpret_cast<const uint8_t*>(sSilenceBuf), byteLen);
 }
+
+extern "C" void portAudioSubmitFrame(const void *buf, int sampleCount)
+{
+    if (buf == nullptr || sampleCount <= 0) {
+        portAudioPushSilence();
+        return;
+    }
+
+    // n_alAudioFrame produces interleaved stereo s16 PCM.
+    // Total bytes = sampleCount * 2 channels * 2 bytes per sample.
+    size_t byteLen = (size_t)sampleCount * 4;
+
+    AudioPlayerPlayFrame(reinterpret_cast<const uint8_t*>(buf), byteLen);
+}

@@ -64,7 +64,11 @@ typedef struct {
     s32                 maxAuxBusses;
     s32                 outputRate;
     s32                 maxOutSamples;
+#ifdef PORT
+    uintptr_t           sv_dramout;
+#else
     s32                 sv_dramout;
+#endif
     s32                 sv_first;
 } N_ALSynth;
 
