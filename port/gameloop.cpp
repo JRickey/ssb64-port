@@ -28,6 +28,7 @@
 #include <fast/interpreter.h>
 
 #include <cstdio>
+#include <chrono>
 #include <unordered_map>
 
 /* GBI trace system */
@@ -229,8 +230,13 @@ void PortPushFrame(void)
 	port_resume_service_threads();
 
 	sFrameCount++;
-	if (sFrameCount <= 60 || (sFrameCount % 60 == 0)) {
-		port_log("SSB64: Frame %d complete\n", sFrameCount);
+	{
+		static auto sStartTime = std::chrono::steady_clock::now();
+		auto now = std::chrono::steady_clock::now();
+		double elapsed = std::chrono::duration<double>(now - sStartTime).count();
+		if (sFrameCount <= 60 || (sFrameCount % 60 == 0)) {
+			port_log("SSB64: Frame %d complete (t=%.2fs)\n", sFrameCount, elapsed);
+		}
 	}
 }
 

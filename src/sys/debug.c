@@ -1,6 +1,12 @@
 #include "common.h"
 #include <sys/debug.h>
 
+#ifdef PORT
+#include "port_log.h"
+#include <stdio.h>
+#include <stdlib.h>
+#endif
+
 #include <sys/audio.h>
 #include <sys/main.h>
 #include <sys/obj.h>
@@ -991,12 +997,32 @@ void syDebugStartRmonThread5Hang(void)
  */
 void syDebugPrintf(const char *fmt, ...)
 {
+    va_list ap;
+    va_start(ap, fmt);
+
+#ifdef PORT
+    {
+        static int sDebugPrintCount = 0;
+        char buf[512];
+        VA_LIST_ALIGN(ap, fmt);
+        vsnprintf(buf, sizeof(buf), fmt, ap);
+        va_end(ap);
+        sDebugPrintCount++;
+        if (sDebugPrintCount <= 5) {
+            port_log("SSB64: syDebugPrintf [%d]: %s\n", sDebugPrintCount, buf);
+        }
+        if (sDebugPrintCount >= 1000) {
+            port_log("SSB64: syDebugPrintf called 1000+ times — likely debug halt loop, aborting\n");
+            abort();
+        }
+        return;
+    }
+#endif
+
+    {
     void *fb;
     OSPri origPri;
 
-    va_list ap;
-
-    va_start(ap, fmt);
     VA_LIST_ALIGN(ap, fmt);
 
     dSYDebugIsScreenActive = TRUE;
@@ -1026,6 +1052,7 @@ void syDebugPrintf(const char *fmt, ...)
     va_end(ap);
     osSetThreadPri(NULL, origPri);
     dSYDebugIsScreenActive = FALSE;
+    }
 }
 
 /*
@@ -1037,6 +1064,10 @@ void syDebugPrintf(const char *fmt, ...)
  */
 void syDebugRunFuncPrint(void (*func_print)(void))
 {
+#ifdef PORT
+    port_log("SSB64: syDebugRunFuncPrint called (debug crash screen)\n");
+    return;
+#endif
     OSPri pri_bak;
     void *framebuf;
 
