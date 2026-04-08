@@ -147,7 +147,17 @@ extern "C" void port_submit_display_list(void *dl)
 	gbi_trace_begin_frame();
 
 	std::unordered_map<Mtx *, MtxF> mtxReplacements;
-	window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
+	try {
+		window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
+	} catch (long hr) {
+		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX on DL #%d\n", hr, sDLSubmitCount);
+		gbi_trace_end_frame();
+		return;
+	} catch (...) {
+		port_log("SSB64: CAUGHT unknown exception on DL #%d\n", sDLSubmitCount);
+		gbi_trace_end_frame();
+		return;
+	}
 
 	/* End trace frame after processing */
 	gbi_trace_end_frame();
