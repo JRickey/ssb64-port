@@ -9,6 +9,9 @@
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -426,6 +429,9 @@ void mvOpeningClashFuncStart(void)
 
     while (sySchedulerGetTicCount() < 3975)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

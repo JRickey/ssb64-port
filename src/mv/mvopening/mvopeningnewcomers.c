@@ -6,6 +6,9 @@
 #include <reloc_data.h>
 
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -435,6 +438,9 @@ void mvOpeningNewcomersFuncStart(void)
 
     while (sySchedulerGetTicCount() < 4155)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

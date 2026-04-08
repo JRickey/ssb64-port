@@ -8,6 +8,9 @@
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -329,6 +332,9 @@ void mvOpeningYosterFuncStart(void)
 
     while (sySchedulerGetTicCount() < 3230)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

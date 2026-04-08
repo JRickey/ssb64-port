@@ -9,6 +9,9 @@
 extern void dbMenuUpdateMenuInputs();
 
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -1527,6 +1530,9 @@ void mnTitleFuncStart(void)
 	{
 		while (sySchedulerGetTicCount() < 4215)
 		{
+#ifdef PORT
+			port_coroutine_yield();
+#endif
 			continue;
 		};
 	}

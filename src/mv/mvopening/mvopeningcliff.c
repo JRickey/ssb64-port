@@ -7,6 +7,9 @@
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -500,6 +503,9 @@ void mvOpeningCliffFuncStart(void)
 
     while (sySchedulerGetTicCount() < 2500)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

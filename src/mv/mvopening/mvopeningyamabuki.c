@@ -7,6 +7,9 @@
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -429,6 +432,9 @@ void mvOpeningYamabukiFuncStart(void)
 
     while (sySchedulerGetTicCount() < 2690)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

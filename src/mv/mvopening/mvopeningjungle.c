@@ -9,6 +9,9 @@
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -409,6 +412,9 @@ void mvOpeningJungleFuncStart(void)
 
     while (sySchedulerGetTicCount() < 2880)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

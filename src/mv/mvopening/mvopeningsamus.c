@@ -8,6 +8,9 @@
 #include <reloc_data.h>
 
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -530,6 +533,9 @@ void mvOpeningSamusFuncStart(void)
 
 	while (sySchedulerGetTicCount() < 1785)
 	{
+#ifdef PORT
+		port_coroutine_yield();
+#endif
 		continue;
 	}
 }

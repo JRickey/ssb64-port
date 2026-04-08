@@ -7,6 +7,9 @@
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -591,6 +594,9 @@ void mvOpeningStandoffFuncStart(void)
 
     while (sySchedulerGetTicCount() < 3610)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
 }

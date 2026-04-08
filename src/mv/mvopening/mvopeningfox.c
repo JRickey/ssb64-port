@@ -10,6 +10,9 @@
 #include <reloc_data.h>
 
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -518,6 +521,9 @@ void mvOpeningFoxFuncStart(void)
 
 	while (sySchedulerGetTicCount() < 2055)
 	{
+#ifdef PORT
+		port_coroutine_yield();
+#endif
 		continue;
 	}
 }

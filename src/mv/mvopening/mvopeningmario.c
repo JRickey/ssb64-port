@@ -8,6 +8,9 @@
 #include <reloc_data.h>
 
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -528,6 +531,9 @@ void mvOpeningMarioFuncStart(void)
 
 	while (sySchedulerGetTicCount() < 1515)
 	{
+#ifdef PORT
+		port_coroutine_yield();
+#endif
 		continue;
 	};
 }

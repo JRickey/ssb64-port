@@ -6,6 +6,9 @@
 #include <reloc_data.h>
 
 extern u32 sySchedulerGetTicCount();
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -546,6 +549,9 @@ void mvOpeningSectorFuncStart(void)
 
     while (sySchedulerGetTicCount() < 3420)
     {
+#ifdef PORT
+		port_coroutine_yield();
+#endif
         continue;
     }
     func_800269C0_275C0(nSYAudioFGMOpeningSectorAmbient);
