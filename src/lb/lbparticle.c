@@ -645,7 +645,14 @@ u8* lbParticleReadFloatBigEnd(u8 *csr, f32 *f)
 	bytes[2] = *csr++;
 	bytes[3] = *csr++;
 
+#ifdef PORT
+	{
+		u8 swapped[4] = { bytes[3], bytes[2], bytes[1], bytes[0] };
+		memcpy(f, swapped, sizeof(f32));
+	}
+#else
 	*f = *(f32*)bytes;
+#endif
 
 	return csr;
 }

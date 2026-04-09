@@ -355,7 +355,11 @@ void itMainSetFighterRelease(GObj *item_gobj, Vec3f *vel, f32 throw_mul, u16 sta
 
     ip->attack_coll.throw_mul = throw_mul;
 
+#ifdef PORT
+    memcpy(&ip->attack_coll.stat_flags, &stat_flags, sizeof(u16));
+#else
     ip->attack_coll.stat_flags = *(GMStatFlags*)&stat_flags;
+#endif
     ip->attack_coll.stat_count = stat_count;
 
     ftParamSetHammerParams(fighter_gobj);

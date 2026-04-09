@@ -248,7 +248,11 @@ s32 wpPikachuThunderJoltGroundGetStatus(GObj *weapon_gobj)
     WPStruct *wp = wpGetStruct(weapon_gobj);
     Vec3f pos;
     Vec3f rotate;
+#ifdef PORT
+    s32 line_id = -1;
+#else
     s32 line_id;
+#endif
 
     switch (wp->weapon_vars.thunder_jolt.line_type)
     {
@@ -413,10 +417,18 @@ sb32 wpPikachuThunderJoltGroundCheckDestroy(GObj *weapon_gobj)
 sb32 wpPikachuThunderJoltGroundProcMap(GObj *weapon_gobj)
 {
     WPStruct *wp = wpGetStruct(weapon_gobj);
+#ifdef PORT
+    s32 coll_type = 0;
+#else
     s32 coll_type;
+#endif
     f32 unused2[2];
     f32 dist;
+#ifdef PORT
+    s32 line_id = -1;
+#else
     s32 line_id;
+#endif
     s32 unused;
 
     switch (wp->weapon_vars.thunder_jolt.line_type)

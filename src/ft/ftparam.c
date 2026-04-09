@@ -1718,14 +1718,23 @@ u16 ftParamGetStatUpdateCount(void)
 // 0x800EA778
 void ftParamSetStatUpdate(FTStruct *fp, u16 flags)
 {
+#ifdef PORT
+    memcpy(&fp->stat_flags, &flags, sizeof(u16));
+#else
     fp->stat_flags = *(GMStatFlags*)&flags;
+#endif
     fp->stat_count = ftParamGetStatUpdateCount();
 }
 
 // 0x800EA7B0
 void ftParamUpdate1PGameAttackStats(FTStruct *fp, u16 flags)
 {
+#ifdef PORT
+    GMStatFlags stat_flags;
+    memcpy(&stat_flags, &flags, sizeof(u16));
+#else
     GMStatFlags stat_flags = *(GMStatFlags*)&flags;
+#endif
 
     if ((fp->pkind != nFTPlayerKindDemo) && (gSCManagerBattleState->game_type == nSCBattleGameType1PGame) && (fp->player == gSCManagerSceneData.player))
     {
@@ -1802,7 +1811,11 @@ void ftParamUpdate1PGameDamageStats(FTStruct *fp, s32 damage_player, s32 damage_
 
     if (!(damage_stat_count) || (fp->damage_stat_count != damage_stat_count))
     {
+#ifdef PORT
+        memcpy(&fp->damage_stat_flags, &flags, sizeof(u16));
+#else
         fp->damage_stat_flags = *(GMStatFlags*)&flags;
+#endif
         fp->damage_stat_count = damage_stat_count;
 
         if (gSCManagerBattleState->game_type == nSCBattleGameType1PGame)

@@ -1527,7 +1527,14 @@ void gcPlayMObjMatAnim(MObj *mobj)
                         break;
                     
                     case nGCAnimKindStep:
+#ifdef PORT
+                        if (aobj->length_invert <= aobj->length)
+                            memcpy(&color, &aobj->value_target, sizeof(SYColorPack));
+                        else
+                            memcpy(&color, &aobj->value_base, sizeof(SYColorPack));
+#else
                         color = (aobj->length_invert <= aobj->length) ? *(SYColorPack*)&aobj->value_target : *(SYColorPack*)&aobj->value_base;
+#endif
                         break;
                     }
                     switch (aobj->track)

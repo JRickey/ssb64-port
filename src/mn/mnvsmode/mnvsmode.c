@@ -242,7 +242,11 @@ void mnVSModeUpdateButton(GObj* button_gobj, s32 button_status)
 
     SYColorRGBPair *colors;
     s32 i;
+#ifdef PORT
+    SObj* button_sobj = NULL;
+#else
     SObj* button_sobj;
+#endif
 
     switch (button_status)
     {
@@ -334,7 +338,11 @@ void mnVSModeMakeVSStartButton()
 void mnVSModeMakeRuleValue()
 {
     GObj* rule_value_gobj;
+#ifdef PORT
+    SObj* rule_value_sobj = NULL;
+#else
     SObj* rule_value_sobj;
+#endif
 
     // 0x80134860
     SYColorRGB color = { 0xFF, 0xFF, 0xFF };

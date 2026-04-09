@@ -1486,7 +1486,11 @@ void scManagerInspectGObj(GObj *gobj)
         ep = efGetStruct(gobj);
 
         // Check if address is within base RDRAM + expansion pak bounds (why though!?)
+#ifdef PORT
+        if (ep != NULL)
+#else
         if (((uintptr_t)ep >= 0x80000000) && ((uintptr_t)ep < 0x80800000))
+#endif
         {
             syDebugDebugPrintf("effect\n");
             syDebugDebugPrintf("fgobj:%x", ep->fighter_gobj);

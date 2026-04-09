@@ -2761,7 +2761,11 @@ check_heavy_damage:
         {
             variation_order[i] = sSC1PGameEnemyVariations[sSC1PGameBonusStatEnemyStats[i].team_order];
         }
+#ifdef PORT
+        for (variation = 0; i < sSC1PGameBonusStatPlayerKOsNum; i++, variation = (variation + 1 >= SC1PGAME_STAGE_YOSHI_VARIATIONS_COUNT) ? 0 : variation + 1)
+#else
         for (variation = 0; i < sSC1PGameBonusStatPlayerKOsNum; i++, variation = (variation == (SC1PGAME_STAGE_YOSHI_VARIATIONS_COUNT - 1)) ? 0 : variation++)
+#endif
         {
             if (sSC1PGameEnemyVariations[sSC1PGameBonusStatEnemyStats[i].team_order] != variation_order[variation])
             {

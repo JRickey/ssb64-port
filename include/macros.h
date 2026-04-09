@@ -22,14 +22,25 @@
 #define DTOR32 ((float)DTOR64)
 #define RTOD32 ((float)RTOD64)
 
+#ifdef PORT
+#define COMBINE_INTEGRAL(a, b)   ((((u32)(a))&0xffff0000) | (((u32)(b)) >> 16))
+#define COMBINE_FRACTIONAL(a, b) ((((u32)(a)) << 16) | (((u32)(b))&0xffff))
+#else
 #define COMBINE_INTEGRAL(a, b)   (((a)&0xffff0000) | (((b) >> 16)))
 #define COMBINE_FRACTIONAL(a, b) (((a) << 16) | ((b)&0xffff))
+#endif
 
 #define SINTABLE_RAD_TO_ID(x)      ((s32)((x) * ((f32)ARRAY_COUNT(gSYSinTable) / PI32)))
 #define SINTABLE_MASK_ID (ARRAY_COUNT(gSYSinTable) - 1)
 
+#ifdef __sgi
 #define ALIGNED(x) __attribute__((aligned(x)))
 #define __attribute__(x)
+#elif defined(_MSC_VER)
+#define ALIGNED(x) __declspec(align(x))
+#else
+#define ALIGNED(x) __attribute__((aligned(x)))
+#endif
 
 /* This is very stupid. I cannot find a single PI or DTOR constant that works everywhere.
  * Need to alternate between F_CST_DTOR32 and F_CLC_DTOR32. Use with caution when matching.

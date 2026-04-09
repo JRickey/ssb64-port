@@ -406,7 +406,9 @@ void mnCongraStartScene(void)
 
 	fb32 = (u32*)SYVIDEO_DEFINE_FRAMEBUFFER_ADDR(320, 230, 0, 10, u32, 0);
 
+#ifndef PORT
 	while ((uintptr_t)fb32 < 0x80400000) { *fb32++ = GPACK_RGBA8888(0x00, 0x00, 0x00, 0xFF); } // WARNING: Newline memes!
+#endif
 
 	switch (gSCManagerSceneData.scene_prev)
 	{
@@ -428,5 +430,7 @@ void mnCongraStartScene(void)
 	dMNCongraTaskmanSetup.scene_setup.arena_size = (size_t) (SYVIDEO_DEFINE_FRAMEBUFFER_ADDR(320, 230, 0, 10, u32, 0) - (uintptr_t)&ovl57_BSS_END);
 	syTaskmanStartTask(&dMNCongraTaskmanSetup); fb16 = (u16*) gSYFramebufferSets; // WARNING: Newline memes!
 
+#ifndef PORT
 	while ((uintptr_t)fb16 < 0x80400000) { *fb16++ = GPACK_RGBA5551(0x00, 0x00, 0x00, 0x01); }
+#endif
 }
