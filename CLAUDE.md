@@ -357,6 +357,30 @@ This section documents significant bugs encountered during the port, their sympt
 
 **Files:** `libultraship/src/fast/interpreter.cpp`, `port/bridge/lbreloc_bridge.cpp`, `src/sys/taskman.c`
 
+### Particle Bank ROM DMA Segfault (2026-04-08) — FIXED
+
+**Symptoms:** Segfault in scene 30 (nSCKindOpeningMario) during `itManagerInitItems()` → `efParticleGetLoadBankID()`. Crash handler didn't fire. No log output after "about to call func_start".
+
+**Root cause:** `efParticleGetLoadBankID` uses `&lITManagerParticleScriptBankLo/Hi` linker symbol addresses as ROM offsets to DMA-read particle bank data. On PC: (1) symbols are stubs in `port/stubs/segment_symbols.c` (all = 0), so `&symbol` gives meaningless PC addresses; (2) `hi - lo` = 8 bytes (adjacent vars); (3) `syTaskmanMalloc(8)` allocates from the general heap which contains **stale data from the previous scene** (heap pointer resets between scenes but memory isn't zeroed); (4) `syDmaReadRom()` is a no-op so the buffer keeps stale data; (5) `lbParticleSetupBankID()` casts it as `LBScriptDesc*`, reads garbage `scripts_num` → iterates into a segfault. Scene 28 didn't crash because the static heap was zero-initialized on first use.
+
+**Fix:** `#ifdef PORT` guard in `efParticleGetLoadBankID()` skips ROM DMA path entirely. Registers a dummy empty bank so callers get valid bank IDs. Particle emission code already has bounds checks that handle empty banks gracefully.
+
+**Files:** `src/ef/efparticle.c`
+
+### Ground Geometry PORT_RESOLVE + Collision Byte-Swap (2026-04-08) — FIXED
+
+**Symptoms:** Scene 30 (nSCKindOpeningMario) segfaults on first game-loop frame in `gcSetupCustomDObjs` (R11=0xCDCDCDCDCDCDCDCD). After fixing, subsequent crashes in `mpCollisionGetMapObjPositionID` (Castle bumper lookup), `mpCollisionInitYakumonoAll` (line info iteration), and `ifCommonPlayerStockMakeStockSnap` (fighter death due to wrong death boundary).
+
+**Root cause — PORT_RESOLVE:** `grDisplayMakeGeometryLayer()` passed raw `u32` token values from `MPGroundDesc` fields directly to API functions (`gcSetupCustomDObjs`, `gcAddMObjAll`, `gcAddAnimAll`, `grDisplayDObjSetNoAnimXObj`) that expect resolved pointers.
+
+**Root cause — byte-swap:** Multiple all-u16 data structures in map/collision files are corrupted by the blanket `u32` byte-swap. After swap, u16 pairs within each u32 word are position-swapped. Affected: `MPGeometryData` (yakumono_count, mapobj_count), `MPLineInfo`, `MPMapObjData`, `MPVertexLinks` arrays, and `MPGroundData` camera/map bounds (s16 fields). The bounds corruption caused fighters to die immediately (wrong death boundary), crashing the uninitialized HUD stock display. Hard-coded byte offsets were wrong due to MSVC struct padding differences — using runtime pointer arithmetic (`&field - base`) to compute offsets is required.
+
+**Fix:**
+1. `grdisplay.c`: Wrapped all `MPGroundDesc` token field accesses with `PORT_RESOLVE()` + appropriate casts
+2. `mpcollision.c`: Added `portFixupStructU16` calls in `mpCollisionInitGroundData` for: `MPGeometryData` u16 fields, `MPMapObjData` array, `MPLineInfo` array, `MPVertexLinks` array, and `MPGroundData` camera/map/team bounds (using runtime offsetof via pointer arithmetic). `MPVertexData` fixup deferred (needs safe vertex count).
+
+**Files:** `src/gr/grdisplay.c`, `src/mp/mpcollision.c`
+
 ---
 
 ## Agent Directives

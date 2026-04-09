@@ -3,6 +3,10 @@
 #include <sc/scene.h>
 #include <reloc_data.h>
 
+#ifdef PORT
+extern void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_words);
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //       INITIALIZED DATA        //
@@ -3988,12 +3992,47 @@ void mpCollisionInitGroundData(void)
             scManagerRunPrintGObjStatus();
         }
     }
+#ifdef PORT
+    // Fix u16 fields corrupted by blanket u32 byte-swap (u16 pairs within
+    // each u32 word are position-swapped; rotate16 restores them).
+    portFixupStructU16(gdata, 0, 1);   // yakumono_count (word at offset 0)
+    portFixupStructU16(gdata, 20, 1);  // mapobj_count   (word at offset 20)
+#endif
     gMPCollisionVertexData  = (MPVertexPosContainer*)PORT_RESOLVE(gdata->vertex_data);
     gMPCollisionVertexIDs   = (MPVertexArray*)PORT_RESOLVE(gdata->vertex_id);
     gMPCollisionVertexLinks = (MPVertexLinks*)PORT_RESOLVE(gdata->vertex_links);
     gMPCollisionMapObjs     = (MPMapObjContainer*)PORT_RESOLVE(gdata->mapobjs);
 
+#ifdef PORT
+    // Fix all-u16 map object data (MPMapObjData = u16 kind + Vec2h pos = 6 bytes each)
+    if ((gMPCollisionMapObjs != NULL) && (gdata->mapobj_count > 0))
+    {
+        unsigned int mapobj_words = (gdata->mapobj_count * 6 + 3) / 4;
+        portFixupStructU16(gMPCollisionMapObjs, 0, mapobj_words);
+    }
+    // Fix MPLineInfo array — all u16 fields (yakumono_id + MPLineData[4] = 18 bytes each).
+    // Must happen before mpCollisionAllocLinesGetCountTotal reads line_data->line_count.
+    {
+        void *line_info_ptr = PORT_RESOLVE(gdata->line_info);
+        if ((line_info_ptr != NULL) && (gdata->yakumono_count > 0))
+        {
+            unsigned int lineinfo_words = (gdata->yakumono_count * 18 + 3) / 4;
+            portFixupStructU16(line_info_ptr, 0, lineinfo_words);
+        }
+    }
+#endif
+
     gMPCollisionLinesNum = mpCollisionAllocLinesGetCountTotal();
+
+#ifdef PORT
+    // Fix MPVertexLinks — {u16 vertex1, u16 vertex2} = 4 bytes = exactly 1 u32 word each.
+    // Count is the total line count across all groups (now known after line counting).
+    if ((gMPCollisionVertexLinks != NULL) && (gMPCollisionLinesNum > 0))
+    {
+        portFixupStructU16(gMPCollisionVertexLinks, 0, (unsigned int)gMPCollisionLinesNum);
+    }
+    // TODO: MPVertexData fixup deferred — need safe vertex count to avoid overrun
+#endif
 
     mpCollisionInitLineIDsAll();
     mpCollisionAllocVertexInfo();
@@ -4007,6 +4046,21 @@ void mpCollisionInitGroundData(void)
 
     gMPCollisionLightAngleX = gMPCollisionGroundData->light_angle.x;
     gMPCollisionLightAngleY = gMPCollisionGroundData->light_angle.y;
+
+#ifdef PORT
+    // Fix s16 pairs in MPGroundData that are position-swapped by blanket u32 swap.
+    // Use runtime pointer arithmetic to get correct offsets.
+    {
+        unsigned int bounds_off = (unsigned int)((uintptr_t)&gMPCollisionGroundData->camera_bound_top - (uintptr_t)gMPCollisionGroundData);
+        unsigned int team_off   = (unsigned int)((uintptr_t)&gMPCollisionGroundData->alt_warning - (uintptr_t)gMPCollisionGroundData);
+        unsigned int end_off    = (unsigned int)((uintptr_t)(&gMPCollisionGroundData->zoom_end + 1) - (uintptr_t)gMPCollisionGroundData);
+
+        // Camera/map bounds: 8 consecutive s16 fields = 4 u32 words
+        portFixupStructU16(gMPCollisionGroundData, bounds_off, 4);
+        // Team bounds + zoom: all s16 from alt_warning through zoom_end
+        portFixupStructU16(gMPCollisionGroundData, team_off, (end_off - team_off + 3) / 4);
+    }
+#endif
 }
 
 // 0x800FC3E8
