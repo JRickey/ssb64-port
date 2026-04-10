@@ -255,11 +255,18 @@ static void apply_fixup_tex_bytes(uint32_t *words, size_t num_words)
 
 static void apply_fixup_tex_u16(uint32_t *words, size_t num_words)
 {
-	// 16bpp texture/palette data: u16 pixel values.
-	// Same fixup as vertex s16 data.
+	// 16bpp texture/palette data: u16 pixel values stored in N64 BE byte order.
+	// Pass1 BSWAP32 reversed the byte order within each u32; Fast3D's
+	// ImportTextureRgba16 reads texels as `(addr[0] << 8) | addr[1]` (BE u16),
+	// so we must restore the original BE byte layout.  BSWAP32 undoes pass1.
+	//
+	// Earlier this used rotate16 which only swapped the two 16-bit halves —
+	// that's correct for `[s16][s16]` vertex pair fields but wrong for a stream
+	// of BE-read u16 texels.  Most non-sprite RGBA16 textures (room walls, etc.)
+	// surfaced as all-near-black pixels until this was switched to BSWAP32.
 	for (size_t i = 0; i < num_words; i++)
 	{
-		words[i] = rotate16(words[i]);
+		words[i] = BSWAP32(words[i]);
 	}
 }
 
@@ -358,6 +365,204 @@ extern "C" void portResetStructFixups(void)
 }
 
 // ============================================================
+//  Chain-walk fixup (textures and vertices)
+// ============================================================
+//
+// Pass2's seg==0x0E filter only catches a tiny minority of in-file textures
+// and vertices.  SSB64 model DLs reference these via real-pointer slots that
+// the reloc chain rewrites at load time.  Pass2 sees those slots BEFORE
+// rewrite — they contain chain encoding (random-looking high bytes), not
+// seg=0x0E references, so they get missed.
+//
+// Workaround: during the chain walk, for each chain entry whose preceding
+// cmd is a G_SETTIMG or G_VTX, apply the appropriate fixup using the chain
+// encoding's words_num field as the in-file target offset.  The chain knows
+// the truth because it's an explicit list of "slots that need fixup" —
+// no false positives possible.
+//
+// Args:
+//   file_base       — start of the file in PC memory (post-pass1)
+//   file_size       — size of the file blob
+//   slot_byte_off   — byte offset of the cmd's w1 slot (the slot the
+//                     chain entry refers to)
+//   target_byte_off — byte offset of the target data within the same file
+//                     (computed from chain entry's words_num * 4)
+//
+// Returns 1 if the slot was at a G_SETTIMG/G_VTX and a fixup was applied;
+// 0 otherwise.
+
+static int chain_fixup_settimg(void *file_base, size_t file_size,
+                                unsigned int slot_byte_off,
+                                unsigned int target_byte_off,
+                                uint32_t w0)
+{
+	const uint8_t *file_bytes = static_cast<const uint8_t *>(file_base);
+
+	uint32_t fmt = (w0 >> 21) & 0x07;
+	uint32_t siz = (w0 >> 19) & 0x03;
+	(void)fmt;
+
+	// Walk forward up to 8 cmds (64 bytes) to find G_LOADBLOCK or G_LOADTLUT.
+	uint32_t loadblock_w1 = 0;
+	uint32_t loadtlut_w1  = 0;
+	int      found_load   = 0;
+	for (int step = 1; step <= 8; step++)
+	{
+		size_t walk_off = (size_t)slot_byte_off - 4 + (size_t)(step * 8);
+		if (walk_off + 8 > file_size) break;
+		uint32_t walk_w0 = *(const uint32_t *)(file_bytes + walk_off);
+		uint32_t walk_w1 = *(const uint32_t *)(file_bytes + walk_off + 4);
+		uint8_t  walk_op = (uint8_t)(walk_w0 >> 24);
+		if (walk_op == GBI_LOADBLOCK)
+		{
+			loadblock_w1 = walk_w1;
+			found_load = 1;
+			break;
+		}
+		if (walk_op == GBI_LOADTLUT)
+		{
+			loadtlut_w1 = walk_w1;
+			found_load = 2;
+			break;
+		}
+		if (walk_op == GBI_SETTIMG) return 0;
+	}
+	if (!found_load) return 0;
+
+	uint32_t tex_bytes = 0;
+	if (found_load == 1)
+	{
+		uint32_t lrs = (loadblock_w1 >> 12) & 0xFFF;
+		uint32_t num_texels = lrs + 1;
+		uint32_t bpp = (siz == G_IM_SIZ_4b)  ? 4
+		             : (siz == G_IM_SIZ_8b)  ? 8
+		             : (siz == G_IM_SIZ_16b) ? 16
+		             : (siz == G_IM_SIZ_32b) ? 32
+		             : 0;
+		if (bpp == 0) return 0;
+		tex_bytes = (num_texels * bpp + 7) / 8;
+	}
+	else
+	{
+		uint32_t count = ((loadtlut_w1 >> 14) & 0x3FF) + 1;
+		tex_bytes = count * 2;
+	}
+	tex_bytes = (tex_bytes + 3) & ~3u;
+	if (tex_bytes == 0) return 0;
+	if ((size_t)target_byte_off + tex_bytes > file_size)
+	{
+		tex_bytes = (uint32_t)(file_size - target_byte_off);
+		tex_bytes &= ~3u;
+		if (tex_bytes == 0) return 0;
+	}
+
+	uintptr_t fixup_key = reinterpret_cast<uintptr_t>(file_base) + (uintptr_t)target_byte_off;
+	if (sStructU16Fixups.count(fixup_key)) return 1;
+	sStructU16Fixups.insert(fixup_key);
+
+	uint32_t *region = (uint32_t *)((uint8_t *)file_base + target_byte_off);
+	size_t num_words = tex_bytes / 4;
+
+	switch (siz)
+	{
+	case G_IM_SIZ_4b:
+	case G_IM_SIZ_8b:
+	case G_IM_SIZ_16b:
+		// Per-byte / per-u16 BE data: pass1 BSWAP32 reversed it; another
+		// BSWAP32 restores the original BE byte order Fast3D expects.
+		for (size_t i = 0; i < num_words; i++) region[i] = BSWAP32(region[i]);
+		break;
+	case G_IM_SIZ_32b:
+		// 32bpp: pass1 BSWAP32 was correct (per-channel-byte read).  No fixup.
+		break;
+	}
+
+	return 1;
+}
+
+static int chain_fixup_vertex(void *file_base, size_t file_size,
+                               unsigned int target_byte_off,
+                               uint32_t w0)
+{
+	// G_VTX layout in F3DEX2 (matches gbi_decoder.c decoding):
+	//   w0[31:24] = 0x01  (G_VTX opcode)
+	//   w0[23:20] = 0     (reserved)
+	//   w0[19:12] = num_vtx (n), 8 bits, practically 1..32
+	//   w0[11:1]  = (v0 + n) << 1, end vertex slot index in TMEM
+	//   w0[0]     = 0     (must be even because of << 1)
+	//   w1        = vertex array address
+	//
+	// Each Vtx is 16 bytes:
+	//   word 0: s16 ob[0]  | s16 ob[1]   → rotate16
+	//   word 1: s16 ob[2]  | u16 flag    → rotate16
+	//   word 2: s16 tc[0]  | s16 tc[1]   → rotate16
+	//   word 3: u8  cn[0..3]              → bswap32 (restore byte order)
+	//
+	// STRICT VALIDATION: opcode 0x01 is too common to trust by itself.
+	// Many non-cmd u32 words start with 0x01.  Reject anything where the
+	// reserved/structural bits don't match the spec.
+
+	// bits [23:20] must be zero (reserved)
+	if ((w0 & 0x00F00000) != 0) return 0;
+	// bit [0] must be zero (the count is multiplied by 2)
+	if ((w0 & 0x1) != 0) return 0;
+
+	uint32_t num_vtx = (w0 >> 12) & 0xFF;
+	uint32_t end_idx = (w0 & 0xFFE) >> 1;
+
+	// Sanity-check num_vtx and the destination range.  Real game DLs use
+	// 1..32 vertices per G_VTX (Vtx buffer is 32 entries on N64).
+	if (num_vtx == 0 || num_vtx > 32) return 0;
+	if (end_idx > 32 || end_idx < num_vtx) return 0;
+
+	size_t total_bytes = (size_t)num_vtx * 16;
+	if ((size_t)target_byte_off + total_bytes > file_size) return 0;
+
+	uintptr_t fixup_key = reinterpret_cast<uintptr_t>(file_base) + (uintptr_t)target_byte_off;
+	if (sStructU16Fixups.count(fixup_key)) return 1;
+	sStructU16Fixups.insert(fixup_key);
+
+	uint32_t *region = (uint32_t *)((uint8_t *)file_base + target_byte_off);
+	for (uint32_t i = 0; i < num_vtx; i++)
+	{
+		region[i * 4 + 0] = (region[i * 4 + 0] << 16) | (region[i * 4 + 0] >> 16);
+		region[i * 4 + 1] = (region[i * 4 + 1] << 16) | (region[i * 4 + 1] >> 16);
+		region[i * 4 + 2] = (region[i * 4 + 2] << 16) | (region[i * 4 + 2] >> 16);
+		region[i * 4 + 3] = BSWAP32(region[i * 4 + 3]);
+	}
+	return 1;
+}
+
+extern "C" int portRelocFixupTextureFromChain(void *file_base, size_t file_size,
+                                              unsigned int slot_byte_off,
+                                              unsigned int target_byte_off)
+{
+	if (file_base == nullptr || slot_byte_off < 4 ||
+	    (size_t)(slot_byte_off + 4) > file_size ||
+	    (size_t)target_byte_off >= file_size)
+	{
+		return 0;
+	}
+
+	const uint8_t *file_bytes = static_cast<const uint8_t *>(file_base);
+
+	// The cmd's w0 is at slot_byte_off - 4, w1 is at slot_byte_off.
+	uint32_t w0 = *(const uint32_t *)(file_bytes + slot_byte_off - 4);
+	uint8_t opcode = (uint8_t)(w0 >> 24);
+
+	if (opcode == GBI_SETTIMG)
+	{
+		return chain_fixup_settimg(file_base, file_size, slot_byte_off,
+		                           target_byte_off, w0);
+	}
+	if (opcode == GBI_VTX)
+	{
+		return chain_fixup_vertex(file_base, file_size, target_byte_off, w0);
+	}
+	return 0;
+}
+
+// ============================================================
 //  Sprite / Bitmap / MObjSub — struct-level byte-swap fixups
 // ============================================================
 //
@@ -377,6 +582,27 @@ static void fixup_rotate16(uint32_t *word)
 static void fixup_bswap32(uint32_t *word)
 {
 	*word = BSWAP32(*word);
+}
+
+// Fixup for a u32 word laid out as [u16 a][u8 b][u8 c] in original BE memory.
+// Pass1's blanket BSWAP32 leaves the bytes as [c, b, a_lo, a_hi] which makes
+// a_lo/a_hi appear in the wrong slots: reading `u16 a` from offset 0 yields
+// (b << 8) | c, and reading `u8 b`/`u8 c` from offsets 2/3 yields a_lo/a_hi.
+// Neither rotate16 nor a second bswap32 produces the correct LE layout for
+// all three fields simultaneously, so we permute the bytes directly.
+static void fixup_u16_u8u8(uint32_t *word)
+{
+	uint8_t *p = reinterpret_cast<uint8_t *>(word);
+	uint8_t b0 = p[0];
+	uint8_t b1 = p[1];
+	uint8_t b2 = p[2];
+	uint8_t b3 = p[3];
+	// Have (post-pass1): [c, b, a_lo, a_hi] = [b0, b1, b2, b3]
+	// Want (LE struct):  [a_lo, a_hi, b, c] = [b2, b3, b1, b0]
+	p[0] = b2;
+	p[1] = b3;
+	p[2] = b1;
+	p[3] = b0;
 }
 
 extern "C" void portFixupSprite(void *sprite)
@@ -610,12 +836,12 @@ extern "C" void portFixupMObjSub(void *mobjsub)
 	//  25    0x64    SYColorPack light2color            bswap32
 	//  26-29 0x68    s32 unk68..unk74                   (ok)
 
-	fixup_bswap32(&w[0]);    // pad00 + fmt + siz
+	fixup_bswap32(&w[0]);    // pad00 + fmt + siz (pad16 unused, u8 fields ok)
 	// w[1]: sprites token — ok
 	fixup_rotate16(&w[2]);   // unk08, unk0A
 	fixup_rotate16(&w[3]);   // unk0C, unk0E
 	// w[4..11]: s32/f32/u32 — ok
-	fixup_bswap32(&w[12]);   // flags + block_fmt + block_siz
+	fixup_u16_u8u8(&w[12]);  // u16 flags + u8 block_fmt + u8 block_siz
 	fixup_rotate16(&w[13]);  // block_dxt, unk36
 	fixup_rotate16(&w[14]);  // unk38, unk3A
 	// w[15..19]: f32/u32 — ok

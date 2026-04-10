@@ -115,6 +115,34 @@ void portFixupMObjSub(void *mobjsub);
  */
 void portFixupFTAttributes(void *attr);
 
+/**
+ * Apply per-format byte-order fixup for a chain-tracked G_SETTIMG or G_VTX slot.
+ *
+ * Pass2's seg=0x0E walk only catches a small minority of in-file textures and
+ * vertex arrays — most SSB64 model DLs reference both via real-pointer slots
+ * that the reloc chain rewrites at load time, not via seg=0x0E.  Those slots
+ * have chain-encoding (random high bytes) at pass2 time so they get missed.
+ *
+ * Workaround: during the chain walk, for every chain entry whose preceding
+ * cmd is a G_SETTIMG or G_VTX, this function:
+ *   - For G_SETTIMG: walks forward to find G_LOADBLOCK / G_LOADTLUT, computes
+ *     texture byte size, and BSWAP32s the bytes to restore N64 BE order for
+ *     Fast3D's `(addr[0]<<8)|addr[1]` reader.
+ *   - For G_VTX: reads num_vtx from w0 and per-Vtx (16 bytes) applies rotate16
+ *     to the s16 ob/flag/tc fields and BSWAP32 to the u8 RGBA color word.
+ *     Strict validation rejects spurious 0x01-byte chain slots that aren't
+ *     real G_VTX cmds.
+ *
+ * Idempotent — tracked via the same sStructU16Fixups set as other fixups.
+ *
+ * Returns 1 if a G_SETTIMG or G_VTX was detected and a fixup attempted, 0 otherwise.
+ *
+ * Despite the name, this also handles G_VTX — kept for backwards compatibility.
+ */
+int portRelocFixupTextureFromChain(void *file_base, size_t file_size,
+                                   unsigned int slot_byte_off,
+                                   unsigned int target_byte_off);
+
 #ifdef __cplusplus
 }
 #endif

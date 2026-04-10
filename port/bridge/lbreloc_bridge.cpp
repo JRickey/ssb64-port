@@ -324,6 +324,28 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	}
 	memcpy(ram_dst, relocFile->Data.data(), copySize);
 
+	// One-shot raw dump for verification against ROM extraction.
+	// Set SSB64_DUMP_FILE_ID env var to a file_id; this writes the post-memcpy,
+	// pre-byteswap bytes to debug_traces/port_file_<id>.bin.  Compare against
+	// debug_tools/reloc_extract/reloc_extract.py output for the same id.
+	{
+		const char *dump_id_env = getenv("SSB64_DUMP_FILE_ID");
+		if (dump_id_env != nullptr) {
+			unsigned long target_id = strtoul(dump_id_env, nullptr, 0);
+			if ((unsigned long)file_id == target_id) {
+				char path[256];
+				snprintf(path, sizeof(path), "debug_traces/port_file_%lu.bin", target_id);
+				FILE *df = fopen(path, "wb");
+				if (df != nullptr) {
+					fwrite(ram_dst, 1, copySize, df);
+					fclose(df);
+					spdlog::info("[port-dump] wrote {} bytes for file_id={} to {}",
+					             copySize, file_id, path);
+				}
+			}
+		}
+	}
+
 	// Byte-swap from N64 big-endian to native little-endian.
 	// Must happen BEFORE the reloc chain walk (which reads u16 fields
 	// from u32 words using bit shifts that assume native byte order).
@@ -373,6 +395,16 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 		// These are intra-file sub-DL references resolved to absolute
 		// addresses by portNormalizeDisplayListPointer at widening time.
 		{
+			// Texture fixup: if this slot is the w1 of a G_SETTIMG cmd, the
+			// chain encoding gives us the in-file target offset (words_num*4)
+			// where the actual texture bytes live.  Pass2's seg==0x0E walk
+			// can't see these (the chain encoding has random high bytes), so
+			// we apply the texture-format BSWAP32 fixup here.  Idempotent.
+			uint32_t slot_byte_off = (uint32_t)(reloc_intern * sizeof(u32));
+			uint32_t target_byte_off = (uint32_t)(words_num * sizeof(u32));
+			portRelocFixupTextureFromChain(ram_dst, copySize,
+			                               slot_byte_off, target_byte_off);
+
 			// Compute the real target pointer (within this file's data)
 			void *target = (void *)((uintptr_t)ram_dst + (words_num * sizeof(u32)));
 
@@ -676,6 +708,22 @@ bool portRelocFindContainingFile(const void *ptr, uintptr_t *out_base, size_t *o
 		}
 	}
 	return FALSE;
+}
+
+/* C-callable helper: find both file_id and base for a pointer.
+ * Returns -1 if not in any reloc file range. */
+extern "C" int portRelocFindFileIdAndBase(const void *ptr, uintptr_t *out_base)
+{
+	uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+	for (const auto &range : sPortRelocFileRanges)
+	{
+		if ((addr >= range.base) && (range.size != 0) && ((addr - range.base) < range.size))
+		{
+			if (out_base != nullptr) *out_base = range.base;
+			return (int)range.file_id;
+		}
+	}
+	return -1;
 }
 
 void *portRelocResolveArrayEntry(const void *array_ptr, unsigned int index)
