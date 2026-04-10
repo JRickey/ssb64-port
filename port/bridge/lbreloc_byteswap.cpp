@@ -27,6 +27,8 @@
 #include <unordered_set>
 #include <vector>
 
+extern "C" void port_log(const char *fmt, ...);
+
 // F3DEX2 GBI opcodes (from gbi.h with F3DEX_GBI_2 defined)
 #define GBI_VTX         0x01
 #define GBI_DL          0xDE
@@ -481,9 +483,11 @@ static int chain_fixup_settimg(void *file_base, size_t file_size,
 }
 
 static int chain_fixup_vertex(void *file_base, size_t file_size,
+                               unsigned int slot_byte_off,
                                unsigned int target_byte_off,
                                uint32_t w0)
 {
+	(void)slot_byte_off;
 	// G_VTX layout in F3DEX2 (matches gbi_decoder.c decoding):
 	//   w0[31:24] = 0x01  (G_VTX opcode)
 	//   w0[23:20] = 0     (reserved)
@@ -518,11 +522,31 @@ static int chain_fixup_vertex(void *file_base, size_t file_size,
 	size_t total_bytes = (size_t)num_vtx * 16;
 	if ((size_t)target_byte_off + total_bytes > file_size) return 0;
 
+	uint32_t *region = (uint32_t *)((uint8_t *)file_base + target_byte_off);
+
+	// Content-based sanity check on the FIRST vertex.
+	// Post-pass1 word 0 (high 16 bits) = original BE ob[0] (s16),
+	// (low 16 bits) = original BE ob[1] (s16). Word 1 likewise has
+	// ob[2] and flag. Real game vertex coords observed up to ±4200,
+	// flag is always 0. Reject anything with much larger coords or
+	// nonzero flag — those are false-positive struct-field chain
+	// entries whose preceding 4 bytes happen to look like a G_VTX cmd.
+	{
+		int16_t ob0 = (int16_t)((region[0] >> 16) & 0xFFFF);
+		int16_t ob1 = (int16_t)(region[0] & 0xFFFF);
+		int16_t ob2 = (int16_t)((region[1] >> 16) & 0xFFFF);
+		uint16_t flag = (uint16_t)(region[1] & 0xFFFF);
+		const int kMaxCoord = 16384;
+		if (ob0 < -kMaxCoord || ob0 > kMaxCoord) return 0;
+		if (ob1 < -kMaxCoord || ob1 > kMaxCoord) return 0;
+		if (ob2 < -kMaxCoord || ob2 > kMaxCoord) return 0;
+		if (flag != 0) return 0;
+	}
+
 	uintptr_t fixup_key = reinterpret_cast<uintptr_t>(file_base) + (uintptr_t)target_byte_off;
 	if (sStructU16Fixups.count(fixup_key)) return 1;
 	sStructU16Fixups.insert(fixup_key);
 
-	uint32_t *region = (uint32_t *)((uint8_t *)file_base + target_byte_off);
 	for (uint32_t i = 0; i < num_vtx; i++)
 	{
 		region[i * 4 + 0] = (region[i * 4 + 0] << 16) | (region[i * 4 + 0] >> 16);
@@ -557,7 +581,12 @@ extern "C" int portRelocFixupTextureFromChain(void *file_base, size_t file_size,
 	}
 	if (opcode == GBI_VTX)
 	{
-		return chain_fixup_vertex(file_base, file_size, target_byte_off, w0);
+		// Filter: real packed cmd w1 must be at 8*N+4 alignment.
+		// Reject struct-field chain entries whose preceding 4 bytes
+		// happen to look like a G_VTX cmd by coincidence.  Verified via
+		// runtime diagnostic that all legitimate vertex fixups satisfy this.
+		if ((slot_byte_off & 0x7) != 4) return 0;
+		return chain_fixup_vertex(file_base, file_size, slot_byte_off, target_byte_off, w0);
 	}
 	return 0;
 }
