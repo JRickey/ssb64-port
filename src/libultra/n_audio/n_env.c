@@ -3818,11 +3818,11 @@ void func_80027460_28060(ALWhatever8009EE0C_2 *arg0)
     if (arg0->unk28 != 0)
     {
         arg0->unk28--;
-        
+
         if (arg0->unk28 == 0)
         {
             ucode = arg0->unk20;
-            
+
             do
             {
                 instr = *ucode++;
@@ -4984,7 +4984,20 @@ ALWhatever8009EE0C* func_80026B40_27740(u16 id)
     {
         return NULL;
     }
-    else return func_80026A6C_2766C(D_8009EDD0_406D0.fgm_table_data[id]);
+#ifdef PORT
+    /* PORT: FGM (sound effect) playback is not yet wired up on PC.
+     * The synthesis path that runs the per-effect envelope ucode reads
+     * stale pointer data from a heap that gets corrupted across scene
+     * transitions, causing SIGSEGV in func_80027460_28060 → *ucode++.
+     *
+     * Until the audio implementation reaches Phase 5/6 (n_a* N_MICRO
+     * replacement + BGM byte-swap), short-circuit the FGM start path so
+     * no sound effects ever get added to the active list.  BGM still
+     * works through a separate code path. */
+    return NULL;
+#else
+    return func_80026A6C_2766C(D_8009EDD0_406D0.fgm_table_data[id]);
+#endif
 }
 
 ALWhatever8009EE0C* func_80026A6C_2766C(void *arg0)
