@@ -65,6 +65,39 @@ void portFixupBitmap(void *bitmap);
 void portFixupBitmapArray(void *bitmaps, unsigned int count);
 
 /**
+ * Fix the texel data referenced by a Sprite's Bitmap array.
+ *
+ * Performs two passes per bitmap:
+ *
+ *   1. Restore N64 BE byte order. Pass2 of portRelocByteSwapBlob only finds
+ *      textures referenced by an in-file SETTIMG/LOADBLOCK pair; sprites build
+ *      their LOAD blocks at runtime from bitmap.buf and never embed those
+ *      addresses in stored DLs, so pass2 misses them. Apply BSWAP32 again to
+ *      undo pass1's blanket u32 swap. Fast3D's ImportTexture* readers expect
+ *      bytes in N64 big-endian order (e.g. RGBA16: `(addr[0]<<8) | addr[1]`).
+ *
+ *   2. N64 RDP TMEM line-swizzle inverse. The N64 stores textures in DRAM
+ *      pre-swizzled to avoid TMEM bank conflicts when sampled. The hardware
+ *      XORs the byte address based on row parity:
+ *        16bpp / IA / CI:  odd rows XOR with 0x4 (swap 4-byte halves of each
+ *                          8-byte qword)
+ *      LOAD_BLOCK with dxt=0 loads the data into TMEM as-is (still swizzled);
+ *      the sampler unscrambles it during reads. Fast3D doesn't emulate TMEM
+ *      addressing, so the swizzled data renders as a sheared/zigzag image.
+ *      Pre-unswizzle each bitmap here so Fast3D sees a normal linear texture.
+ *
+ * Must be called AFTER portFixupSprite and portFixupBitmapArray (which fix
+ * the struct fields the function reads), and BEFORE the texture data is read
+ * by the renderer or the 4c→4b decompressor.
+ *
+ * Idempotent: tracks each buf pointer to prevent double-fixup.
+ *
+ * @param sprite_v   Pointer to a Sprite struct (struct fields already fixed up).
+ * @param bitmaps_v  Pointer to the resolved Bitmap array referenced by sprite->bitmap.
+ */
+void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v);
+
+/**
  * Fix byte order for a MObjSub struct (0x78 bytes) after blanket u32 swap.
  *
  * Handles the mixed u16/u8 fields: pad00+fmt+siz, unk08-unk0E,

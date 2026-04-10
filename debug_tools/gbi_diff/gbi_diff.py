@@ -128,6 +128,19 @@ def parse_trace(filepath: str) -> dict[int, Frame]:
                         w1_64=w1_64,
                         raw=line,
                     )
+                    # Skip zero-NOOP padding: the M64P rsp_trace walker reads
+                    # past G_ENDDL into uninitialized RDRAM, producing thousands
+                    # of G_NOOP w0=0 w1=0 entries. The port never emits these.
+                    if (cmd.opcode == "G_NOOP" and
+                            cmd.w0 == "00000000" and cmd.w1 == "00000000"):
+                        continue
+                    # Skip the RDPHALF_1 / RDPHALF_2 trailers that follow a
+                    # G_TEXRECT / G_TEXRECTFLIP in the emu trace. The port's
+                    # Fast3D interpreter folds those into the TEXRECT entry.
+                    if current_cmds and cmd.opcode in ("G_RDPHALF_1", "G_RDPHALF_2"):
+                        prev = current_cmds[-1]
+                        if prev.opcode in ("G_TEXRECT", "G_TEXRECTFLIP", "G_RDPHALF_1"):
+                            continue
                     current_cmds.append(cmd)
 
     return frames

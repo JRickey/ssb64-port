@@ -70,3 +70,12 @@ vcpkg_installed/
 # Save data
 *.sav
 x64/
+
+# Runtime logs and debug traces (port-side and LUS-side)
+ssb64.log
+logs/
+debug_traces/
+
+# Local extraction / scratch directories used during debugging
+extract/
+test.zip

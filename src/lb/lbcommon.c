@@ -7,6 +7,7 @@
 extern void portFixupSprite(void *sprite);
 extern void portFixupBitmap(void *bitmap);
 extern void portFixupBitmapArray(void *bitmaps, unsigned int count);
+extern void portFixupSpriteBitmapData(void *sprite, void *bitmaps);
 #endif
 
 extern void syInterpCubic(void*, void*, f32);
@@ -2990,6 +2991,12 @@ SObj* lbCommonMakeSObjForGObj(GObj *gobj, Sprite *sprite)
         if (bitmaps != NULL)
         {
             portFixupBitmapArray(bitmaps, sprite->nbitmaps);
+            // Restore N64 BE byte order for the texel data and undo the
+            // RDP TMEM line swizzle (16bpp odd rows have their 4-byte qword
+            // halves swapped in DRAM). Pass2 of portRelocByteSwapBlob can't
+            // find sprite textures because they aren't referenced by any
+            // in-file SETTIMG — sprites build their LOAD blocks at runtime.
+            portFixupSpriteBitmapData(sprite, bitmaps);
         }
     }
 #endif

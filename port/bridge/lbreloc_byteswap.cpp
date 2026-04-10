@@ -17,6 +17,7 @@
  */
 
 #include "bridge/lbreloc_byteswap.h"
+#include "resource/RelocPointerTable.h"
 
 #include <ship/utils/binarytools/endianness.h>
 #include <spdlog/spdlog.h>
@@ -460,6 +461,118 @@ extern "C" void portFixupBitmapArray(void *bitmaps, unsigned int count)
 	for (unsigned int i = 0; i < count; i++)
 	{
 		portFixupBitmap(ptr + i * 16);
+	}
+}
+
+// Sprite layout offsets used by the texel-data fixup. We do not include
+// PR/sp.h here (to keep the bridge translation unit lean), so we hard-code
+// the field offsets matching the static_assert(sizeof(Sprite) == 68).
+//
+//   sprite[0x28]  s16 nbitmaps
+//   sprite[0x32]  u8  bmsiz                (within the u8 quad word at 0x30)
+//   sprite[0x34]  u32 bitmap (token)
+//
+//   bitmap[0x00]  s16 width        (unused for size — see width_img)
+//   bitmap[0x02]  s16 width_img
+//   bitmap[0x08]  u32 buf (token)
+//   bitmap[0x0C]  s16 actualHeight
+//
+// Sizes match decomp Sprite/Bitmap structs after portFixupSprite/portFixupBitmap
+// have run (i.e. fields readable as native LE).
+extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
+{
+	if (sprite_v == NULL || bitmaps_v == NULL)
+		return;
+
+	uint8_t *sprite = static_cast<uint8_t *>(sprite_v);
+	uint8_t *bitmaps = static_cast<uint8_t *>(bitmaps_v);
+
+	int16_t nbitmaps = *reinterpret_cast<int16_t *>(sprite + 0x28);
+	uint8_t bmsiz    = *reinterpret_cast<uint8_t  *>(sprite + 0x31);
+
+	if (nbitmaps <= 0)
+		return;
+
+	// G_IM_SIZ_ values: 4b=0, 8b=1, 16b=2, 32b=3, 4c=4 (compressed-4b)
+	//
+	// Fast3D's ImportTextureRgba16 (and the other texel readers) read texture
+	// bytes in N64 big-endian order, e.g. RGBA16: `(addr[0] << 8) | addr[1]`.
+	// So texel data must be left in the original BE byte order from the file.
+	// Pass1 BSWAP32 destroys that order; another BSWAP32 restores it.
+	int bpp;
+	switch (bmsiz)
+	{
+	case 0: bpp = 4;  break;   // 4b
+	case 1: bpp = 8;  break;   // 8b
+	case 2: bpp = 16; break;   // 16b
+	case 3: return;            // 32b — no fixup (pass1 byteswap is already correct: Fast3D's RGBA32 reader is per-channel-byte)
+	case 4: bpp = 4;  break;   // 4c (compressed-4b: byte-granular like 4b)
+	default:
+		return;
+	}
+
+	for (int i = 0; i < nbitmaps; i++)
+	{
+		uint8_t *bm = bitmaps + (i * 16);
+		int16_t  width_img    = *reinterpret_cast<int16_t *>(bm + 0x02);
+		uint32_t buf_token    = *reinterpret_cast<uint32_t *>(bm + 0x08);
+		int16_t  actualHeight = *reinterpret_cast<int16_t *>(bm + 0x0C);
+
+		void *buf = portRelocResolvePointer(buf_token);
+		if (buf == NULL || width_img <= 0 || actualHeight <= 0)
+			continue;
+
+		// Idempotency: skip if this buf was already fixed up.
+		uintptr_t key = reinterpret_cast<uintptr_t>(buf);
+		if (sStructU16Fixups.count(key))
+			continue;
+		sStructU16Fixups.insert(key);
+
+		size_t num_texels = static_cast<size_t>(width_img) *
+		                    static_cast<size_t>(actualHeight);
+		size_t tex_bytes = (num_texels * bpp + 7) / 8;
+		// Word-align so we can iterate as u32
+		tex_bytes = (tex_bytes + 3) & ~size_t{3};
+
+		uint32_t *words = static_cast<uint32_t *>(buf);
+		size_t num_words = tex_bytes / 4;
+
+		// All non-32bpp formats: undo pass1 BSWAP32 to restore N64 BE byte order.
+		for (size_t j = 0; j < num_words; j++)
+			words[j] = BSWAP32(words[j]);
+
+		// N64 RDP TMEM line swizzle: textures stored in DRAM are pre-swizzled
+		// to avoid TMEM bank conflicts when sampled. The hardware applies an
+		// XOR to the byte address based on the row parity (bit 0 of t):
+		//
+		//   16bpp / IA / CI:    odd rows XOR address with 0x4 (swap the two
+		//                       4-byte halves within each 8-byte qword)
+		//
+		// LOAD_BLOCK with dxt=0 loads the data into TMEM as-is (still swizzled).
+		// On real hardware, the sampler reads with the inverse XOR and gets the
+		// correct linear pixel order. Fast3D doesn't emulate TMEM addressing,
+		// so it would read the swizzled data linearly and produce a corrupted
+		// (zigzag/sheared) image. Pre-unswizzle here so Fast3D sees a normal
+		// linear texture.
+		//
+		// Each Bitmap is loaded as one independent LOAD_BLOCK in
+		// lbCommonDrawSObjBitmap, so the swizzle row index is strip-local.
+		if (bpp == 16 && width_img > 0 && (width_img % 4) == 0)
+		{
+			size_t row_bytes = static_cast<size_t>(width_img) * 2;
+			uint8_t *bytes = static_cast<uint8_t *>(buf);
+			for (int row = 1; row < actualHeight; row += 2)
+			{
+				uint8_t *row_p = bytes + row * row_bytes;
+				for (size_t qw = 0; qw + 8 <= row_bytes; qw += 8)
+				{
+					uint8_t tmp[4];
+					std::memcpy(tmp, row_p + qw, 4);
+					std::memcpy(row_p + qw, row_p + qw + 4, 4);
+					std::memcpy(row_p + qw + 4, tmp, 4);
+				}
+			}
+		}
 	}
 }
 
