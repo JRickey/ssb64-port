@@ -1483,27 +1483,57 @@ void gcPlayMObjMatAnim(MObj *mobj)
                         break;
                     }
                 } 
-                else 
+                else
                 {
                     switch(aobj->kind)
                     {
-                    case nGCAnimKindLinear: 
+                    case nGCAnimKindLinear:
                         interp = (aobj->length * aobj->length_invert * 256.0F);
-                    
+
                         if (interp < 0)
-                        { 
-                            interp = 0; 
+                        {
+                            interp = 0;
                         }
-                        if (interp > 256) 
-                        { 
-                            interp = 256; 
+                        if (interp > 256)
+                        {
+                            interp = 256;
                         }
+#ifdef PORT
+                        /* PORT: the IDO original packs two color bytes into
+                         * non-adjacent positions of an SYColorPack union,
+                         * multiplies the pack u32 by interp to lerp both
+                         * bytes in parallel, then reads .s.r and .s.b out.
+                         * That trick depends on (a) the union field offsets
+                         * being in BE order so .s.r reads the high byte of
+                         * the pack u32 and (b) `((u8*)&value)[0]` reading
+                         * the BE-MSB of the source value.  Both fail on
+                         * little-endian PC: the multiplication overflows
+                         * lose the high bits, and the byte index reads the
+                         * wrong source byte.  Net effect for white input:
+                         * the matanim writes 0xFF00FF00 (rgba 0,255,0,255)
+                         * to mobj->sub.primcolor instead of 0xFFFFFFFF.
+                         *
+                         * Replacement does plain per-channel linear interp
+                         * with explicit bit shifts so the same code runs
+                         * the same way regardless of host endianness.  We
+                         * memcpy through u32 to type-pun safely from f32. */
+                        {
+                            u32 base_bits, targ_bits;
+                            s32 inv = 256 - interp;
+                            memcpy(&base_bits, &aobj->value_base,   4);
+                            memcpy(&targ_bits, &aobj->value_target, 4);
+                            color.s.r = (u8)((inv * (u8)(base_bits >> 24) + interp * (u8)(targ_bits >> 24)) >> 8);
+                            color.s.g = (u8)((inv * (u8)(base_bits >> 16) + interp * (u8)(targ_bits >> 16)) >> 8);
+                            color.s.b = (u8)((inv * (u8)(base_bits >>  8) + interp * (u8)(targ_bits >>  8)) >> 8);
+                            color.s.a = (u8)((inv * (u8)(base_bits      ) + interp * (u8)(targ_bits      )) >> 8);
+                        }
+#else
                         sp34.pack = 0;
                         sp38.pack = 0;
 
                         sp38.s.g = ((u8*)&aobj->value_base)[0];
                         sp38.s.a = ((u8*)&aobj->value_base)[1];
-                        
+
                         sp34.s.g = ((u8*)&aobj->value_target)[0];
                         sp34.s.a = ((u8*)&aobj->value_target)[1];
 
@@ -1513,10 +1543,10 @@ void gcPlayMObjMatAnim(MObj *mobj)
                         color.s.g = sp38.s.b;
 
                         sp38.pack = 0;
-                    
+
                         sp38.s.g = ((u8*)&aobj->value_base)[2];
                         sp38.s.a = ((u8*)&aobj->value_base)[3];
-                    
+
                         sp34.s.g = ((u8*)&aobj->value_target)[2];
                         sp34.s.a = ((u8*)&aobj->value_target)[3];
 
@@ -1524,14 +1554,29 @@ void gcPlayMObjMatAnim(MObj *mobj)
 
                         color.s.b = sp38.s.r;
                         color.s.a = sp38.s.b;
+#endif
                         break;
-                    
+
                     case nGCAnimKindStep:
 #ifdef PORT
-                        if (aobj->length_invert <= aobj->length)
-                            memcpy(&color, &aobj->value_target, sizeof(SYColorPack));
-                        else
-                            memcpy(&color, &aobj->value_base, sizeof(SYColorPack));
+                        /* PORT: same byte-order issue as LINEAR.  N64 reads
+                         * the f32 bit pattern as SYColorPack via direct
+                         * cast, picking up r at memory byte 0 = BE MSB.
+                         * On LE PC the same cast picks up the LSB byte for
+                         * r, swapping the channel order.  Type-pun via
+                         * memcpy and use bit shifts so the channel layout
+                         * stays N64-BE regardless of host. */
+                        {
+                            u32 src_bits;
+                            if (aobj->length_invert <= aobj->length)
+                                memcpy(&src_bits, &aobj->value_target, 4);
+                            else
+                                memcpy(&src_bits, &aobj->value_base, 4);
+                            color.s.r = (u8)(src_bits >> 24);
+                            color.s.g = (u8)(src_bits >> 16);
+                            color.s.b = (u8)(src_bits >>  8);
+                            color.s.a = (u8)(src_bits      );
+                        }
 #else
                         color = (aobj->length_invert <= aobj->length) ? *(SYColorPack*)&aobj->value_target : *(SYColorPack*)&aobj->value_base;
 #endif
