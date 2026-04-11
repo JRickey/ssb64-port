@@ -1163,8 +1163,24 @@ typedef struct {
  * 4x4 matrix, fixed point s15.16 format.
  * First 8 words are integer portion of the 4x4 matrix
  * Last 8 words are the fraction portion of the 4x4 matrix
+ *
+ * IMPORTANT: each element is a 32-bit word on the N64. The SDK originally
+ * typed this as `long`, which is 4 bytes on LLP64 (MSVC / Windows x64) but
+ * 8 bytes on LP64 (macOS/Linux clang/gcc). The extra padding makes every
+ * matrix on LP64 twice the size Fast3D expects — guMtxF2L writes at 4-byte
+ * stride while the reader reads at 4-byte stride, but the *struct* steps at
+ * 8-byte stride, so every other word is a zero padding byte. The net effect
+ * is that only m[0][0] (and its padded neighbour) survives and every
+ * transformed vertex collapses to z=0,w=0. See the "N64 Mtx LP64 stride"
+ * entry in CLAUDE.md for the full symptom story.
+ *
+ * Force a 32-bit element type under PORT on every non-MSVC target.
  */
+#if defined(PORT) && !defined(_MSC_VER)
+typedef int	Mtx_t[4][4];
+#else
 typedef long	Mtx_t[4][4];
+#endif
 
 typedef union {
     Mtx_t		m;
