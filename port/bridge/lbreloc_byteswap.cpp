@@ -616,6 +616,62 @@ extern "C" int portRelocFixupTextureFromChain(void *file_base, size_t file_size,
 // vertices reaches this function — there's no guessing.  Each target's "type"
 // is unambiguously vertex because a real G_VTX cmd just dispatched it.
 
+// Lazy texture byte-order fixup at G_LOADBLOCK / G_LOADTLUT execute time.
+// Called from libultraship's GfxDpLoadBlock and GfxDpLoadTLUT once both
+// the texture address (set by G_SETTIMG) and the texel count are known.
+//
+// This catches textures referenced by RUNTIME-BUILT DLs that pass2 doesn't
+// see (no in-file SETTIMG/LOADBLOCK pair) and that the chain walk also
+// doesn't see (the slot was looked up via an MObjSub field, not a chain
+// entry whose preceding cmd is SETTIMG).  Fighter material textures are
+// the most common example: lbCommonAddMObjForFighterPartsDObj walks the
+// fighter's MObjSub array at draw time and builds the SETTIMG/LOADBLOCK
+// pairs in heap, never embedding them in any file DL.
+//
+// Fast3D's texel readers expect bytes in N64 BE byte order:
+//   4b/8b: per-byte data, addr[0] is the first pixel
+//   16b: pixels are BE u16, read via `(addr[0] << 8) | addr[1]`
+//   32b: pixels are BE [R,G,B,A], read addr[0]=R, addr[1]=G, ...
+// Pass1 BSWAP32 reversed the byte order within each u32 word, so we apply
+// BSWAP32 again to restore the original layout.
+//
+// Idempotent via sStructU16Fixups, keyed on the texture's base address
+// (one entry per first-load).
+extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int num_bytes)
+{
+	if (addr == nullptr || num_bytes == 0) return;
+
+	// Only fix data that lives inside a reloc file blob.  Heap-built textures
+	// (procedurally generated, copied from elsewhere, etc.) are already in
+	// correct host byte order.
+	uintptr_t fileBase = 0;
+	size_t    fileSize = 0;
+	if (!portRelocFindContainingFile(addr, &fileBase, &fileSize))
+	{
+		return;
+	}
+
+	uintptr_t target = reinterpret_cast<uintptr_t>(addr);
+	size_t    target_offset = target - fileBase;
+	if (target_offset + num_bytes > fileSize)
+	{
+		num_bytes = (unsigned int)(fileSize - target_offset);
+	}
+	num_bytes &= ~3u;
+	if (num_bytes == 0) return;
+
+	uintptr_t fixup_key = target;
+	if (sStructU16Fixups.count(fixup_key)) return;
+	sStructU16Fixups.insert(fixup_key);
+
+	uint32_t *region = reinterpret_cast<uint32_t *>(target);
+	size_t num_words = num_bytes / 4;
+	for (size_t i = 0; i < num_words; i++)
+	{
+		region[i] = BSWAP32(region[i]);
+	}
+}
+
 extern "C" void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num_vtx)
 {
 	if (addr == nullptr || num_vtx == 0 || num_vtx > 32) return;

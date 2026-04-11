@@ -164,6 +164,27 @@ int portRelocFixupTextureFromChain(void *file_base, size_t file_size,
  */
 void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num_vtx);
 
+/**
+ * Lazy texture byte-order fixup at G_LOADBLOCK / G_LOADTLUT execute time.
+ *
+ * Called from libultraship's GfxDpLoadBlock / GfxDpLoadTile / GfxDpLoadTlut
+ * with the resolved texture address and the texel byte count.  Catches
+ * textures referenced by RUNTIME-BUILT DLs that pass2 doesn't see (no
+ * in-file SETTIMG/LOADBLOCK pair) and that the chain walk also doesn't
+ * see (the slot was looked up via an MObjSub field, not a chain entry
+ * whose preceding cmd is SETTIMG).  Fighter material textures use this
+ * runtime-built path.
+ *
+ * Applies BSWAP32 to undo pass1's blanket byte-swap so Fast3D's per-format
+ * texel readers see the original N64 BE byte order.
+ *
+ * Idempotent via sStructU16Fixups, keyed on the texture's base address.
+ *
+ * @param addr        Resolved texture base pointer (from texture_to_load.addr).
+ * @param num_bytes   Texture size in bytes (computed from LOADBLOCK count).
+ */
+void portRelocFixupTextureAtRuntime(const void *addr, unsigned int num_bytes);
+
 #ifdef __cplusplus
 }
 #endif
