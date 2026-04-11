@@ -870,17 +870,28 @@ extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
 
 	// G_IM_SIZ_ values: 4b=0, 8b=1, 16b=2, 32b=3, 4c=4 (compressed-4b)
 	//
-	// Fast3D's ImportTextureRgba16 (and the other texel readers) read texture
-	// bytes in N64 big-endian order, e.g. RGBA16: `(addr[0] << 8) | addr[1]`.
+	// Fast3D's texel readers (ImportTextureRgba16/Rgba32/CI4/CI8/etc.) all
+	// read texture bytes in N64 big-endian order — for example
+	//   RGBA16: `(addr[0] << 8) | addr[1]`
+	//   RGBA32: `r=addr[0], g=addr[1], b=addr[2], a=addr[3]`
 	// So texel data must be left in the original BE byte order from the file.
 	// Pass1 BSWAP32 destroys that order; another BSWAP32 restores it.
+	//
+	// 32bpp used to be skipped here on the assumption "pass1 byteswap is
+	// already correct because the reader is per-channel byte-by-byte".  That
+	// reasoning is wrong: pass1's per-u32 byte reverse turns each pixel's
+	// `[R G B A]` into `[A B G R]` in PC memory, so the per-byte reader sees
+	// channel-reversed RGBA32.  Symptom: HAL Labs dog (a 32bpp sprite) renders
+	// with R↔A and G↔B swapped — brown becomes a different color entirely.
+	// chain_fixup_settimg already had the same wrong assumption removed; this
+	// is the matching fix on the sprite path.
 	int bpp;
 	switch (bmsiz)
 	{
 	case 0: bpp = 4;  break;   // 4b
 	case 1: bpp = 8;  break;   // 8b
 	case 2: bpp = 16; break;   // 16b
-	case 3: return;            // 32b — no fixup (pass1 byteswap is already correct: Fast3D's RGBA32 reader is per-channel-byte)
+	case 3: bpp = 32; break;   // 32b
 	case 4: bpp = 4;  break;   // 4c (compressed-4b: byte-granular like 4b)
 	default:
 		return;
