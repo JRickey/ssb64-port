@@ -55,6 +55,40 @@ if (-not $ExtractOnly) {
     if ($LASTEXITCODE -ne 0) { Write-Host "Submodule init failed" -ForegroundColor Red; exit 1 }
 }
 
+# ── Generate reloc_data.h ──
+# include/reloc_data.h is gitignored. Rebuild it from the vendored
+# symbols table before configuring CMake so every compiler sees real
+# file_id / offset values.
+if (-not $ExtractOnly) {
+    Write-Step "Regenerating include/reloc_data.h"
+    python "$Root\tools\generate_reloc_stubs.py"
+    if ($LASTEXITCODE -ne 0) { Write-Host "reloc_data.h generation failed" -ForegroundColor Red; exit 1 }
+}
+
+# ── Encode credits text ──
+# staff/titles/info/companies credit strings are #include'd directly
+# into scstaffroll.c via .credits.encoded / .credits.metadata files,
+# which are gitignored. Every fresh checkout has to rerun the encoder.
+# staff/titles use the default title font; info/companies need the
+# paragraph font for digits, punctuation and accents. The tool is
+# idempotent — it overwrites the outputs unconditionally.
+if (-not $ExtractOnly) {
+    Write-Step "Encoding credits text"
+    Push-Location (Join-Path $Root "src\credits")
+    try {
+        foreach ($name in @("staff.credits.us.txt", "titles.credits.us.txt")) {
+            python "$Root\tools\creditsTextConverter.py" $name | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Host "credits encode failed: $name" -ForegroundColor Red; exit 1 }
+        }
+        foreach ($name in @("info.credits.us.txt", "companies.credits.us.txt")) {
+            python "$Root\tools\creditsTextConverter.py" -paragraphFont $name | Out-Null
+            if ($LASTEXITCODE -ne 0) { Write-Host "credits encode failed: $name" -ForegroundColor Red; exit 1 }
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
 # ── CMake configure ──
 if (-not $ExtractOnly) {
     Write-Step "Configuring CMake"

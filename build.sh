@@ -91,6 +91,36 @@ if [[ $EXTRACT_ONLY -eq 0 ]]; then
     git -C "$ROOT" submodule update --init --recursive
 fi
 
+# ── Generate reloc_data.h ──
+# `include/reloc_data.h` is gitignored — rebuild it from the vendored
+# symbols table before configuring CMake so every compiler sees the
+# real file_id / offset values.
+if [[ $EXTRACT_ONLY -eq 0 ]]; then
+    step "Regenerating include/reloc_data.h"
+    python3 "$ROOT/tools/generate_reloc_stubs.py"
+fi
+
+# ── Encode credits text ──
+# The staff/titles/info/companies credit strings are included directly
+# into scstaffroll.c via `#include "credits/<name>.credits.encoded"` /
+# `.metadata`. Those generated artefacts are gitignored, so every fresh
+# checkout needs to re-run tools/creditsTextConverter.py. Info and
+# companies use the paragraph font (digits, punctuation, accents);
+# staff and titles use the default title font. Idempotent — the tool
+# overwrites the output files unconditionally.
+if [[ $EXTRACT_ONLY -eq 0 ]]; then
+    step "Encoding credits text"
+    (
+        cd "$ROOT/src/credits"
+        for f in staff.credits.us.txt titles.credits.us.txt; do
+            python3 "$ROOT/tools/creditsTextConverter.py" "$f" > /dev/null
+        done
+        for f in info.credits.us.txt companies.credits.us.txt; do
+            python3 "$ROOT/tools/creditsTextConverter.py" -paragraphFont "$f" > /dev/null
+        done
+    )
+fi
+
 # ── CMake configure ──
 if [[ $EXTRACT_ONLY -eq 0 ]]; then
     step "Configuring CMake ($CMAKE_GENERATOR, $CONFIG)"
