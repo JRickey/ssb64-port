@@ -19,6 +19,14 @@ extern "C" {
  */
 void portAudioLoadAssets(void);
 
+/**
+ * Release shared_ptr<Ship::IResource> references held by the audio bridge's
+ * BLOB table.  Must run before Ship::Context is torn down — otherwise those
+ * references survive into __cxa_finalize_ranges and the resulting
+ * IResource::~IResource() call lands on a shut-down spdlog logger.
+ */
+void portAudioShutdownAssets(void);
+
 #ifdef __cplusplus
 }
 #endif

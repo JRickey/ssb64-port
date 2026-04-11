@@ -15,6 +15,7 @@
 #include <ship/resource/factory/BlobFactory.h>
 #include <ship/resource/ResourceType.h>
 
+#include "bridge/audio_bridge.h"
 #include "renderdoc_trigger.h"
 
 static std::shared_ptr<Ship::Context> sContext;
@@ -92,6 +93,10 @@ int PortInit(int argc, char* argv[]) {
 }
 
 void PortShutdown(void) {
+	// Drop audio bridge resource references before Ship::Context goes away.
+	// Otherwise their shared_ptrs survive into __cxa_finalize_ranges and
+	// Ship::IResource::~IResource() lands on a shut-down spdlog.
+	portAudioShutdownAssets();
 	sContext.reset();
 	port_log_close();
 }

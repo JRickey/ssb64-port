@@ -256,6 +256,15 @@ struct AudioBlob {
     std::shared_ptr<Ship::IResource> resource; // prevent release
 };
 
+// File-scope so portAudioShutdownAssets() can reach them.  These must be
+// released *before* Ship::Context is torn down: if they outlive it, their
+// shared_ptr<Ship::IResource> destructors run during __cxa_finalize_ranges
+// and the SPDLOG_TRACE call in IResource::~IResource() lands on a
+// shut-down spdlog and crashes.
+static AudioBlob sounds1_ctl, sounds1_tbl, sounds2_ctl, sounds2_tbl;
+static AudioBlob music_sbk;
+static AudioBlob fgm_unk_blob, fgm_tbl_blob, fgm_ucd_blob;
+
 static bool loadBlob(const char* name, AudioBlob& out) {
     auto ctx = Ship::Context::GetInstance();
     if (!ctx) { spdlog::error("audio_bridge: no Ship::Context"); return false; }
@@ -545,13 +554,10 @@ extern "C" void portAudioLoadAssets(void)
     alHeapInit(&sSYAudioHeap, sSYAudioCurrentSettings.heap_base,
                (s32)sSYAudioCurrentSettings.heap_size);
 
-    // Load BLOBs — static so the shared_ptrs keep data alive for the
-    // entire session (wavetable base pointers reference TBL data directly,
-    // FGM packages reference their data, etc.)
-    static AudioBlob sounds1_ctl, sounds1_tbl, sounds2_ctl, sounds2_tbl;
-    static AudioBlob music_sbk;
-    static AudioBlob fgm_unk_blob, fgm_tbl_blob, fgm_ucd_blob;
-
+    // BLOBs live at file scope so portAudioShutdownAssets() can release
+    // them before Ship::Context tears down spdlog.  They keep data alive
+    // for the entire session (wavetable base pointers reference TBL data
+    // directly, FGM packages reference their data, etc.)
     bool ok = true;
     ok = ok && loadBlob("audio/B1_sounds1_ctl", sounds1_ctl);
     ok = ok && loadBlob("audio/B1_sounds1_tbl", sounds1_tbl);
@@ -637,4 +643,16 @@ extern "C" void portAudioLoadAssets(void)
     }
 
     spdlog::info("audio_bridge: all audio assets loaded successfully");
+}
+
+extern "C" void portAudioShutdownAssets(void)
+{
+    sounds1_ctl = AudioBlob{};
+    sounds1_tbl = AudioBlob{};
+    sounds2_ctl = AudioBlob{};
+    sounds2_tbl = AudioBlob{};
+    music_sbk   = AudioBlob{};
+    fgm_unk_blob = AudioBlob{};
+    fgm_tbl_blob = AudioBlob{};
+    fgm_ucd_blob = AudioBlob{};
 }
