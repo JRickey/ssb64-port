@@ -478,19 +478,15 @@ static int chain_fixup_settimg(void *file_base, size_t file_size,
 	uint32_t *region = (uint32_t *)((uint8_t *)file_base + target_byte_off);
 	size_t num_words = tex_bytes / 4;
 
-	switch (siz)
-	{
-	case G_IM_SIZ_4b:
-	case G_IM_SIZ_8b:
-	case G_IM_SIZ_16b:
-		// Per-byte / per-u16 BE data: pass1 BSWAP32 reversed it; another
-		// BSWAP32 restores the original BE byte order Fast3D expects.
-		for (size_t i = 0; i < num_words; i++) region[i] = BSWAP32(region[i]);
-		break;
-	case G_IM_SIZ_32b:
-		// 32bpp: pass1 BSWAP32 was correct (per-channel-byte read).  No fixup.
-		break;
-	}
+	// All formats need BSWAP32 to restore N64 BE byte order:
+	//  - 4b/8b: per-byte data; Fast3D reads bytes in their original order
+	//  - 16b: pixels are BE u16; Fast3D reads `(addr[0] << 8) | addr[1]`
+	//  - 32b: pixels are BE [R,G,B,A]; Fast3D's ImportTextureRgba32 reads
+	//         addr[0]=R, addr[1]=G, addr[2]=B, addr[3]=A
+	// Pass1 BSWAP32 reversed the byte order within each u32, so a second
+	// BSWAP32 restores the original layout for ALL of these formats.
+	(void)siz;
+	for (size_t i = 0; i < num_words; i++) region[i] = BSWAP32(region[i]);
 
 	return 1;
 }
