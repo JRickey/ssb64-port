@@ -1382,19 +1382,50 @@ extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
 		//
 		// Each Bitmap is loaded as one independent LOAD_BLOCK in
 		// lbCommonDrawSObjBitmap, so the swizzle row index is strip-local.
-		if (bpp == 16 && width_img > 0 && (width_img % 4) == 0)
+		//
+		// Why this also fires for 4b and 8b sprites (not just 16b):
+		// lbCommonDrawSObjBitmap builds runtime LOAD_BLOCK commands using
+		// G_IM_SIZ_{4b,8b,16b}_LOAD_BLOCK, all of which are #defined to
+		// G_IM_SIZ_16b.  So every non-32bpp sprite is loaded into TMEM as
+		// 16bpp, and the same odd-row XOR-0x4 swizzle applies to the DRAM
+		// storage regardless of the sprite's logical bit depth.  The 4b/8b
+		// case surfaces on fighter-intro title card text (e.g. "MARIO",
+		// "YOSHI") where each letter is a 4b/8b sprite rendered via this
+		// path; those letters were sheared until this fix was extended
+		// beyond 16b.
+		//
+		// 4c (compressed) is excluded because the on-disk data is 2bpp
+		// compressed source; the N64 game decodes it to 4b via
+		// lbCommonDecodeSpriteBitmapsSiz4b AFTER this fixup runs, so the
+		// swizzle would target the wrong byte layout.  The decoder emits
+		// linear 4b output, and if any 4c sprite turns out to be swizzled
+		// after decode it needs a separate post-decode fixup.
+		if (bpp > 0 && bpp < 32 && bmsiz != 4 &&
+		    width_img > 0 && actualHeight > 0)
 		{
-			size_t row_bytes = static_cast<size_t>(width_img) * 2;
-			uint8_t *bytes = static_cast<uint8_t *>(buf);
-			for (int row = 1; row < actualHeight; row += 2)
+			// row_bytes = DRAM bytes per pixel row. For 4b this is width/2
+			// (rounded up for odd widths); 8b is width; 16b is width*2.
+			size_t row_bytes = ((size_t)width_img * (size_t)bpp + 7) / 8;
+			// The swizzle operates on 8-byte qwords. Require the row to
+			// hold at least one full qword and be qword-aligned so we
+			// don't mis-swap partial trailing bytes.  Anything narrower
+			// than 8 bytes (e.g. a 4b 12-wide sprite → row_bytes=6) has
+			// no qword to swap, and a non-qword-aligned row would leave
+			// the tail bytes in an inconsistent state.  In practice, real
+			// font-style sprites are almost always power-of-2 or 8-aligned.
+			if (row_bytes >= 8 && (row_bytes % 8) == 0)
 			{
-				uint8_t *row_p = bytes + row * row_bytes;
-				for (size_t qw = 0; qw + 8 <= row_bytes; qw += 8)
+				uint8_t *bytes = static_cast<uint8_t *>(buf);
+				for (int row = 1; row < actualHeight; row += 2)
 				{
-					uint8_t tmp[4];
-					std::memcpy(tmp, row_p + qw, 4);
-					std::memcpy(row_p + qw, row_p + qw + 4, 4);
-					std::memcpy(row_p + qw + 4, tmp, 4);
+					uint8_t *row_p = bytes + (size_t)row * row_bytes;
+					for (size_t qw = 0; qw + 8 <= row_bytes; qw += 8)
+					{
+						uint8_t tmp[4];
+						std::memcpy(tmp, row_p + qw, 4);
+						std::memcpy(row_p + qw, row_p + qw + 4, 4);
+						std::memcpy(row_p + qw + 4, tmp, 4);
+					}
 				}
 			}
 		}

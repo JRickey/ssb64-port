@@ -77,6 +77,8 @@ void portFixupBitmapArray(void *bitmaps, unsigned int count);
  *      addresses in stored DLs, so pass2 misses them. Apply BSWAP32 again to
  *      undo pass1's blanket u32 swap. Fast3D's ImportTexture* readers expect
  *      bytes in N64 big-endian order (e.g. RGBA16: `(addr[0]<<8) | addr[1]`).
+ *      Runs for 4b/8b/16b/32b (4c compressed source is BSWAP'd too since
+ *      the compressed bytes still came through pass1).
  *
  *   2. N64 RDP TMEM line-swizzle inverse. The N64 stores textures in DRAM
  *      pre-swizzled to avoid TMEM bank conflicts when sampled. The hardware
@@ -87,6 +89,15 @@ void portFixupBitmapArray(void *bitmaps, unsigned int count);
  *      the sampler unscrambles it during reads. Fast3D doesn't emulate TMEM
  *      addressing, so the swizzled data renders as a sheared/zigzag image.
  *      Pre-unswizzle each bitmap here so Fast3D sees a normal linear texture.
+ *
+ *      Applies to every non-32bpp direct-load sprite (4b, 8b, 16b) because
+ *      lbCommonDrawSObjBitmap uses G_IM_SIZ_{4b,8b,16b}_LOAD_BLOCK — all
+ *      of which are #defined to G_IM_SIZ_16b — so the loader treats every
+ *      sprite as 16bpp in TMEM and the DRAM is pre-swizzled accordingly.
+ *      4c (compressed) is excluded: the file contains 2bpp source bytes
+ *      that get decoded to 4b by lbCommonDecodeSpriteBitmapsSiz4b AFTER
+ *      this fixup runs. Skipped to avoid hitting the wrong layout; 32bpp
+ *      uses a different TMEM bank scheme and isn't swizzled this way.
  *
  * Must be called AFTER portFixupSprite and portFixupBitmapArray (which fix
  * the struct fields the function reads), and BEFORE the texture data is read
