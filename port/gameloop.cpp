@@ -63,6 +63,28 @@ extern OSMesgQueue gSYSchedulerTaskMesgQueue;
 
 } /* extern "C" */
 
+/*
+ * port_make_os_mesg_int() — fully-initialised OSMesg from an integer code.
+ *
+ * The decomp treats OSMesg as `void*` (PR/os.h); libultraship treats it as a
+ * union { u8; u16; u32; void*; } (libultraship/libultra/message.h). Both are
+ * 8 bytes, so the calling convention matches, but writing only one union
+ * member from C++ leaves the remaining bytes uninitialised — whatever was on
+ * the stack in that slot. On MSVC/x64 those bytes happened to be zero and
+ * the bug was latent; on macOS/arm64 they held a stack pointer, and the
+ * scheduler's `(SYTaskInfo*)mesg` cast in sySchedulerThreadMain then jumped
+ * through a garbage `fnCheck` pointer.
+ *
+ * All port-layer (C++) sends of integer interrupt codes should go through
+ * this helper so the full 8 bytes are well-defined on every platform.
+ */
+static inline OSMesg port_make_os_mesg_int(uint32_t code)
+{
+	OSMesg m{};          /* zero-initialise every union member */
+	m.data32 = code;     /* then set the scalar we care about */
+	return m;
+}
+
 /* ========================================================================= */
 /*  Game coroutine state                                                     */
 /* ========================================================================= */
@@ -329,9 +351,10 @@ void PortPushFrame(void)
 		}
 	}
 
-	/* Post a VI retrace event to the scheduler's message queue.
-	 * This is what the N64 hardware does at ~60Hz. */
-	osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)INTR_VRETRACE, OS_MESG_NOBLOCK);
+	/* Post a VI retrace event to the scheduler's message queue. See
+	 * port_make_os_mesg_int() above for why we don't just write
+	 * `(OSMesg)INTR_VRETRACE` here. */
+	osSendMesg(&gSYSchedulerTaskMesgQueue, port_make_os_mesg_int(INTR_VRETRACE), OS_MESG_NOBLOCK);
 
 	/* Resume all service thread coroutines that are waiting for messages.
 	 * This runs multiple rounds to handle cascading messages:
