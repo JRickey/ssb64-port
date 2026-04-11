@@ -47,6 +47,19 @@ void ftCommonDeadUpdateRumble(FTStruct *this_fp)
 // 0x8013BD64
 void ftCommonDeadUpdateScore(FTStruct *this_fp)
 {
+#ifdef PORT
+    /* Intro scenes allocate a battle state but never run the HUD setup
+     * (ifCommonBattleMakeInterface), so gIFCommonPlayerInterface.player_pos_x
+     * remains NULL.  Fighter physics can still spuriously push intro-scene
+     * fighters into the "dead" state due to wrong map bounds, and the dead
+     * handler walks deep into the HUD code for stock/score updates that
+     * would deref the null HUD pointer.  Bail on the whole score update
+     * path when the HUD isn't set up. */
+    if (gIFCommonPlayerInterface.player_pos_x == NULL)
+    {
+        return;
+    }
+#endif
     ifCommonPlayerDamageStartBreakAnim(this_fp);
     ifCommonPlayerStockMakeStockSnap(this_fp);
 

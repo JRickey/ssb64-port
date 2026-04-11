@@ -3297,6 +3297,18 @@ void ifCommonBattleSetGameStatusWait(void)
 // 0x80114968
 void ifCommonPlayerStockMakeStockSnap(FTStruct *fp)
 {
+#ifdef PORT
+    /* Intro scenes never run ifCommonBattleMakeInterface, so the player
+     * HUD position arrays (gIFCommonPlayerInterface.player_pos_x) can be
+     * NULL.  Intro-scene fighters occasionally get pushed through the
+     * "dead" state machine because of bad map bounds, which calls this
+     * function via ftCommonDeadUpdateScore.  Bail instead of dereferencing
+     * a null pointer array. */
+    if (gIFCommonPlayerInterface.player_pos_x == NULL)
+    {
+        return;
+    }
+#endif
     efManagerStockSnapMakeEffect(gIFCommonPlayerInterface.player_pos_x[fp->player], gIFCommonPlayerInterface.player_pos_y);
 }
 

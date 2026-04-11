@@ -169,6 +169,21 @@ void ftPhysicsApplyGroundVelTransN(GObj *fighter_gobj)
 {
     FTStruct *fp = ftGetStruct(fighter_gobj);
 
+#ifdef PORT
+    /* Intro-scene fighters are created via ftManagerMakeFighter without
+     * the hidden-parts TransN/XRotN/YRotN joints being populated (same
+     * motion-desc struct-size class as project_addr64_relocation_bug).
+     * If the joint slot is NULL, fall through to the friction path so
+     * we don't deref null.  Scene 45 (OpeningJungle) hit this in
+     * ftMainProcPhysicsMap when Fox's anim_desc.is_use_transn_joint bit
+     * was spuriously set from the wrong struct field position. */
+    if (fp->joints[nFTPartsJointTransN] == NULL)
+    {
+        ftPhysicsSetGroundVelTransferAir(fighter_gobj);
+        return;
+    }
+#endif
+
     fp->physics.vel_ground.x = ((fp->joints[nFTPartsJointTransN]->translate.vec.f.z - fp->anim_vel.z) * DObjGetStruct(fighter_gobj)->scale.vec.f.z);
     fp->physics.vel_ground.z = ((fp->joints[nFTPartsJointTransN]->translate.vec.f.x - fp->anim_vel.x) * -fp->lr * DObjGetStruct(fighter_gobj)->scale.vec.f.x);
 
