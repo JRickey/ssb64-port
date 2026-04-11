@@ -1389,7 +1389,19 @@ void gcPlayMObjMatAnim(MObj *mobj)
     f32 temp_f14;
     f32 temp_f20;
     f32 temp_f22;
+#ifdef PORT
+    /* PORT: the inner switch in the color-track branch only handles
+     * nGCAnimKindLinear and nGCAnimKindStep.  If aobj->kind is any other
+     * value (Cubic, None, etc.), `color` is left uninitialized and the
+     * subsequent track switch writes garbage stack bytes into the mobj's
+     * primcolor/envcolor/etc.  N64 happens to land on a sensible stack
+     * residue most frames, but PC stack contents vary across runs and
+     * draw calls — observed as fighter colors that change between runs
+     * for the same frame.  Initialize to opaque white as a no-op default. */
+    SYColorPack color = { { 0xFF, 0xFF, 0xFF, 0xFF } };
+#else
     SYColorPack color; // color
+#endif
     f32 temp_f24;
     s32 interp;
     SYColorPack sp38; // sp38
