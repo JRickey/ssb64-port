@@ -15,6 +15,8 @@
 #include <ship/resource/factory/BlobFactory.h>
 #include <ship/resource/ResourceType.h>
 
+#include "renderdoc_trigger.h"
+
 static std::shared_ptr<Ship::Context> sContext;
 
 extern "C" {
@@ -103,6 +105,10 @@ int PortIsRunning(void) {
 int main(int argc, char* argv[]) {
 	port_log_init("ssb64.log");
 
+	// Initialize RenderDoc trigger BEFORE PortInit so the RenderDoc DLL
+	// can hook D3D11 before LUS creates the device.
+	portRenderDocInit();
+
 	if (PortInit(argc, argv) != 0) {
 		return 1;
 	}
@@ -121,5 +127,6 @@ int main(int argc, char* argv[]) {
 	PortGameShutdown();
 
 	PortShutdown();
+	portRenderDocShutdown();
 	return 0;
 }
