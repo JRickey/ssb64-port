@@ -17,10 +17,12 @@ extern "C" {
  *   Pass 2: Parse now-native-endian DL commands to find vertex and texture
  *           regions, then apply targeted fixups for u16 and byte-granular data.
  *
- * @param data  Pointer to the decompressed blob in game memory.
- * @param size  Size in bytes (must be a multiple of 4).
+ * @param data     Pointer to the decompressed blob in game memory.
+ * @param size     Size in bytes (must be a multiple of 4).
+ * @param file_id  Reloc file id, used only by the SSB64_TEX_FIXUP_LOG path
+ *                 to tag log entries. Pass UINT32_MAX if unknown.
  */
-void portRelocByteSwapBlob(void *data, size_t size);
+void portRelocByteSwapBlob(void *data, size_t size, unsigned int file_id);
 
 /**
  * Apply rotate16 fixup to a region of u16 fields within a ROM-overlay struct.
@@ -184,6 +186,27 @@ void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num_vtx);
  * @param num_bytes   Texture size in bytes (computed from LOADBLOCK count).
  */
 void portRelocFixupTextureAtRuntime(const void *addr, unsigned int num_bytes);
+
+/**
+ * Texture-fixup diagnostic logging.
+ *
+ * Gated on the SSB64_TEX_FIXUP_LOG=1 environment variable. When enabled,
+ * every call into the byteswap-side texture fixup paths
+ * (chain_fixup_settimg, pass2 DL-scan, portRelocFixupTextureAtRuntime,
+ * portFixupSpriteBitmapData) writes a one-line entry to
+ * `debug_traces/tex_fixup.log` recording the path, the containing reloc
+ * file id (or "heap" if the data isn't in any reloc file), the file
+ * offset, byte size, format/siz when known, and the first 16 bytes of
+ * the texel region (post-fixup) for fingerprinting.
+ *
+ * Optional filters:
+ *   SSB64_TEX_FIXUP_LOG_FILE_ID=<n>  — only emit lines whose file_id matches
+ *
+ * The log is overwritten each run. Designed to identify which fixup path
+ * (if any) processes a specific in-game texture so we can correlate
+ * rendering bugs against the byte-swap layer.
+ */
+void portRelocTexFixupLog(const char *fmt, ...);
 
 #ifdef __cplusplus
 }

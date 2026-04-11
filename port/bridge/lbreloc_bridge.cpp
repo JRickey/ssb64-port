@@ -349,7 +349,7 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	// Byte-swap from N64 big-endian to native little-endian.
 	// Must happen BEFORE the reloc chain walk (which reads u16 fields
 	// from u32 words using bit shifts that assume native byte order).
-	portRelocByteSwapBlob(ram_dst, copySize);
+	portRelocByteSwapBlob(ram_dst, copySize, (unsigned int)file_id);
 
 	// Register in status buffer
 	if (loc == nLBFileLocationForce)

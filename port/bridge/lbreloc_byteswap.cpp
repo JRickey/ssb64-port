@@ -22,13 +22,127 @@
 #include <ship/utils/binarytools/endianness.h>
 #include <spdlog/spdlog.h>
 
+#include <cstdarg>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <unordered_set>
 #include <vector>
 
 extern "C" void port_log(const char *fmt, ...);
 extern "C" int  portRelocFindContainingFile(const void *ptr, uintptr_t *out_base, size_t *out_size);
+extern "C" int  portRelocFindFileIdAndBase(const void *ptr, uintptr_t *out_base);
+
+// ============================================================
+//  Texture-fixup diagnostic log (SSB64_TEX_FIXUP_LOG=1)
+// ============================================================
+//
+// One-line entry per byteswap-side texture fixup invocation. See
+// portRelocTexFixupLog() in lbreloc_byteswap.h for the user-facing knobs.
+// All entries are interleaved into debug_traces/tex_fixup.log so chain /
+// pass2 / runtime / heap / sprite paths can be diffed and grepped together.
+//
+// Initialization is lazy and once-only. The log is opened on the first call
+// after the env var has been read.
+
+static int  sTexLogState = 0;        // 0=uninit, 1=enabled, -1=disabled
+static FILE *sTexLogFile = nullptr;
+static int  sTexLogFileFilter = -1;  // -1 = no filter
+
+static void tex_log_init_once()
+{
+	if (sTexLogState != 0) return;
+	const char *env = std::getenv("SSB64_TEX_FIXUP_LOG");
+	if (env == nullptr || env[0] == '0' || env[0] == '\0') {
+		sTexLogState = -1;
+		return;
+	}
+	sTexLogFile = std::fopen("debug_traces/tex_fixup.log", "w");
+	if (sTexLogFile == nullptr) {
+		// Fall back to stderr so we never silently swallow the request.
+		sTexLogFile = stderr;
+	}
+	const char *fenv = std::getenv("SSB64_TEX_FIXUP_LOG_FILE_ID");
+	if (fenv != nullptr && fenv[0] != '\0') {
+		sTexLogFileFilter = (int)std::strtol(fenv, nullptr, 0);
+	}
+	sTexLogState = 1;
+	std::fprintf(sTexLogFile,
+		"# tex_fixup.log — SSB64 texture byteswap-fixup trace\n"
+		"# columns: [path] file=<id> off=0x<file_off> size=<bytes> "
+		"fmt=<n> siz=<n> bpp=<n> first16=<hex> note=<...>\n");
+	std::fflush(sTexLogFile);
+}
+
+static inline bool tex_log_enabled()
+{
+	if (sTexLogState == 0) tex_log_init_once();
+	return sTexLogState == 1;
+}
+
+static void tex_log_first16(char *out, size_t out_sz, const void *data, size_t bytes)
+{
+	if (data == nullptr || bytes == 0 || out_sz < 3) {
+		if (out_sz > 0) out[0] = '-';
+		if (out_sz > 1) out[1] = '\0';
+		return;
+	}
+	size_t n = bytes < 16 ? bytes : 16;
+	const uint8_t *p = static_cast<const uint8_t *>(data);
+	size_t pos = 0;
+	for (size_t i = 0; i < n && pos + 3 < out_sz; i++) {
+		std::snprintf(out + pos, out_sz - pos, "%02X", p[i]);
+		pos += 2;
+	}
+	if (pos < out_sz) out[pos] = '\0';
+}
+
+// Centralized emit. Caller has already pre-formatted everything except the
+// optional first16 hex (which we never want to compute when the log is off).
+static void tex_log_emit(const char *path, int file_id,
+                         uint32_t file_off, uint32_t size_bytes,
+                         int fmt, int siz, int bpp,
+                         const void *first_bytes,
+                         const char *note)
+{
+	if (!tex_log_enabled()) return;
+	if (sTexLogFileFilter >= 0 && file_id != sTexLogFileFilter) return;
+
+	char hex[40];
+	tex_log_first16(hex, sizeof(hex), first_bytes, size_bytes);
+
+	char fmt_buf[16] = "?";
+	if (fmt >= 0) std::snprintf(fmt_buf, sizeof(fmt_buf), "%d", fmt);
+	char siz_buf[16] = "?";
+	if (siz >= 0) std::snprintf(siz_buf, sizeof(siz_buf), "%d", siz);
+	char bpp_buf[16] = "?";
+	if (bpp >= 0) std::snprintf(bpp_buf, sizeof(bpp_buf), "%d", bpp);
+	char file_buf[24];
+	if (file_id < 0) std::snprintf(file_buf, sizeof(file_buf), "heap");
+	else             std::snprintf(file_buf, sizeof(file_buf), "%d", file_id);
+
+	std::fprintf(sTexLogFile,
+		"[%-12s] file=%-6s off=0x%06X size=%-6u fmt=%s siz=%s bpp=%s first16=%s%s%s\n",
+		path, file_buf, file_off, size_bytes,
+		fmt_buf, siz_buf, bpp_buf, hex,
+		note ? " note=" : "", note ? note : "");
+	std::fflush(sTexLogFile);
+}
+
+// Public C-callable variadic logger declared in lbreloc_byteswap.h.
+// Currently unused by external code but exposed so future hooks (e.g. an
+// interpreter-side LoadBlock context line) can interleave entries into the
+// same log without re-implementing the gating.
+extern "C" void portRelocTexFixupLog(const char *fmt, ...)
+{
+	if (!tex_log_enabled()) return;
+	std::va_list ap;
+	va_start(ap, fmt);
+	std::vfprintf(sTexLogFile, fmt, ap);
+	va_end(ap);
+	std::fflush(sTexLogFile);
+}
 
 // Tracks which (base + offset) regions have been fixed to prevent
 // double-fixup. Used by per-struct fixups (Sprite, Bitmap, MObjSub, etc.),
@@ -281,7 +395,8 @@ static void apply_fixup_tex_u16(uint32_t *words, size_t num_words)
 }
 
 static void apply_fixups(void *data, size_t file_size,
-                         const std::vector<FixupRegion> &regions)
+                         const std::vector<FixupRegion> &regions,
+                         unsigned int file_id)
 {
 	uint8_t *bytes = static_cast<uint8_t *>(data);
 
@@ -322,9 +437,15 @@ static void apply_fixups(void *data, size_t file_size,
 			break;
 		case FIXUP_TEX_BYTES:
 			apply_fixup_tex_bytes(region_words, num_words);
+			tex_log_emit("pass2.bytes", (int)file_id,
+			             (uint32_t)start, (uint32_t)len,
+			             -1, -1, -1, region_words, "4b/8b");
 			break;
 		case FIXUP_TEX_U16:
 			apply_fixup_tex_u16(region_words, num_words);
+			tex_log_emit("pass2.u16", (int)file_id,
+			             (uint32_t)start, (uint32_t)len,
+			             -1, -1, 16, region_words, "16b/tlut");
 			break;
 		}
 	}
@@ -334,7 +455,7 @@ static void apply_fixups(void *data, size_t file_size,
 //  Public API
 // ============================================================
 
-extern "C" void portRelocByteSwapBlob(void *data, size_t size)
+extern "C" void portRelocByteSwapBlob(void *data, size_t size, unsigned int file_id)
 {
 	if (data == nullptr || size < 4)
 		return;
@@ -351,7 +472,7 @@ extern "C" void portRelocByteSwapBlob(void *data, size_t size)
 
 	if (!regions.empty())
 	{
-		apply_fixups(data, size, regions);
+		apply_fixups(data, size, regions, file_id);
 	}
 }
 
@@ -485,8 +606,24 @@ static int chain_fixup_settimg(void *file_base, size_t file_size,
 	//         addr[0]=R, addr[1]=G, addr[2]=B, addr[3]=A
 	// Pass1 BSWAP32 reversed the byte order within each u32, so a second
 	// BSWAP32 restores the original layout for ALL of these formats.
-	(void)siz;
 	for (size_t i = 0; i < num_words; i++) region[i] = BSWAP32(region[i]);
+
+	// Diagnostic: record what was just fixed (chain-walk path).
+	if (tex_log_enabled()) {
+		uintptr_t fb_addr = reinterpret_cast<uintptr_t>(file_base);
+		int chain_file_id = portRelocFindFileIdAndBase(
+			reinterpret_cast<const void *>(fb_addr), nullptr);
+		uint32_t bpp_val = (siz == G_IM_SIZ_4b)  ? 4u
+		                 : (siz == G_IM_SIZ_8b)  ? 8u
+		                 : (siz == G_IM_SIZ_16b) ? 16u
+		                 : (siz == G_IM_SIZ_32b) ? 32u
+		                 : 0u;
+		const char *note = (found_load == 2) ? "tlut" : "loadblock";
+		tex_log_emit("chain.settimg", chain_file_id,
+		             target_byte_off, tex_bytes,
+		             (int)((w0 >> 21) & 0x07), (int)siz, (int)bpp_val,
+		             region, note);
+	}
 
 	return 1;
 }
@@ -644,6 +781,16 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 	size_t    fileSize = 0;
 	if (!portRelocFindContainingFile(addr, &fileBase, &fileSize))
 	{
+		// Log heap textures so we can spot any geometry texture that
+		// somehow lives outside any reloc file (the "third path" case).
+		if (tex_log_enabled()) {
+			char heap_note[40];
+			std::snprintf(heap_note, sizeof(heap_note),
+			              "addr=0x%016llX",
+			              (unsigned long long)reinterpret_cast<uintptr_t>(addr));
+			tex_log_emit("runtime.heap", -1,
+			             0u, num_bytes, -1, -1, -1, addr, heap_note);
+		}
 		return;
 	}
 
@@ -657,7 +804,19 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 	if (num_bytes == 0) return;
 
 	uintptr_t fixup_key = target;
-	if (sStructU16Fixups.count(fixup_key)) return;
+	bool already_fixed = sStructU16Fixups.count(fixup_key) != 0;
+	if (already_fixed) {
+		// Still record that the runtime path SAW this texture, even if some
+		// earlier path already fixed it.  Distinguishes "wrong fmt fixup
+		// applied earlier" from "never reached this path at all".
+		if (tex_log_enabled()) {
+			int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
+			tex_log_emit("runtime.skip", rt_file_id,
+			             (uint32_t)target_offset, num_bytes,
+			             -1, -1, -1, addr, "already-fixed");
+		}
+		return;
+	}
 	sStructU16Fixups.insert(fixup_key);
 
 	uint32_t *region = reinterpret_cast<uint32_t *>(target);
@@ -665,6 +824,13 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 	for (size_t i = 0; i < num_words; i++)
 	{
 		region[i] = BSWAP32(region[i]);
+	}
+
+	if (tex_log_enabled()) {
+		int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
+		tex_log_emit("runtime.fix", rt_file_id,
+		             (uint32_t)target_offset, num_bytes,
+		             -1, -1, -1, region, "loadblock/loadtile/loadtlut");
 	}
 }
 
@@ -926,6 +1092,20 @@ extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
 		// All non-32bpp formats: undo pass1 BSWAP32 to restore N64 BE byte order.
 		for (size_t j = 0; j < num_words; j++)
 			words[j] = BSWAP32(words[j]);
+
+		if (tex_log_enabled()) {
+			uintptr_t bm_base = 0;
+			int sprite_file_id = portRelocFindFileIdAndBase(buf, &bm_base);
+			uint32_t off = (sprite_file_id >= 0)
+				? (uint32_t)(reinterpret_cast<uintptr_t>(buf) - bm_base)
+				: 0u;
+			char note[64];
+			std::snprintf(note, sizeof(note),
+			              "sprite bm=%d w=%d h=%d", i, (int)width_img, (int)actualHeight);
+			tex_log_emit("sprite.bitmap", sprite_file_id,
+			             off, (uint32_t)tex_bytes,
+			             -1, (int)bmsiz, bpp, words, note);
+		}
 
 		// N64 RDP TMEM line swizzle: textures stored in DRAM are pre-swizzled
 		// to avoid TMEM bank conflicts when sampled. The hardware applies an
