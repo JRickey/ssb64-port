@@ -221,7 +221,23 @@ The decompiled C code contains patterns that are artifacts of the original IDO 7
 - These exist to produce matching assembly output against the original ROM and should NOT be "cleaned up" in the decomp source files
 
 ### Compiler Compatibility
-When modifying decomp code for the port:
+
+**The LP64 `long` class of bug.** The N64 SDK headers type several fixed-width 32-bit fields as `long`, which is 4 bytes under MSVC LLP64 and 8 bytes under clang/gcc LP64. Every such field silently doubles in size on macOS/Linux, corrupting every struct that mirrors N64 file data or that gets shared with libultraship (which uses 32-bit field types internally). A full sweep of `include/` and `src/` under the `\blong\b` pattern found only three real offenders — all fixed:
+
+- **`include/PR/ultratypes.h`** — `u32`/`s32`/`vu32`/`vs32` were `unsigned long`/`long`. Every decomp struct that packed N64 file data is affected. Fixed under `#ifdef PORT && !defined(_MSC_VER)` to use `unsigned int`/`int`. MSVC keeps the original definitions.
+- **`include/PR/gbi.h`** — `Mtx_t` was `long[4][4]`. Doubles the matrix from 64 to 128 bytes on LP64, so `guMtxF2L`'s 4-byte-stride int writes land in alternating padding slots and Fast3D's reader sees garbage. The smoking gun was that `libultraship/include/fast/types.h:3` *already* defined `Mtx_t` as `int[4][4]` — LUS and the decomp headers disagreed about the matrix element size, and MSVC accidentally reconciled them because `long == int` under LLP64. On LP64 the two headers diverge and every 3D transform collapses to `x==y, z=0, w=0`. Fixed by aligning `gbi.h`'s `Mtx_t` to `int[4][4]` under `PORT && !_MSC_VER`.
+- **`include/PR/gbi.h`** — `Gsetcolor::color`, `TexRect::w{0..3}`, `Hilite::force_structure_alignment`, `Gsetcolor`-family typed union views — all declared as `long` but **never accessed by field name** anywhere in `src/` / `port/` / `libultraship/`. The decomp builds display lists exclusively through the raw `Gwords` view (`g->words.w0`/`w1`), so the typed-struct LP64 drift is invisible and harmless. Left as-is.
+
+**Audit clean at time of writing:**
+- `src/` contains no `long`-typed struct fields (comment / macro-name matches only).
+- `include/PR/ramrom.h`, `u64gio.h`, `PRimage.h`, `stdlib.h::ldiv_t` are `long`-typed but none of them are referenced by any compiled translation unit — the port never pulls in the N64 ramrom debug I/O path or the SGI image format.
+- `include/PR/gu.h`'s `FTOFIX32(x)` macro returns `long`, but every caller assigns the result to an `int` before further use, so the extra width is truncated harmlessly.
+- `stdarg.h`'s `(long)list` alignment macros use `long` as a pointer-sized integer; LP64 actually makes that *more* correct than LLP64.
+- Every `_Static_assert(sizeof(X) == N)` struct (Bitmap, Sprite, DObjDesc, MObjSub, FTAccessPart, …) compiles clean, which means the reconciled types produce the correct byte layouts on both ABIs.
+
+When adding new decomp sources or vendored SDK headers, re-run this sweep (`grep -rn '\blong\b' include/ src/ | grep -v 'long long'`) before assuming the new code is LP64-safe.
+
+Other compiler-compat notes:
 - `ultratypes.h` defines `u32`/`s32` as `unsigned int`/`int` under `#ifdef PORT && !defined(_MSC_VER)` (and as `unsigned long`/`long` everywhere else). This is the LP64 fix: on clang/gcc `long` is 8 bytes, which silently corrupts every file-backed N64 struct the decomp touches. MSVC (LLP64) keeps the original SDK definitions.
 - `size_t` is provided in the same header via `__SIZE_TYPE__` (GCC/Clang builtin) when `_MIPS_SZLONG` isn't defined, so the decomp can use `size_t` without pulling in the system `<stddef.h>`.
 - The `__attribute__((aligned(x)))` macro in `macros.h` is immediately undefined by `#define __attribute__(x)` — this is an IDO compatibility hack. The port will need to fix this for GCC/Clang/MSVC.
