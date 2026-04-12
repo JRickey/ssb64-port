@@ -1,4 +1,7 @@
 #include <ft/fighter.h>
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -37,6 +40,10 @@ void ftKeyProcessKeyEvents(GObj *fighter_gobj)
                 key->script++;
 
                 cp->button_inputs = ftKeyGetButtons(key->script);
+#ifdef PORT
+                port_log("SSB64: ftKey fkind=%d BUTTON=0x%04X wait=%d\n",
+                    fp->fkind, cp->button_inputs, key->input_wait);
+#endif
 
                 key->script++;
                 break;
@@ -46,6 +53,11 @@ void ftKeyProcessKeyEvents(GObj *fighter_gobj)
 
                 cp->stick_range.x = ftKeyGetStickRange(key->script)->x;
                 cp->stick_range.y = ftKeyGetStickRange(key->script)->y;
+#ifdef PORT
+                port_log("SSB64: ftKey fkind=%d STICK x=%d y=%d wait=%d raw=0x%04X\n",
+                    fp->fkind, cp->stick_range.x, cp->stick_range.y,
+                    key->input_wait, key->script->halfword);
+#endif
 
                 key->script++;
                 break;

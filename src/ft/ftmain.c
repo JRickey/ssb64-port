@@ -3,6 +3,9 @@
 #include <it/item.h>
 #include <gr/ground.h>
 #include <sc/scene.h>
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+#endif
 #include <sys/controller.h>
 
 extern alSoundEffect* func_800269C0_275C0(u16);
@@ -4165,19 +4168,28 @@ void ftMainUpdateHiddenPartID(FTStruct *fp, s32 hiddenpart_id)
 
     attr = fp->attr;
 #ifdef PORT
-    /* PORT: bail if hiddenparts table is NULL or hiddenpart_id is out of
-     * bounds.  hiddenparts is loaded from the fighter attributes file via
-     * a relocation token; if that token is unresolved or the
-     * motion_desc->anim_desc.word bits trigger this for a hidden_part_id
-     * that doesn't exist in this fighter's table, the read returns garbage
-     * with wild root_joint_id values that crash the downstream array access. */
     {
         FTHiddenPart *hp_table = (FTHiddenPart*)PORT_RESOLVE(attr->hiddenparts);
-        if (hp_table == NULL || hiddenpart_id < 0 || hiddenpart_id >= 32) return;
+        if (hp_table == NULL) {
+            port_log("SSB64: ftMainUpdateHiddenPartID BAIL — hp_table NULL fkind=%d hpid=%d token=0x%X\n",
+                (int)fp->fkind, hiddenpart_id, attr->hiddenparts);
+            return;
+        }
+        if (hiddenpart_id < 0 || hiddenpart_id >= 32) {
+            port_log("SSB64: ftMainUpdateHiddenPartID BAIL — hpid OOB fkind=%d hpid=%d\n",
+                (int)fp->fkind, hiddenpart_id);
+            return;
+        }
         hiddenpart = &hp_table[hiddenpart_id];
-        /* sanity-check root_joint_id is plausible */
         if (hiddenpart->root_joint_id < 0 ||
-            hiddenpart->root_joint_id >= FTPARTS_JOINT_NUM_MAX) return;
+            hiddenpart->root_joint_id >= FTPARTS_JOINT_NUM_MAX) {
+            port_log("SSB64: ftMainUpdateHiddenPartID BAIL — root_joint OOB fkind=%d hpid=%d joint=%d\n",
+                (int)fp->fkind, hiddenpart_id, (int)hiddenpart->root_joint_id);
+            return;
+        }
+        port_log("SSB64: ftMainUpdateHiddenPartID OK fkind=%d hpid=%d joint=%d parent=%d kind=%d\n",
+            (int)fp->fkind, hiddenpart_id, (int)hiddenpart->root_joint_id,
+            (int)hiddenpart->parent_joint_id, (int)hiddenpart->joint_kind);
     }
 #else
     hiddenpart = &((FTHiddenPart*)PORT_RESOLVE(attr->hiddenparts))[hiddenpart_id];

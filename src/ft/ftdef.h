@@ -113,7 +113,14 @@
 #define FTCOMPUTER_EVENT_END()                  (FTCOMPUTER_COMMAND_END)
 
 #define FTKEY_EVENT_INSTRUCTION(k, t)       ( ((((k) << 12) & 0xF000) | ((t) & 0xFFF)) & U16_MAX )
+#if IS_BIG_ENDIAN
 #define FTKEY_EVENT_STICK(x, y, t)          FTKEY_EVENT_INSTRUCTION(nFTKeyEventStick, t), (((((x) << 8) & 0xFF00) | (((y) << 0) & 0x00FF)) & U16_MAX)
+#else
+// On LE, u16 bytes are stored low-first: Vec2b.x reads the low byte,
+// Vec2b.y reads the high byte. Pack x in the low byte and y in the high
+// byte so the FTKeyEvent union's stick_range reads correctly.
+#define FTKEY_EVENT_STICK(x, y, t)          FTKEY_EVENT_INSTRUCTION(nFTKeyEventStick, t), (((((y) << 8) & 0xFF00) | (((x) << 0) & 0x00FF)) & U16_MAX)
+#endif
 #define FTKEY_EVENT_BUTTON(b, t)            FTKEY_EVENT_INSTRUCTION(nFTKeyEventButton, t), ((b) & U16_MAX)
 #define FTKEY_EVENT_END()                   FTKEY_EVENT_INSTRUCTION(nFTKeyEventEnd, 0)
 

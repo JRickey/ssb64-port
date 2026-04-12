@@ -1245,6 +1245,7 @@ struct FTAttributes
     f32 halo_size;                                  // Respawn platform size?
     SYColorRGBA shade_color[3];
     SYColorRGBA fog_color;
+#if IS_BIG_ENDIAN
     ub32 is_have_attack11    : 1;
     ub32 is_have_attack12    : 1;
     ub32 is_have_attackdash  : 1;
@@ -1264,9 +1265,37 @@ struct FTAttributes
     ub32 is_have_specialhi   : 1;
     ub32 is_have_specialairhi: 1;
     ub32 is_have_speciallw   : 1;
-    ub32 is_have_specialairlw: 1;                   
+    ub32 is_have_specialairlw: 1;
     ub32 is_have_catch       : 1;                   // Whether fighter has a grab
     ub32 is_have_voice       : 1;                   // Whether fighter can play FGMs marked "voice"
+#else
+    // LE: LSB-first bitfield allocation — reverse field order and add
+    // explicit padding so each field maps to the same bit position as on BE
+    // (the u32 value is identical after bswap32).
+    ub32 : 10;                                      // bits 0-9 (padding — matches BE trailing bits)
+    ub32 is_have_voice       : 1;                   // Whether fighter can play FGMs marked "voice"
+    ub32 is_have_catch       : 1;                   // Whether fighter has a grab
+    ub32 is_have_specialairlw: 1;
+    ub32 is_have_speciallw   : 1;
+    ub32 is_have_specialairhi: 1;
+    ub32 is_have_specialhi   : 1;
+    ub32 is_have_specialairn : 1;
+    ub32 is_have_specialn    : 1;
+    ub32 is_have_attackairlw : 1;
+    ub32 is_have_attackairhi : 1;
+    ub32 is_have_attackairb  : 1;
+    ub32 is_have_attackairf  : 1;
+    ub32 is_have_attackairn  : 1;
+    ub32 is_have_attacklw4   : 1;
+    ub32 is_have_attacks4    : 1;
+    ub32 is_have_attackhi4   : 1;
+    ub32 is_have_attacklw3   : 1;
+    ub32 is_have_attackhi3   : 1;
+    ub32 is_have_attacks3    : 1;
+    ub32 is_have_attackdash  : 1;
+    ub32 is_have_attack12    : 1;
+    ub32 is_have_attack11    : 1;
+#endif
     FTDamageCollDesc damage_coll_descs[11];         // Hurtbox array setup
     Vec3f hit_detect_range;                         // This is a radius around the fighter within which hitbox detection can occur
 #ifdef PORT

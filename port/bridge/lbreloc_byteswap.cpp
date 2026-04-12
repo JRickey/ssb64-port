@@ -1712,7 +1712,8 @@ extern "C" void portFixupFTAttributes(void *attr)
 	//  0x3D  0x0F4   SYColorRGBA shade_color[1]           bswap32
 	//  0x3E  0x0F8   SYColorRGBA shade_color[2]           bswap32
 	//  0x3F  0x0FC   SYColorRGBA fog_color                bswap32
-	// Words 0x40..end: bitfields, DamageCollDescs (s32/f32), pointers (u32 tokens) — ok
+	// Word 0x40: is_have_* bitfields — handled by #if IS_BIG_ENDIAN in FTAttributes decl
+	// Words 0x41..end: DamageCollDescs (s32/f32), pointers (u32 tokens) — ok
 
 	fixup_rotate16(&w[0x2D]);  // dead_fgm_ids[0], [1]
 	fixup_rotate16(&w[0x2E]);  // deadup_sfx, damage_sfx
