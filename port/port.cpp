@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 #include <cstdio>
+#include <cstdlib>
 
 #include "resource/ResourceType.h"
 #include "resource/RelocFileFactory.h"
@@ -125,8 +126,27 @@ int main(int argc, char* argv[]) {
 	// and rendering through the coroutine system. PortPushFrame posts
 	// a VI tick, resumes the game coroutine, and display lists are
 	// rendered via DrawAndRunGraphicsCommands inside the coroutine.
+	//
+	// SSB64_MAX_FRAMES=N — debug aid that forces a clean shutdown
+	// after N frames. Goes through the same code path as the user
+	// closing the window (Window::Close() sets mIsRunning=false).
+	int maxFrames = 0;
+	if (const char* env = std::getenv("SSB64_MAX_FRAMES")) {
+		maxFrames = std::atoi(env);
+	}
+	int frame = 0;
 	while (WindowIsRunning()) {
 		PortPushFrame();
+		frame++;
+		if (maxFrames > 0 && frame >= maxFrames) {
+			port_log("SSB64: SSB64_MAX_FRAMES=%d reached — triggering clean shutdown\n", maxFrames);
+			if (auto ctx = Ship::Context::GetInstance()) {
+				if (auto win = ctx->GetWindow()) {
+					win->Close();
+				}
+			}
+			break;
+		}
 	}
 
 	PortGameShutdown();

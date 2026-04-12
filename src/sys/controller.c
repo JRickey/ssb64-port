@@ -330,7 +330,25 @@ void syControllerUpdateRumbleEvent(s32 port, s32 ev_kind)
     
     D_80045268[i].unk10 = port;
     D_80045268[i].unk14 = ev_kind;
+#ifdef PORT
+    /* N64 punned &D_80045268[i].unk04 as a ContMotorEvt* because the
+     * fixed-4-byte pointer N64 ABI let (unk04,unk08,unk0C,unk10,unk14)
+     * line up exactly with (type,mesg,cbQueue,contID,cmd).  On LP64 that
+     * pun is broken — OSMesg / OSMesgQueue* grow to 8 bytes and the
+     * receiver's `((ContMotorEvt*)evt)->cbQueue` ends up reading unrelated
+     * memory (typically decoding to 0x1, which crashes in osSendMesg at
+     * &mq->validCount == 0x11).  Populate the dedicated port_motor_evt
+     * field and dispatch that address instead so the struct layout is
+     * natural on both ABIs. */
+    D_80045268[i].port_motor_evt.evt.type    = CONT_EVENT_MOTOR;
+    D_80045268[i].port_motor_evt.evt.mesg    = (OSMesg)(intptr_t)i;
+    D_80045268[i].port_motor_evt.evt.cbQueue = &sSYControllerDeviceMesgQueue;
+    D_80045268[i].port_motor_evt.contID      = port;
+    D_80045268[i].port_motor_evt.cmd         = (MotorCmd)ev_kind;
+    osSendMesg(&sSYControllerEventMesgQueue, (OSMesg)&D_80045268[i].port_motor_evt, OS_MESG_NOBLOCK);
+#else
     osSendMesg(&sSYControllerEventMesgQueue, (OSMesg)&D_80045268[i].unk04, OS_MESG_NOBLOCK);
+#endif
 }
 
 // 0x80004474

@@ -110,6 +110,15 @@ typedef struct Unk80045268
     /* 0x0C */ OSMesgQueue *unk0C;
     /* 0x10 */ s32 unk10;
     /* 0x14 */ s32 unk14;
+#ifdef PORT
+    /* On N64, &unk04 was type-punned as a ContMotorEvt* — the fields
+     * (unk04,unk08,unk0C,unk10,unk14) line up exactly with
+     * (type,mesg,cbQueue,contID,cmd) when pointers are 4 bytes.  On LP64
+     * that pun is broken because OSMesg and OSMesgQueue* are 8 bytes, so
+     * we carry a dedicated, naturally-laid-out ContMotorEvt here and
+     * dispatch *its* address to sSYControllerEventMesgQueue instead. */
+    ContMotorEvt port_motor_evt;
+#endif
 
 } Unk80045268; // size = 0x18
 
