@@ -270,7 +270,17 @@ struct FTTexturePartStatus
 
 struct FTMotionFlags
 {
-#if IS_BIG_ENDIAN
+#ifdef PORT
+    // LP64/LE fix: positional C initializers (`{motion_id_val, attack_id_val}`)
+    // would write the wrong bitfield on LE — the LE declaration has `attack_id`
+    // declared first for correct runtime bit layout, but that makes the first
+    // positional init value land in `attack_id` instead of `motion_id`.  Using
+    // plain fields keeps the source-order positional init working.  Embedding
+    // struct (`FTStatusDesc`) is never read from file data so the size bump
+    // (2 → 4 bytes) is harmless.
+    s16 motion_id;
+    u16 attack_id;
+#elif IS_BIG_ENDIAN
     s16 motion_id : 10;
     u16 attack_id : 6;
 #else
