@@ -2,6 +2,7 @@
 
 #ifdef PORT
 #include "port.h"
+extern void port_log(const char *fmt, ...);
 #endif
 
 // #include "scenemgr/scene_manager.h"

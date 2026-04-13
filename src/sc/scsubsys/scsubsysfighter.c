@@ -1,5 +1,9 @@
 #include <ft/fighter.h>
 
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //   GLOBAL / STATIC VARIABLES   //

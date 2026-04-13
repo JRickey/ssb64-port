@@ -87,6 +87,7 @@ extern "C" {
 extern void syDebugPrintf(const char *fmt, ...);
 extern void scManagerRunPrintGObjStatus(void);
 extern void portResetPackedDisplayListCache(void);
+extern void port_log(const char *fmt, ...);
 
 // Forward declarations for functions used in mutual recursion
 void* lbRelocGetExternBufferFile(u32 id);
@@ -304,6 +305,19 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	bool is_fighter_figatree = portRelocIsFighterFigatreeFile(file_id);
 	std::vector<uint8_t> figatree_reloc_words;
 
+	// Gated: SSB64_LOG_LBRELOC_LOAD=1 logs every file load. Helpful when
+	// tracing which reloc files are loaded per scene.
+	if (getenv("SSB64_LOG_LBRELOC_LOAD") != nullptr) {
+		static int s_load_log_count = 0;
+		if (s_load_log_count < 512) {
+			s_load_log_count++;
+			port_log("SSB64: lbReloc LOAD file_id=%u loc=%d path=%s fig=%d\n",
+				file_id, loc,
+				(file_id < RELOC_FILE_COUNT && gRelocFileTable[file_id]) ? gRelocFileTable[file_id] : "(null)",
+				(int)is_fighter_figatree);
+		}
+	}
+
 	if (!relocFile)
 	{
 		spdlog::error("lbReloc bridge: cannot load file_id {} — halting", file_id);
@@ -328,20 +342,29 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	// Set SSB64_DUMP_FILE_ID env var to a file_id; this writes the post-memcpy,
 	// pre-byteswap bytes to debug_traces/port_file_<id>.bin.  Compare against
 	// debug_tools/reloc_extract/reloc_extract.py output for the same id.
+	//
+	// If SSB64_DUMP_ALL_FIGATREE=1, dump every fighter figatree file loaded
+	// (pre-byteswap) for bulk comparison.
 	{
 		const char *dump_id_env = getenv("SSB64_DUMP_FILE_ID");
+		const char *dump_all_env = getenv("SSB64_DUMP_ALL_FIGATREE");
+		bool do_dump = false;
 		if (dump_id_env != nullptr) {
 			unsigned long target_id = strtoul(dump_id_env, nullptr, 0);
-			if ((unsigned long)file_id == target_id) {
-				char path[256];
-				snprintf(path, sizeof(path), "debug_traces/port_file_%lu.bin", target_id);
-				FILE *df = fopen(path, "wb");
-				if (df != nullptr) {
-					fwrite(ram_dst, 1, copySize, df);
-					fclose(df);
-					spdlog::info("[port-dump] wrote {} bytes for file_id={} to {}",
-					             copySize, file_id, path);
-				}
+			if ((unsigned long)file_id == target_id) do_dump = true;
+		}
+		if (dump_all_env != nullptr && dump_all_env[0] == '1' && is_fighter_figatree) {
+			do_dump = true;
+		}
+		if (do_dump) {
+			char path[256];
+			snprintf(path, sizeof(path), "debug_traces/port_file_%u.bin", file_id);
+			FILE *df = fopen(path, "wb");
+			if (df != nullptr) {
+				fwrite(ram_dst, 1, copySize, df);
+				fclose(df);
+				spdlog::info("[port-dump] wrote {} bytes for file_id={} ({}) to {}",
+				             copySize, file_id, gRelocFileTable[file_id], path);
 			}
 		}
 	}

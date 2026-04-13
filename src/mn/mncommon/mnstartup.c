@@ -6,6 +6,10 @@
 #include <sys/rdp.h>
 #include <reloc_data.h>
 
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+#endif
+
 
 // // // // // // // // // // // //
 //                               //

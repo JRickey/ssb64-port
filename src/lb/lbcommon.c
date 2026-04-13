@@ -4,6 +4,7 @@
 #include <sys/video.h>
 
 #ifdef PORT
+extern void port_log(const char *fmt, ...);
 extern void portFixupSprite(void *sprite);
 extern void portFixupBitmap(void *bitmap);
 extern void portFixupBitmapArray(void *bitmaps, unsigned int count);

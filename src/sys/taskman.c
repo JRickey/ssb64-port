@@ -14,6 +14,10 @@
 #include <ssb_types.h>
 #include <stddef.h>
 
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+#endif
+
 #include <PR/mbi.h>
 #include <PR/ucode.h>
 #include <PR/ultratypes.h>
