@@ -1421,7 +1421,6 @@ extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
 	for (int i = 0; i < nbitmaps; i++)
 	{
 		uint8_t *bm = bitmaps + (i * 16);
-		int16_t  width        = *reinterpret_cast<int16_t *>(bm + 0x00);
 		int16_t  width_img    = *reinterpret_cast<int16_t *>(bm + 0x02);
 		uint32_t buf_token    = *reinterpret_cast<uint32_t *>(bm + 0x08);
 		int16_t  actualHeight = *reinterpret_cast<int16_t *>(bm + 0x0C);
@@ -1517,69 +1516,16 @@ extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
 			}
 		}
 
-		// Trailing-column mask: the N64 sprite library loads `width_img`
-		// texels per row into TMEM but the render tile is sized to
-		// `width` (see lbCommonDrawSObjBitmap's gDPSetTileSize call),
-		// so the N64 sampler clamps to s=[0, width-1] and never looks
-		// at cols [width, width_img).  Those "unused" bytes still hold
-		// real pixel data in the on-disk font — e.g. Letter M's bottom
-		// serif pixels at cols 37..39 (width=37, width_img=40) contain
-		// faint-alpha gray, and Letter I's unused cols hold opaque-black
-		// padding.  On the N64 hardware tile clamp kills those reads.
-		// On the port, Fast3D's bilinear filter fetches one extra texel
-		// past the drawn edge when sampling the rightmost pixel, so the
-		// unused bytes bleed a thin gray "tail" out of every letter —
-		// visible as white-ish horizontal smears on the right of the
-		// "MARIO" title-card text.
-		//
-		// Zero those bytes after deswizzle so Fast3D can only blend with
-		// transparent-black regardless of clamp/filter settings.  This
-		// is behaviour-equivalent to a correct tile clamp because the
-		// N64 never drew those texels either.
-		if (width > 0 && width < width_img && actualHeight > 0)
-		{
-			size_t row_bytes = ((size_t)width_img * (size_t)bpp + 7) / 8;
-			uint8_t *bytes = static_cast<uint8_t *>(buf);
-
-			if (bpp >= 8)
-			{
-				// 8/16/32bpp: byte-aligned pixel boundary.
-				size_t pixel_bytes = (size_t)bpp / 8;
-				size_t first_zero  = (size_t)width * pixel_bytes;
-				if (first_zero < row_bytes)
-				{
-					for (int row = 0; row < actualHeight; row++)
-					{
-						uint8_t *row_p = bytes + (size_t)row * row_bytes;
-						std::memset(row_p + first_zero, 0,
-						            row_bytes - first_zero);
-					}
-				}
-			}
-			else if (bpp == 4)
-			{
-				// 4bpp: two pixels per byte, hi-nibble is the even one.
-				// Even width → whole-byte zero range starts at width/2.
-				// Odd  width → keep the hi-nibble of byte (width/2) and
-				//              zero the lo-nibble + everything after.
-				bool odd = (width & 1) != 0;
-				for (int row = 0; row < actualHeight; row++)
-				{
-					uint8_t *row_p = bytes + (size_t)row * row_bytes;
-					size_t first_zero = (size_t)width / 2;
-					if (odd && first_zero < row_bytes)
-					{
-						row_p[first_zero] &= 0xF0;
-						first_zero++;
-					}
-					if (first_zero < row_bytes)
-					{
-						std::memset(row_p + first_zero, 0,
-						            row_bytes - first_zero);
-					}
-				}
-			}
-		}
+		// Note: the fighter-intro "MARIO" title-card smear and the
+		// title-screen border right-edge slice used to be patched
+		// here (ce89700 zeroed, then a later revision replicated the
+		// edge pixel).  Both were workarounds for a Fast3D upload bug
+		// where the GPU texture was uploaded at the TMEM stride
+		// (width_img) but the UV normalization used the SetTileSize
+		// clamp (width), stretching the texture slightly.  The real
+		// fix is in libultraship — see ImportTexture* clamp to
+		// texture_tile.lrs — so we no longer need to touch the
+		// trailing cols from the port side.
 	}
 }
 

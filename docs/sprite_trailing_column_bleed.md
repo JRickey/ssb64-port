@@ -75,55 +75,21 @@ sampler ever touches the unused column, so the smear does not appear.
 
 ## Fix
 
-Mask the unused columns to zero after the deswizzle. The N64 never draws
-these texels either, so zeroing them is behavior-equivalent to the correct
-tile clamp, and it eliminates the bleed regardless of filter mode or any
-quirks in Fast3D's sampler clamping.
-
-In `portFixupSpriteBitmapData` (after the existing BSWAP + TMEM-unswizzle
-block, inside the per-bitmap loop):
-
-```cpp
-int16_t width = *reinterpret_cast<int16_t *>(bm + 0x00);
-// ... width_img, actualHeight, buf already read ...
-
-if (width > 0 && width < width_img && actualHeight > 0) {
-    size_t row_bytes = ((size_t)width_img * (size_t)bpp + 7) / 8;
-    uint8_t *bytes = static_cast<uint8_t *>(buf);
-
-    if (bpp >= 8) {
-        // 8/16/32 bpp: byte-aligned pixel boundary, simple memset per row.
-        size_t pixel_bytes = (size_t)bpp / 8;
-        size_t first_zero  = (size_t)width * pixel_bytes;
-        if (first_zero < row_bytes) {
-            for (int row = 0; row < actualHeight; row++) {
-                uint8_t *row_p = bytes + (size_t)row * row_bytes;
-                std::memset(row_p + first_zero, 0, row_bytes - first_zero);
-            }
-        }
-    } else if (bpp == 4) {
-        // 4bpp: two pixels per byte. Handle odd `width` by masking the
-        // low nibble of byte (width/2) before memset-ing the rest.
-        bool odd = (width & 1) != 0;
-        for (int row = 0; row < actualHeight; row++) {
-            uint8_t *row_p = bytes + (size_t)row * row_bytes;
-            size_t first_zero = (size_t)width / 2;
-            if (odd && first_zero < row_bytes) {
-                row_p[first_zero] &= 0xF0;
-                first_zero++;
-            }
-            if (first_zero < row_bytes) {
-                std::memset(row_p + first_zero, 0, row_bytes - first_zero);
-            }
-        }
-    }
-}
-```
-
-Applies to every sprite bitmap in the fixup path, not just font glyphs —
-any sprite where `width < width_img` has the same risk. Gated on
-`width > 0 && width < width_img` so sprites that already pack to the
-draw width (P, S among the letters) are untouched.
+> **Superseded:** the port-side trailing-column fix has been **removed**.
+> The actual root cause was a Fast3D upload/UV-normalisation mismatch in
+> libultraship (GPU texture uploaded at `width_img`, UV normalised by
+> `width`, producing a subtle right-edge stretch).  The fix now lives in
+> `libultraship/src/fast/interpreter.cpp` as a new
+> `ClampUploadWidthToTile` helper called from `ImportTextureIA8` and
+> `ImportTextureI4`.  See `docs/bugs/title_border_right_edge_slice_2026-04-14.md`
+> for the full writeup.  The two earlier port-side revisions (zero-fill
+> and edge-replicate) are kept below for historical reference — both
+> were workarounds around Fast3D's stretch and produced conflicting
+> regressions (zero-fill dimmed the title-screen border; edge-replicate
+> brought the MARIO smear back because letter M's rightmost col and its
+> trailing serif bytes happen to be identical).  With the libultraship
+> fix, cols `[width, width_img)` of the source data are never read and
+> no port-side manipulation is needed.
 
 ## Diagnostic workflow
 

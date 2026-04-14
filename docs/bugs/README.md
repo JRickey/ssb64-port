@@ -6,6 +6,7 @@ This directory documents significant bugs encountered during the port, their sym
 
 | Date | Slug | Summary |
 |------|------|---------|
+| 2026-04-14 | [title_border_right_edge_slice](title_border_right_edge_slice_2026-04-14.md) | ce89700's zero-fill of sprite trailing columns dimmed the right edge of the title-screen border sprite; fix replicates edge pixel instead |
 | 2026-04-13 | [samus_charge_shot_hit_detection](samus_charge_shot_hit_detection_2026-04-13.md) | **OPEN** — Jungle intro bypass spawns charge shot via `is_release=TRUE` path with uninitialised `attack_pos[0]` (stale NaN in pos_prev from pool memory). Root cause found, fix not yet working visually |
 | 2026-04-11 | [mpvertex_byte_swap](mpvertex_byte_swap_2026-04-11.md) | MPVertexData / MPVertexIDs byte-swap deferral broke Jungle floor collision |
 | 2026-04-11 | [controller_motorevt_lp64](controller_motorevt_lp64_2026-04-11.md) | Unk80045268 ContMotorEvt struct pun faults on LP64 |
