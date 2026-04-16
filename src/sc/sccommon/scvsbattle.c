@@ -1,4 +1,7 @@
 #include <ft/fighter.h>
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 #include <if/interface.h>
 #include <gr/ground.h>
 #include <sc/scene.h>
@@ -531,6 +534,9 @@ void scVSBattleStartScene(void)
 
 	while (syAudioCheckBGMPlaying(0) != FALSE)
 	{
+#ifdef PORT
+		port_coroutine_yield();
+#endif
 		continue;
 	}
 	syAudioSetBGMVolume(0, 0x7800);
@@ -550,6 +556,9 @@ void scVSBattleStartScene(void)
 
 		while (syAudioCheckBGMPlaying(0) != FALSE)
 		{
+#ifdef PORT
+			port_coroutine_yield();
+#endif
 			continue;
 		}
 		syAudioSetBGMVolume(0, 0x7800);

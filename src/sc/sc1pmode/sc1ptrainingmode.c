@@ -1,4 +1,7 @@
 #include <ft/fighter.h>
+#ifdef PORT
+extern void port_coroutine_yield(void);
+#endif
 #include <it/item.h>
 #include <gr/ground.h>
 #include <if/interface.h>
@@ -1875,6 +1878,9 @@ void sc1PTrainingModeStartScene(void)
 
 	while (syAudioCheckBGMPlaying(0) != FALSE)
 	{
+#ifdef PORT
+		port_coroutine_yield();
+#endif
 		continue;
 	}
 	syAudioSetBGMVolume(0, 0x7800);
