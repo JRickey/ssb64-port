@@ -401,6 +401,18 @@ void gcParseDObjAnimJoint(DObj *dobj)
     u32 flags;
     f32 payload;
 
+#ifdef PORT
+    /* Un-halfswap this EVENT32 stream on first access. See
+     * port/port_aobj_fixup.{h,cpp} — file-loaded AObjEvent32 data was
+     * corrupted by portRelocFixupFighterFigatree's u16-halfswap, and the
+     * fix is lazy per-stream at the first EVENT32 reader touch.
+     * Idempotent; subsequent calls on the same head are no-ops. */
+    extern void port_aobj_event32_unhalfswap_stream(void *head);
+    if (dobj->anim_joint.event32 != NULL) {
+        port_aobj_event32_unhalfswap_stream(dobj->anim_joint.event32);
+    }
+#endif
+
     if (dobj->anim_wait != AOBJ_ANIM_NULL)
     {
         if (dobj->anim_wait == AOBJ_ANIM_CHANGED)
@@ -754,16 +766,15 @@ void gcParseDObjAnimJoint(DObj *dobj)
                 // empty, but necessary
             default:
 #ifdef PORT
-                /* PORT: file-loaded AObjEvent32 streams for EVENT32 animations
-                 * (is_anim_joint=1 path) have the wrong u32 byte layout due to
-                 * the figatree u16-halfswap — which is correct for EVENT16
-                 * figatree data but corrupts the u32 bitfield command here.
-                 * The misread hits unhandled opcodes (typically 0x40) and
-                 * falls into this default, leaving event32 unadvanced and
-                 * anim_wait ≤ 0 — the original N64 `break;` would loop
-                 * forever and hang the frame pump.  Terminate the animation
-                 * instead; it'll play the initial pose but won't progress.
-                 * Real fix needs per-region byte-swap of EVENT32 streams. */
+                /* PORT: safety net.  The port_aobj_event32_unhalfswap_stream
+                 * call at function entry should have made the command word
+                 * byte layout correct before we got here, so unhandled
+                 * opcodes would only happen on truly corrupt data (or an
+                 * opcode 23 we don't implement).  The original N64 `break;`
+                 * would re-parse the same event and spin — terminate the
+                 * animation instead. */
+                port_log("SSB64: gcParseDObjAnimJoint UNHANDLED opcode=%u ev=%p — ending anim\n",
+                    command_kind, (void*)dobj->anim_joint.event32);
                 dobj->anim_wait = AOBJ_ANIM_END;
                 return;
 #else
@@ -989,6 +1000,15 @@ void gcParseMObjMatAnimJoint(MObj *mobj)
     u32 command_kind;
     u32 flags;
     f32 payload;
+
+#ifdef PORT
+    /* See gcParseDObjAnimJoint — MObj matanim streams share the same
+     * AObjEvent32 layout and the same halfswap corruption. */
+    extern void port_aobj_event32_unhalfswap_stream(void *head);
+    if (mobj->matanim_joint.event32 != NULL) {
+        port_aobj_event32_unhalfswap_stream(mobj->matanim_joint.event32);
+    }
+#endif
 
     if (mobj->anim_wait != AOBJ_ANIM_NULL)
     {

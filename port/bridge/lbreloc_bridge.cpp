@@ -23,6 +23,8 @@
 #include "resource/RelocPointerTable.h"
 #include "bridge/lbreloc_byteswap.h"
 
+extern "C" void port_aobj_register_halfswapped_range(void *base, unsigned long size);
+
 // Bridge-local type definitions.
 // These MUST be ABI-compatible with the decomp definitions in lbtypes.h.
 // We define them here to avoid including the decomp's include/ directory
@@ -516,6 +518,9 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	if (is_fighter_figatree)
 	{
 		portRelocFixupFighterFigatree(ram_dst, copySize, figatree_reloc_words);
+		/* Register the halfswapped range so port_aobj_event32_unhalfswap_stream
+		 * knows to only touch EVENT32 streams inside this file's memory. */
+		port_aobj_register_halfswapped_range(ram_dst, (unsigned long)copySize);
 	}
 }
 
