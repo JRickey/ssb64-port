@@ -148,43 +148,19 @@ bool scan(uint32_t *head, ScanCtx &ctx) {
             ev++;
             break;
 
-        case 3: case 4: case 7: case 8: case 9: case 10: case 11:
-        case 18: case 19: case 20: case 21:
-        {
-            uint32_t fl_raw = *ev;
-            uint32_t fl = unhalfswap(fl_raw);
-            ctx.pending.push_back(ev);
-            ev++;
-            int n = popcount_bits(cmd_flags(fl), 0, 10);
-            if (n > 10) return false;
-            for (int k = 0; k < n; k++) {
-                ctx.pending.push_back(ev);
-                ev++;
-            }
-            break;
-        }
+        /* Flags come from the command word itself (cmd.flags) — the
+         * decomp reads them via AObjAnimAdvance (post-increment) so
+         * what looks like "advance past header to get flags from next"
+         * is actually just reading the just-consumed command's flags.
+         * All of the opcodes below consume the command plus zero or
+         * more f32 payload slots. */
 
-        case 5: case 6: /* SetValRate(Block) */
-        {
-            uint32_t fl_raw = *ev;
-            uint32_t fl = unhalfswap(fl_raw);
-            ctx.pending.push_back(ev);
-            ev++;
-            int n = popcount_bits(cmd_flags(fl), 0, 10);
-            if (n > 10) return false;
-            for (int k = 0; k < 2 * n; k++) {
-                ctx.pending.push_back(ev);
-                ev++;
-            }
-            break;
-        }
-
-        case 12: /* ANIM_CMD_12 */
-            ctx.pending.push_back(ev);
-            ev++;
-            break;
-
-        case 17: /* ANIM_CMD_17 */
+        case 3: case 4: /* SetValBlock, SetVal */
+        case 7:         /* SetTargetRate */
+        case 8: case 9: /* SetVal0RateBlock, SetVal0Rate */
+        case 10: case 11: /* SetValAfterBlock, SetValAfter */
+        case 17:        /* ANIM_CMD_17 */
+        case 18: case 19: case 20: case 21: /* SetExtVal* (MObj) */
         {
             int n = popcount_bits(flags_in_cmd, 0, 10);
             if (n > 10) return false;
@@ -195,7 +171,21 @@ bool scan(uint32_t *head, ScanCtx &ctx) {
             break;
         }
 
-        case 22: /* ANIM_CMD_22 */
+        case 5: case 6: /* SetValRate(Block) — value+rate pairs */
+        {
+            int n = popcount_bits(flags_in_cmd, 0, 10);
+            if (n > 10) return false;
+            for (int k = 0; k < 2 * n; k++) {
+                ctx.pending.push_back(ev);
+                ev++;
+            }
+            break;
+        }
+
+        case 12: /* ANIM_CMD_12 — no f values, flags-only effect */
+            break;
+
+        case 22: /* ANIM_CMD_22 (MObj) — N u32 from flag bits [0..4] */
         {
             int n = popcount_bits(flags_in_cmd, 0, 5);
             if (n > 5) return false;
@@ -222,7 +212,6 @@ void walk(uint32_t *head) {
     ScanCtx ctx;
     ctx.total_steps = 0;
     if (scan(head, ctx)) {
-        /* Stream looked like valid EVENT32 — apply the fix. */
         for (uint32_t *p : ctx.pending) {
             *p = unhalfswap(*p);
         }
@@ -230,10 +219,6 @@ void walk(uint32_t *head) {
             sUnswappedHeads.insert(k);
         }
     } else {
-        /* Looks like non-EVENT32 data.  Mark as rejected so we don't
-         * retry the scan on every frame.  Leave the data untouched —
-         * if this actually IS EVENT32 with a bug somewhere, the parser
-         * will hit UNHANDLED and end the animation cleanly. */
         sRejectedHeads.insert(key);
     }
 }
