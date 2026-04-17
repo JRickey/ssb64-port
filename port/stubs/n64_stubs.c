@@ -38,6 +38,7 @@
  */
 
 #include "coroutine.h"
+#include "port_watchdog.h"
 
 /* Default stack sizes for coroutines.  N64 stacks are tiny (1-4KB) but
  * PC calling conventions and 64-bit pointers need much more. */
@@ -95,7 +96,9 @@ void port_resume_service_threads(void)
 
 			/* Resume this thread — it will run until it yields again. */
 			t->state = OS_STATE_RUNNING;
+			port_watchdog_note_resume_start((int)t->id);
 			port_coroutine_resume((PortCoroutine *)t->port_coroutine);
+			port_watchdog_note_resume_end((int)t->id);
 			if (port_coroutine_is_finished((PortCoroutine *)t->port_coroutine)) {
 				t->state = OS_STATE_STOPPED;
 			} else {

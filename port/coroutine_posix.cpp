@@ -18,6 +18,7 @@
 #endif
 
 #include "coroutine.h"
+#include "port_watchdog.h"
 
 #include <ucontext.h>
 #include <stdio.h>
@@ -150,6 +151,8 @@ void port_coroutine_yield(void)
 		fprintf(stderr, "SSB64: port_coroutine_yield called outside coroutine\n");
 		return;
 	}
+
+	port_watchdog_note_yield();
 
 	sCurrentCoroutine = NULL;
 	swapcontext(&co->ctx, &co->caller_ctx);

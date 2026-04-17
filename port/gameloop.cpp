@@ -22,6 +22,7 @@
 #include "gameloop.h"
 #include "coroutine.h"
 #include "port.h"
+#include "port_watchdog.h"
 
 #include <libultraship/libultraship.h>
 #include <fast/Fast3dWindow.h>
@@ -233,6 +234,10 @@ void PortGameInit(void)
 	port_log("SSB64: Starting game coroutine (boot sequence)\n");
 	port_coroutine_resume(sGameCoroutine);
 	port_log("SSB64: Boot sequence yielded — entering frame loop\n");
+
+	/* Start the hang watchdog now that the boot chain has yielded back.
+	 * This avoids firing false alarms during the long synchronous boot. */
+	port_watchdog_init();
 }
 
 static int sFrameCount = 0;
@@ -366,6 +371,9 @@ void PortPushFrame(void)
 
 	sFrameCount++;
 
+	/* Tell the hang watchdog a frame completed. */
+	port_watchdog_note_frame_end();
+
 	/* Screenshot capture: env-var driven, zero cost when disabled. */
 	port_screenshot_init_once();
 	port_screenshot_maybe_capture(sFrameCount);
@@ -389,6 +397,7 @@ void PortPushFrame(void)
 
 void PortGameShutdown(void)
 {
+	port_watchdog_shutdown();
 	if (sGameCoroutine != NULL) {
 		port_coroutine_destroy(sGameCoroutine);
 		sGameCoroutine = NULL;

@@ -517,7 +517,11 @@ void scExplainSetPhaseSObjs(void)
 // 0x8018DD18
 void scExplainUpdateTextBoxSprite(void)
 {
+#ifdef PORT
+    sSCExplainStruct.textbox_sobj->sprite = *(Sprite *)PORT_RESOLVE(sSCExplainPhase->sprite);
+#else
     sSCExplainStruct.textbox_sobj->sprite = *sSCExplainPhase->sprite;
+#endif
 
     sSCExplainStruct.textbox_sobj->pos.x = sSCExplainPhase->textbox_pos_x + 10;
     sSCExplainStruct.textbox_sobj->pos.y = sSCExplainPhase->textbox_pos_y + 160;

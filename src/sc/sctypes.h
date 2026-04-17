@@ -280,11 +280,19 @@ struct SCExplainArgs
 
 struct SCExplainPhase
 {
-    u16 phase_time;                     // Time the given explanation phase of the How to Play tutorial should last
-    u16 unused;
+    u16 unused;                         // Field at offset 0-1, typically 0
+    u16 phase_time;                     // Time the given explanation phase should last (frames @ 60fps)
     u8 textbox_pos_x;
     u8 textbox_pos_y;
+#ifdef PORT
+    /* Relocation token (4 bytes) — matches the N64 file layout. A native
+     * `Sprite *` would be 8 bytes on LP64, shifting every subsequent
+     * field by 4 and turning `sSCExplainPhase++` into a 48-byte stride
+     * through 44-byte file entries. Use PORT_RESOLVE() at access sites. */
+    u32 sprite;
+#else
     Sprite *sprite;
+#endif
     SCExplainArgs control_stick_args;
     SCExplainArgs phase_args0;
     SCExplainArgs phase_args1;

@@ -753,9 +753,24 @@ void gcParseDObjAnimJoint(DObj *dobj)
 
                 // empty, but necessary
             default:
+#ifdef PORT
+                /* PORT: file-loaded AObjEvent32 streams for EVENT32 animations
+                 * (is_anim_joint=1 path) have the wrong u32 byte layout due to
+                 * the figatree u16-halfswap — which is correct for EVENT16
+                 * figatree data but corrupts the u32 bitfield command here.
+                 * The misread hits unhandled opcodes (typically 0x40) and
+                 * falls into this default, leaving event32 unadvanced and
+                 * anim_wait ≤ 0 — the original N64 `break;` would loop
+                 * forever and hang the frame pump.  Terminate the animation
+                 * instead; it'll play the initial pose but won't progress.
+                 * Real fix needs per-region byte-swap of EVENT32 streams. */
+                dobj->anim_wait = AOBJ_ANIM_END;
+                return;
+#else
                 break;
+#endif
             }
-        } 
+        }
         while (dobj->anim_wait <= 0.0F);
     }
 }
