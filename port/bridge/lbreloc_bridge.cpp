@@ -124,13 +124,21 @@ static bool portRelocIsFighterFigatreeFile(u32 file_id)
 {
 	static const char sFighterAnimPrefix[] = "reloc_animations/FT";
 	static const char sFighterSubmotionPrefix[] = "reloc_submotions/FT";
+	/* SCExplainMain contains arrays of FTKeyEvent u16s (per-player
+	 * tutorial button inputs) and SCExplainPhase u16/u8 fields.
+	 * The u16-halfswap applied by portRelocFixupFighterFigatree is
+	 * what makes u16 pair reads produce the BE value on LE.
+	 * Without it, u16[0] and u16[1] are swapped per u32, so the
+	 * first FTKeyEvent reads from what should be the SECOND u16 of
+	 * the pair — typically 0x0000, which parses as End and kills the
+	 * tutorial's button scripting. */
+	static const char sSCExplainMainPath[] = "reloc_scene/SCExplainMain";
 
-	return (file_id < RELOC_FILE_COUNT) &&
-	       (gRelocFileTable[file_id] != NULL) &&
-	       (
-	           (std::strncmp(gRelocFileTable[file_id], sFighterAnimPrefix, sizeof(sFighterAnimPrefix) - 1) == 0) ||
-	           (std::strncmp(gRelocFileTable[file_id], sFighterSubmotionPrefix, sizeof(sFighterSubmotionPrefix) - 1) == 0)
-	       );
+	if (file_id >= RELOC_FILE_COUNT || gRelocFileTable[file_id] == NULL) return false;
+	const char *path = gRelocFileTable[file_id];
+	return (std::strncmp(path, sFighterAnimPrefix, sizeof(sFighterAnimPrefix) - 1) == 0) ||
+	       (std::strncmp(path, sFighterSubmotionPrefix, sizeof(sFighterSubmotionPrefix) - 1) == 0) ||
+	       (std::strcmp(path, sSCExplainMainPath) == 0);
 }
 
 static void portRelocFixupFighterFigatree(void *ram_dst, size_t copy_size, const std::vector<uint8_t> &reloc_words)

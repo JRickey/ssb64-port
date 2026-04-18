@@ -280,8 +280,8 @@ struct SCExplainArgs
 
 struct SCExplainPhase
 {
-    u16 unused;                         // Field at offset 0-1, typically 0
-    u16 phase_time;                     // Time the given explanation phase should last (frames @ 60fps)
+    u16 phase_time;                     // Time the given explanation phase of the How to Play tutorial should last
+    u16 unused;
     u8 textbox_pos_x;
     u8 textbox_pos_y;
 #ifdef PORT
