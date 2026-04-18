@@ -274,16 +274,33 @@ struct SCExplainMain
 struct SCExplainArgs
 {
     u16 sprite_pos_x;
+#ifdef PORT
+    /* SCExplainMain is in the u16-halfswap file list. A {u16, u8, u8}
+     * word halfswaps to {u16, u8_hi, u8_lo} with the two u8s swapped
+     * relative to their N64 positions. Swap the struct fields so LE
+     * reads land on the original bytes. */
+    u8 sprite_status;
+    u8 sprite_pos_y;
+#else
     u8 sprite_pos_y;
     u8 sprite_status;
+#endif
 };
 
 struct SCExplainPhase
 {
     u16 phase_time;                     // Time the given explanation phase of the How to Play tutorial should last
     u16 unused;
+#ifdef PORT
+    /* Same halfswap u8-pair issue as SCExplainArgs (see above). This
+     * is the {tb_x, tb_y, pad, pad} u32 word — the two u8s swap after
+     * halfswap on LE. */
+    u8 textbox_pos_y;
+    u8 textbox_pos_x;
+#else
     u8 textbox_pos_x;
     u8 textbox_pos_y;
+#endif
 #ifdef PORT
     /* Relocation token (4 bytes) — matches the N64 file layout. A native
      * `Sprite *` would be 8 bytes on LP64, shifting every subsequent
