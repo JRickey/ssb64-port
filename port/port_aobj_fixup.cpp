@@ -250,3 +250,7 @@ extern "C" void port_aobj_event32_unhalfswap_reset(void) {
     sRejectedHeads.clear();
     sHalfswappedRanges.clear();
 }
+
+extern "C" int port_aobj_is_in_halfswapped_range(const void *p) {
+    return is_in_halfswapped_range(p) ? 1 : 0;
+}

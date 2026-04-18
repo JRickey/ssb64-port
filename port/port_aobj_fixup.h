@@ -61,6 +61,13 @@ void port_aobj_register_halfswapped_range(void *base, unsigned long size);
  */
 void port_aobj_event32_unhalfswap_reset(void);
 
+/**
+ * Returns 1 if @p lies in any registered halfswapped range, 0 otherwise.
+ * Used by ftkey.c to decide whether a FTKeyEvent stream needs runtime
+ * Vec2b byte-swap compensation (stick operand halfwords).
+ */
+int port_aobj_is_in_halfswapped_range(const void *p);
+
 #ifdef __cplusplus
 }
 #endif
