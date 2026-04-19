@@ -259,6 +259,16 @@ elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 
 ################################################################################
+# Copy runtime data files to build directory
+################################################################################
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt
+    ${CMAKE_BINARY_DIR}/gamecontrollerdb.txt
+    COPYONLY
+)
+
+################################################################################
 # Torch asset extraction target
 ################################################################################
 
