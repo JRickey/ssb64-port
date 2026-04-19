@@ -1,6 +1,18 @@
 #include <sc/scene.h>
 #include <gm/generic.h>
 
+#ifdef PORT
+/* GMRumbleEventDefault reorders its bitfields by host endian so the opcode
+ * always occupies the low 3 bits. Positional initializers bind by field
+ * declaration order, which inverts on LE — the event tables below end up
+ * with opcode and param swapped, and gmRumbleUpdateEventExecute spins on a
+ * phantom End opcode forever. Use designated initializers under PORT so
+ * the fields are assigned by name. */
+#define GMRUMBLE_EV(op, p) { .opcode = (op), .param = (p) }
+#else
+#define GMRUMBLE_EV(op, p) { (op), (p) }
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //       INITIALIZED DATA        //
@@ -10,127 +22,127 @@
 // 0x8012F1A0
 GMRumbleEventDefault dGMRumbleEvent0[/* */] =
 {
-    { nGMRumbleEventStartRumble, 8000 },
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventStartRumble, 8000),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1A4
-GMRumbleEventDefault dGMRumbleEvent1[/* */] = 
-{ 
-    { nGMRumbleEventLoopBegin, 8000 },
-    { nGMRumbleEventStartRumble,  2 },
-    { nGMRumbleEventStopRumble,   2 },
-    { nGMRumbleEventLoopEnd,      0 },
-    { nGMRumbleEventEnd,          0 } // Needed for 0-pad?
+GMRumbleEventDefault dGMRumbleEvent1[/* */] =
+{
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,   8000),
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    2),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     2),
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0) // Needed for 0-pad?
 };
 
 // 0x8012F1B0
 GMRumbleEventDefault dGMRumbleEvent2[/* */] =
 {
-    { nGMRumbleEventLoopBegin, 8000 },
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,   8000),
 #if defined(REGION_US)
-    { nGMRumbleEventStartRumble,  2 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    2),
 #else
-    { nGMRumbleEventStartRumble,  1 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    1),
 #endif
-    { nGMRumbleEventStopRumble,   4 },
-    { nGMRumbleEventLoopEnd,      0 },
-    { nGMRumbleEventEnd,    0 }
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     4),
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1BC
 GMRumbleEventDefault dGMRumbleEvent3[/* */] =
 {
-    { nGMRumbleEventLoopBegin, 8000 },
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,   8000),
 #if defined(REGION_US)
-    { nGMRumbleEventStartRumble,  2 },
-    { nGMRumbleEventStopRumble,   8 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    2),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     8),
 #else
-    { nGMRumbleEventStartRumble,  1 },
-    { nGMRumbleEventStopRumble,   6 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    1),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     6),
 #endif
-    { nGMRumbleEventLoopEnd,      0 },
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1C8
 GMRumbleEventDefault dGMRumbleEvent4[/* */] =
 {
-    { nGMRumbleEventStartRumble, 12 },
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,   12),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1CC
 GMRumbleEventDefault dGMRumbleEvent5[/* */] =
 {
-    { nGMRumbleEventLoopBegin, 8000 },
-    { nGMRumbleEventStartRumble,  2 },
-    { nGMRumbleEventStopRumble,   1 },
-    { nGMRumbleEventLoopEnd,      0 },
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,   8000),
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    2),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     1),
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1D8
 GMRumbleEventDefault dGMRumbleEvent6[/* */] =
 {
 #if defined(REGION_US)
-    { nGMRumbleEventStartRumble,  3 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    3),
 #else
-    { nGMRumbleEventStartRumble,  4 },
-    { nGMRumbleEventStopRumble,   2 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    4),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     2),
 #endif
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1DC
 GMRumbleEventDefault dGMRumbleEvent7[/* */] =
 {
-    { nGMRumbleEventLoopBegin, 8000 },
-    { nGMRumbleEventStartRumble,  2 },
-    { nGMRumbleEventStopRumble,   3 },
-    { nGMRumbleEventLoopEnd,      0 },
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,   8000),
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    2),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     3),
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1E8
 GMRumbleEventDefault dGMRumbleEvent8[/* */] =
 {
-    { nGMRumbleEventLoopBegin, 8000 },
-    { nGMRumbleEventStartRumble,  1 },
-    { nGMRumbleEventStopRumble,   3 },
-    { nGMRumbleEventLoopEnd,      0 },
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,   8000),
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    1),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     3),
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1F4
 GMRumbleEventDefault dGMRumbleEvent9[/* */] =
 {
 #if defined(REGION_US)
-    { nGMRumbleEventStartRumble,  8 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    8),
 #else
-    { nGMRumbleEventLoopBegin,    3 },
-    { nGMRumbleEventStartRumble,  3 },
-    { nGMRumbleEventStopRumble,   1 },
-    { nGMRumbleEventLoopEnd,      0 },
+    GMRUMBLE_EV(nGMRumbleEventLoopBegin,      3),
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,    3),
+    GMRUMBLE_EV(nGMRumbleEventStopRumble,     1),
+    GMRUMBLE_EV(nGMRumbleEventLoopEnd,        0),
 #endif
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1F8
 GMRumbleEventDefault dGMRumbleEvent10[/* */] =
 {
 #if defined(REGION_US)
-    { nGMRumbleEventStartRumble, 16 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,   16),
 #else
-    { nGMRumbleEventStartRumble, 14 },
+    GMRUMBLE_EV(nGMRumbleEventStartRumble,   14),
 #endif
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F1FC - padding?
 GMRumbleEventDefault dGMRumbleEvent11[/* */] =
 {
-    { nGMRumbleEventEnd,          0 }
+    GMRUMBLE_EV(nGMRumbleEventEnd,            0)
 };
 
 // 0x8012F200
