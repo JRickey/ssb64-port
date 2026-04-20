@@ -2745,7 +2745,7 @@ void ifCommonBattleInitPlacement(void)
 }
 
 // 0x80113638
-void ifCommonBattleInterfacePauseGObj(GObj *interface_gobj, u32 unused)
+void ifCommonBattleInterfacePauseGObj(GObj *interface_gobj, uintptr_t unused)
 {
     gcPauseGObjProcessAll(interface_gobj);
 
@@ -2753,7 +2753,7 @@ void ifCommonBattleInterfacePauseGObj(GObj *interface_gobj, u32 unused)
 }
 
 // 0x8011366C
-void ifCommonBattleInterfaceResumeGObj(GObj *interface_gobj, u32 unused)
+void ifCommonBattleInterfaceResumeGObj(GObj *interface_gobj, uintptr_t unused)
 {
     gcResumeGObjProcessAll(interface_gobj);
 

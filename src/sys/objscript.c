@@ -23,19 +23,20 @@ s32 gcSetupGObjScript(GObj *this_gobj, s32 id, GObj *next_gobj)
     return 0;
 }
 
-GObj* gcAddGObjScript(GObj *gobj, GObjScript *gobjscript)
+GObj* gcAddGObjScript(GObj *gobj, uintptr_t param)
 {
-    return gcSetupGObjScript(gobj, gobjscript->id, gobjscript->next_gobj);
+    GObjScript *gobjscript = (GObjScript *)param;
+    return (GObj *)(intptr_t)gcSetupGObjScript(gobj, gobjscript->id, gobjscript->next_gobj);
 }
 
 void gcAddGObjScriptByLink(s32 link, s32 id, GObj *gobj)
 {
     GObjScript gobjscript;
-    
+
     gobjscript.next_gobj = (gobj != NULL) ? gobj : gGCCurrentCommon;
     gobjscript.id = id;
 
-    gcFuncGObjByLinkEx(link, gcAddGObjScript, &gobjscript, FALSE);
+    gcFuncGObjByLinkEx(link, gcAddGObjScript, (uintptr_t)&gobjscript, FALSE);
 }
 
 sb32 gcParseGObjScript(void (*func)(GObjScript))

@@ -2466,7 +2466,7 @@ void mnPlayers1PBonusPuckAdjustPortraitEdge(GObj *gobj)
 // 0x8013635C
 void mnPlayers1PBonusPuckAdjustPlaced(s32 player)
 {
-	mnPlayers1PBonusPuckAdjustPortraitEdge(player);
+	mnPlayers1PBonusPuckAdjustPortraitEdge((GObj *)(intptr_t)player);
 }
 
 // 0x8013637C

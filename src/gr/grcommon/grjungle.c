@@ -119,7 +119,7 @@ void grJungleMakeTaruCann(void)
     grModelSetupGroundDObjs(tarucann_gobj, (DObjDesc*) ((intptr_t)llGRJungleMapMapHead + (uintptr_t)map_head), NULL, dGRJungleTaruCannTransformKinds);
     gcAddGObjProcess(tarucann_gobj, gcPlayAnimAll, nGCProcessKindFunc, 5);
 
-    gcAddAnimJointAll(tarucann_gobj, ((uintptr_t)map_head + (intptr_t)llGRJungleMapTaruCannDefaultAnimJoint), 0.0F);
+    gcAddAnimJointAll(tarucann_gobj, (AObjEvent32 **)((uintptr_t)map_head + (intptr_t)llGRJungleMapTaruCannDefaultAnimJoint), 0.0F);
     gcPlayAnimAll(tarucann_gobj);
 
     gcAddGObjProcess(tarucann_gobj, grJungleTaruCannProcUpdate, nGCProcessKindFunc, 4);

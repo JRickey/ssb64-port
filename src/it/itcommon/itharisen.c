@@ -243,7 +243,7 @@ void func_ovl3_80175408(GObj *item_gobj, s32 index) // Unused
 {
     ITStruct *ip = itGetStruct(item_gobj);
 
-    gcAddAnimJointAll(item_gobj, (((uintptr_t)PORT_RESOLVE(ip->attr->data) + dITHarisenAnimJoint[index]) - (intptr_t)llITCommonDataHarisenDataStart), 0.0F);
+    gcAddAnimJointAll(item_gobj, (AObjEvent32 **)(((uintptr_t)PORT_RESOLVE(ip->attr->data) + dITHarisenAnimJoint[index]) - (intptr_t)llITCommonDataHarisenDataStart), 0.0F);
     gcPlayAnimAll(item_gobj);
 }
 

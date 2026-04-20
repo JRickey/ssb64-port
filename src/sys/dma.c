@@ -139,12 +139,12 @@ void syDmaWriteRom(void *ram_src, uintptr_t rom_dst, size_t size)
 
 OSPiHandle* syDmaSramPiInit(void)
 {
-    if (sSYDmaSramPiHandle.baseAddress == PHYS_TO_K1(PI_DOM2_ADDR2))
-    { 
-        return &sSYDmaSramPiHandle; 
+    if (sSYDmaSramPiHandle.baseAddress == (u32)(uintptr_t)PHYS_TO_K1(PI_DOM2_ADDR2))
+    {
+        return &sSYDmaSramPiHandle;
     }
     sSYDmaSramPiHandle.type        = DEVICE_TYPE_SRAM;
-    sSYDmaSramPiHandle.baseAddress = PHYS_TO_K1(PI_DOM2_ADDR2);
+    sSYDmaSramPiHandle.baseAddress = (u32)(uintptr_t)PHYS_TO_K1(PI_DOM2_ADDR2);
     sSYDmaSramPiHandle.latency     = 5;
     sSYDmaSramPiHandle.pulse       = 12;
     sSYDmaSramPiHandle.pageSize    = 13;

@@ -205,7 +205,7 @@ void grYosterInitAll(void)
     void *map_head;
     s32 i, j;
 
-    map_head = (uintptr_t)PORT_RESOLVE(gMPCollisionGroundData->map_nodes) - (intptr_t)llGRYosterMapMapHead;
+    map_head = (void *)((uintptr_t)PORT_RESOLVE(gMPCollisionGroundData->map_nodes) - (intptr_t)llGRYosterMapMapHead);
     gGRCommonStruct.yoster.map_head = map_head;
 
     for (i = 0; i < ARRAY_COUNT(gGRCommonStruct.yoster.clouds); i++)
@@ -226,7 +226,7 @@ void grYosterInitAll(void)
         );
         gcAddGObjProcess(map_gobj, gcPlayAnimAll, nGCProcessKindFunc, 5);
 
-        gcAddAnimJointAll(map_gobj, (uintptr_t)map_head + (intptr_t)llGRYosterMap_1E0_AnimJoint, 0);
+        gcAddAnimJointAll(map_gobj, (AObjEvent32 **)((uintptr_t)map_head + (intptr_t)llGRYosterMap_1E0_AnimJoint), 0);
 
         coll_dobj = DObjGetStruct(map_gobj);
         coll_dobj->translate.vec.f = gMPCollisionYakumonoDObjs->dobjs[dGRYosterCloudLineIDs[i]]->translate.vec.f;
@@ -237,12 +237,12 @@ void grYosterInitAll(void)
 
         for (j = 0; j < ARRAY_COUNT(gGRCommonStruct.yoster.clouds[i].dobj); j++, coll_dobj = coll_dobj->sib_next)
         {
-            cloud_dobj = gcAddChildForDObj(coll_dobj, (uintptr_t)map_head + (intptr_t)llGRYosterMapCloudDisplayList);
+            cloud_dobj = gcAddChildForDObj(coll_dobj, (void *)((uintptr_t)map_head + (intptr_t)llGRYosterMapCloudDisplayList));
             gGRCommonStruct.yoster.clouds[i].dobj[j] = cloud_dobj;
 
             gcAddXObjForDObjFixed(cloud_dobj, nGCMatrixKindTra, 0);
             gcAddXObjForDObjFixed(cloud_dobj, nGCMatrixKind48, 0);
-            lbCommonAddMObjForTreeDObjs(cloud_dobj, (uintptr_t)map_head + (intptr_t)llGRYosterMap_4B8_MObjSub);
+            lbCommonAddMObjForTreeDObjs(cloud_dobj, (MObjSub ***)((uintptr_t)map_head + (intptr_t)llGRYosterMap_4B8_MObjSub));
         }
         gcPlayAnimAll(map_gobj);
 
@@ -254,7 +254,7 @@ void grYosterInitAll(void)
 
         mpCollisionSetYakumonoOnID(dGRYosterCloudLineIDs[i]);
     }
-    gGRCommonStruct.yoster.particle_bank_id = efParticleGetLoadBankID(&lGRYosterParticleScriptBankLo, &lGRYosterParticleScriptBankHi, &lGRYosterParticleTextureBankLo, &lGRYosterParticleTextureBankHi);
+    gGRCommonStruct.yoster.particle_bank_id = efParticleGetLoadBankID((uintptr_t)&lGRYosterParticleScriptBankLo, (uintptr_t)&lGRYosterParticleScriptBankHi, (uintptr_t)&lGRYosterParticleTextureBankLo, (uintptr_t)&lGRYosterParticleTextureBankHi);
 }
 
 // 0x80108C80

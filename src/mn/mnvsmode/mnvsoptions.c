@@ -81,7 +81,7 @@ s32 sMNVSOptionsDamage;
 GObj *sMNVSOptionsSubtitlesGObj;
 
 // 0x801348F8
-s32 sMNVSOptionsDamageGObj;
+GObj *sMNVSOptionsDamageGObj;
 
 // 0x801348FC
 s32 sMNVSOptionsFirstAvailableOption;

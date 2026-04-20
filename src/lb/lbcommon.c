@@ -1511,7 +1511,7 @@ sb32 func_ovl0_800C96EC(Mtx *mtx, DObj *dobj, Gfx **dls)
 // 0x800C9714
 sb32 func_ovl0_800C9714(Mtx *mtx, DObj *dobj, Gfx **dls)
 {
-	func_ovl0_800C96DC(mtx, dobj, 1);
+	func_ovl0_800C96DC(mtx, dobj, (Gfx **)(intptr_t)1);
 
 	return 0;
 }

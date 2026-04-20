@@ -156,10 +156,10 @@ void itManagerInitItems(void) // Many linker things here
 
     gITManagerParticleBankID = efParticleGetLoadBankID
     (
-        &lITManagerParticleScriptBankLo,
-        &lITManagerParticleScriptBankHi,
-        &lITManagerParticleTextureBankLo,
-        &lITManagerParticleTextureBankHi
+        (uintptr_t)&lITManagerParticleScriptBankLo,
+        (uintptr_t)&lITManagerParticleScriptBankHi,
+        (uintptr_t)&lITManagerParticleTextureBankLo,
+        (uintptr_t)&lITManagerParticleTextureBankHi
     );
     itManagerSetupContainerDrops();
     itManagerInitMonsterVars();

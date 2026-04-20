@@ -836,7 +836,7 @@ void syAudioLoadAssets(void)
         len = sSYAudioSeqFile->seqCount * sizeof(ALSeqData) + 4;
         sSYAudioSeqFile = alHeapAlloc(&sSYAudioHeap, 1, sSYAudioSeqFile->seqCount * sizeof(ALSeqData) + 4);
         syAudioReadRom(sSYAudioCurrentSettings.sbk_start, sSYAudioSeqFile, len); 
-        alSeqFileNew(sSYAudioSeqFile, (uintptr_t)sSYAudioCurrentSettings.sbk_start);
+        alSeqFileNew(sSYAudioSeqFile, (u8 *)(uintptr_t)sSYAudioCurrentSettings.sbk_start);
     }
     // get maximal seq length
     for (i = 0, len = 0; i < sSYAudioSeqFile->seqCount; i++)
@@ -952,7 +952,7 @@ void syAudioMakeBGMPlayers(void)
     if (sSYAudioCurrentSettings.unk34 != 0)
     {
         audio_config.inst_sound_count = sSYAudioCurrentSettings.unk34;
-        audio_config.inst_sound_array = sSYAudioCurrentSettings.unk38;
+        audio_config.inst_sound_array = (void *)(intptr_t)sSYAudioCurrentSettings.unk38;
     }
     else
     {
@@ -977,7 +977,7 @@ void syAudioMakeBGMPlayers(void)
     }
     audio_config.fgm_ucode_data = sSYAudioCurrentSettings.fgm_ucode_data;
     audio_config.fgm_table_data = sSYAudioCurrentSettings.fgm_table_data;
-    audio_config.unk_80026204_0x1C = sSYAudioCurrentSettings.unk44;
+    audio_config.unk_80026204_0x1C = (s32)(uintptr_t)sSYAudioCurrentSettings.unk44;
     audio_config.fgm_ucode_count = sSYAudioCurrentSettings.fgm_ucode_count;
     audio_config.fgm_table_count = sSYAudioCurrentSettings.fgm_table_count;
     audio_config.unk_80026204_0xC = sSYAudioCurrentSettings.unk4C;
@@ -1305,7 +1305,7 @@ void syAudioThreadMain(void *arg)
         }
         sSYAudioTimeStamp = osGetTime();
         
-        sSYAudioCurrentAcmdListBuffer = n_alAudioFrame(sSYAudioCurrentAcmdListBuffer, &sp80, osVirtualToPhysical(sSYAudioDataBuffers[id_mod3]), dSYAudioSampleCounts[id_mod3]);
+        sSYAudioCurrentAcmdListBuffer = n_alAudioFrame(sSYAudioCurrentAcmdListBuffer, &sp80, (s16 *)(uintptr_t)osVirtualToPhysical(sSYAudioDataBuffers[id_mod3]), dSYAudioSampleCounts[id_mod3]);
 
         sSYAudioCurrentTask->info.type = nSYTaskTypeAudio;
         sSYAudioCurrentTask->info.priority = 80;
@@ -1383,7 +1383,7 @@ void syAudioThreadMain(void *arg)
                 }
                 else
                 {
-                    syAudioReadRom(sSYAudioSeqFile->seqArray[sSYAudioBGMPlayingIDs[i]].offset, sSYAudioBGMSequenceDatas[i], sSYAudioSeqFile->seqArray[sSYAudioBGMPlayingIDs[i]].len);
+                    syAudioReadRom((uintptr_t)sSYAudioSeqFile->seqArray[sSYAudioBGMPlayingIDs[i]].offset, sSYAudioBGMSequenceDatas[i], sSYAudioSeqFile->seqArray[sSYAudioBGMPlayingIDs[i]].len);
                     sSYAudioCSPlayerStatuses[i]++;
                     continue;
                 }

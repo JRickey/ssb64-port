@@ -199,7 +199,7 @@ if (NOT MSVC)
     target_compile_options(ssb64_game PRIVATE
         -Werror=implicit-function-declaration
         -Wno-implicit-int
-        -Wno-int-conversion
+        -Werror=int-conversion
         -Wno-incompatible-pointer-types
         -Werror=incompatible-library-redeclaration
         -Wno-shift-negative-value

@@ -2702,12 +2702,12 @@ static ALMicroTime __n_CSPVoiceHandler(void *node)
 
     case (AL_SEQ_END_EVT+20):
         // TODO: may be wrong case, may be wrong RHS
-        seqp->unknown0 = seqp->nextEvent.msg.spseq.seq;
+        seqp->unknown0 = (s32)(intptr_t)seqp->nextEvent.msg.spseq.seq;
         __n_initFromBank((N_ALSeqPlayer *)seqp, seqp->nextEvent.msg.spseq.seq);
         break;
     case (AL_SEQ_END_EVT+21):
         // TODO: may be wrong case, may be wrong RHS
-        seqp->unknown1 = seqp->nextEvent.msg.spseq.seq;
+        seqp->unknown1 = (s32)(intptr_t)seqp->nextEvent.msg.spseq.seq;
         __n_initFromBank((N_ALSeqPlayer *)seqp, seqp->nextEvent.msg.spseq.seq);
         break;
     case (AL_SEQ_END_EVT):
@@ -4455,7 +4455,7 @@ void func_80027460_28060(ALWhatever8009EE0C_2 *arg0)
             {
                 param3 = 0x7F;
             }
-            n_alSynStartVoiceParams(&arg0->voice, arg0->unk40, alCents2Ratio(arg0->unk2C + arg0->unk30), (arg0->unk32 * arg0->unk38 * D_8009EDD0_406D0.unk_alsound_0x5A) >> 7, param, param3, 0);
+            n_alSynStartVoiceParams(&arg0->voice, (ALWaveTable *)(intptr_t)arg0->unk40, alCents2Ratio(arg0->unk2C + arg0->unk30), (arg0->unk32 * arg0->unk38 * D_8009EDD0_406D0.unk_alsound_0x5A) >> 7, param, param3, 0);
             arg0->unk2A = 1;
         }
         else arg0->unk2A = 0;
@@ -5018,8 +5018,8 @@ ALWhatever8009EE0C* func_80026A6C_2766C(void *arg0)
         D_8009EDD0_406D0.unk_alsound_0x3C = temp_v1;
         
         temp_v1->unk28 = 1;
-        temp_v1->unk20 = arg0;
-        temp_v1->unk24 = arg0;
+        temp_v1->unk20 = (s32)(uintptr_t)arg0;
+        temp_v1->unk24 = (s32)(uintptr_t)arg0;
         temp_v1->unk2A = 3;
         temp_v1->unk32 = 0x7F;
         temp_v1->unk34 = 0x40;
@@ -5450,7 +5450,7 @@ void func_80026204_26E04(N_ALUnk80026204 *arg0)
     D_8009EDD0_406D0.fgm_ucode_count = arg0->fgm_ucode_count;
     D_8009EDD0_406D0.fgm_table_data = arg0->fgm_table_data;
     D_8009EDD0_406D0.fgm_table_count = arg0->fgm_table_count;
-    D_8009EDD0_406D0.unk_alsound_0x24 = arg0->unk_80026204_0x1C;
+    D_8009EDD0_406D0.unk_alsound_0x24 = (ALWhatever8009EE0C_3 *)(intptr_t)arg0->unk_80026204_0x1C;
     D_8009EDD0_406D0.unk_alsound_0x2C = arg0->unk_80026204_0xC;
     D_8009EDD0_406D0.unk_alsound_0x14 = arg0->unk_80026204_0x6;
     D_8009EDD0_406D0.unk_alsound_0x18 =  arg0->unk_80026204_0x10;

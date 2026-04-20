@@ -1973,7 +1973,7 @@ void sc1PGameBossHidePlayerTagAll(void)
 }
 
 // 0x8018F574
-void sc1PGameBossAddBossInterface(GObj *fighter_gobj, u32 unused)
+void sc1PGameBossAddBossInterface(GObj *fighter_gobj, uintptr_t unused)
 {
     FTStruct *fp = ftGetStruct(fighter_gobj);
 
@@ -1984,13 +1984,13 @@ void sc1PGameBossAddBossInterface(GObj *fighter_gobj, u32 unused)
 }
 
 // 0x8018F5AC
-void sc1PGameBossLockPlayerControl(GObj *fighter_gobj, u32 unused)
+void sc1PGameBossLockPlayerControl(GObj *fighter_gobj, uintptr_t unused)
 {
     ftParamLockPlayerControl(fighter_gobj);
 }
 
 // 0x8018F5CC
-void sc1PGameBossSetIgnorePlayerMapBounds(GObj *fighter_gobj, u32 unused)
+void sc1PGameBossSetIgnorePlayerMapBounds(GObj *fighter_gobj, uintptr_t unused)
 {
     FTStruct *fp = ftGetStruct(fighter_gobj);
 

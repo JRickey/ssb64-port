@@ -10,7 +10,7 @@ extern void port_log(const char *fmt, ...);
 // // // // // // // // // // // //
 
 // 0x8000AEF0
-void gcFuncGObjByLink(s32 link, void (*func)(GObj*, u32), u32 param)
+void gcFuncGObjByLink(s32 link, void (*func)(GObj*, uintptr_t), uintptr_t param)
 {
     GObj *current_gobj = gGCCommonLinks[link];
 
@@ -25,7 +25,7 @@ void gcFuncGObjByLink(s32 link, void (*func)(GObj*, u32), u32 param)
 }
 
 // 0x8000AF58
-void gcFuncGObjAll(void (*func)(GObj*, u32), u32 param)
+void gcFuncGObjAll(void (*func)(GObj*, uintptr_t), uintptr_t param)
 {
     s32 link;
 
@@ -45,7 +45,7 @@ void gcFuncGObjAll(void (*func)(GObj*, u32), u32 param)
 }
 
 // 0x8000AFE4
-GObj* gcFuncGObjByLinkEx(s32 link, GObj* (*func)(GObj*, u32), u32 param, sb32 is_return_immediate)
+GObj* gcFuncGObjByLinkEx(s32 link, GObj* (*func)(GObj*, uintptr_t), uintptr_t param, sb32 is_return_immediate)
 {
     GObj *current_gobj;
     GObj *next_gobj;
@@ -75,7 +75,7 @@ GObj* gcFuncGObjByLinkEx(s32 link, GObj* (*func)(GObj*, u32), u32 param, sb32 is
 }
 
 // 0x8000B08C
-GObj* gcFuncGObjAllEx(GObj* (*func)(GObj*, u32), u32 param, sb32 is_return_immediate)
+GObj* gcFuncGObjAllEx(GObj* (*func)(GObj*, uintptr_t), uintptr_t param, sb32 is_return_immediate)
 {
     GObj *current_gobj;
     GObj *next_gobj;
@@ -109,9 +109,9 @@ GObj* gcFuncGObjAllEx(GObj* (*func)(GObj*, u32), u32 param, sb32 is_return_immed
 }
 
 // 0x8000B14C
-GObj* gcGetGObjByID(GObj *gobj, u32 id)
+GObj* gcGetGObjByID(GObj *gobj, uintptr_t id)
 {
-    return (gobj->id == id) ? gobj : NULL;
+    return (gobj->id == (u32)id) ? gobj : NULL;
 }
 
 // 0x8000B16C

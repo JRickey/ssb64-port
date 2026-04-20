@@ -5257,7 +5257,7 @@ GObj* efManagerMBallThrownMakeEffect(Vec3f *pos, s32 lr)
     dEFManagerMBallThrownEffectDesc.file_head = &file;
 
     p_file = lbRelocGetFileData(void**, gITManagerCommonData, llITCommonDataMBallThrownFileHead);
-    file = ((uintptr_t)*p_file - (intptr_t)llITCommonDataMBallThrownDObjDesc);
+    file = (void *)((uintptr_t)*p_file - (intptr_t)llITCommonDataMBallThrownDObjDesc);
 
     if (lr == +1)
     {
@@ -5966,7 +5966,7 @@ GObj* efManagerLoseKirbyStarMakeEffect(GObj *fighter_gobj)
     dEFManagerLoseKirbyStarEffectDesc.file_head = &addr;
 
     p_addr = lbRelocGetFileData(void**, gITManagerCommonData, llITCommonDataStarRodWeaponAttributes);
-    addr = ((uintptr_t)*p_addr - (intptr_t)llITCommonDataKirbyStarDObjDesc);
+    addr = (void *)((uintptr_t)*p_addr - (intptr_t)llITCommonDataKirbyStarDObjDesc);
 
     effect_gobj = efManagerMakeEffectNoForce(&dEFManagerLoseKirbyStarEffectDesc);
 

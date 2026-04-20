@@ -1067,7 +1067,7 @@ sb32 ftMainUpdateColAnim(GMColAnim *colanim, GObj *fighter_gobj, sb32 is_muted, 
 
             case nGMColEventLoopBegin:
                 colanim->cs[i].p_subroutine[colanim->cs[i].script_id++] = lbRelocGetFileData(void*, colanim->cs[i].p_script, sizeof(GMColEventDefault));
-                colanim->cs[i].p_subroutine[colanim->cs[i].script_id++] = gmColEventCast(colanim->cs[i].p_script, GMColEventDefault)->value,
+                colanim->cs[i].p_subroutine[colanim->cs[i].script_id++] = (void *)(uintptr_t)gmColEventCast(colanim->cs[i].p_script, GMColEventDefault)->value,
                 gmColEventAdvance(colanim->cs[i].p_script, GMColEventDefault);
                 break;
 
@@ -4883,22 +4883,22 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
                 if (fp->anim_desc.flags.is_use_submotion_script)
                 {
 #ifdef PORT
-                    event_file_head = (fp->data->p_file_submotion != NULL) ? *fp->data->p_file_submotion : NULL;
+                    event_file_head = (fp->data->p_file_submotion != NULL) ? (intptr_t)*fp->data->p_file_submotion : 0;
 #else
                     event_file_head = *fp->data->p_file_submotion;
 #endif
 
-                    event_script_ptr = (event_file_head != NULL) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
+                    event_script_ptr = (event_file_head != 0) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
                 }
                 else
                 {
 #ifdef PORT
-                    event_file_head = (fp->data->p_file_mainmotion != NULL) ? *fp->data->p_file_mainmotion : NULL;
+                    event_file_head = (fp->data->p_file_mainmotion != NULL) ? (intptr_t)*fp->data->p_file_mainmotion : 0;
 #else
                     event_file_head = *fp->data->p_file_mainmotion;
 #endif
 
-                    event_script_ptr = (event_file_head != NULL) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
+                    event_script_ptr = (event_file_head != 0) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
                 }
             }
             else event_script_ptr = NULL;
@@ -4910,12 +4910,12 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
             if (motion_desc->offset != 0x80000000)
             {
 #ifdef PORT
-                event_file_head = (fp->data->p_file_submotion != NULL) ? *fp->data->p_file_submotion : NULL;
+                event_file_head = (fp->data->p_file_submotion != NULL) ? (intptr_t)*fp->data->p_file_submotion : 0;
 #else
                 event_file_head = *fp->data->p_file_submotion;
 #endif
 
-                event_script_ptr = (event_file_head != NULL) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
+                event_script_ptr = (event_file_head != 0) ? (void*) ((intptr_t)motion_desc->offset + (intptr_t)event_file_head) : NULL;
             }
             else event_script_ptr = NULL;
 

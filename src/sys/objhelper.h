@@ -3,11 +3,11 @@
 
 #include <sys/objtypes.h>
 
-extern void gcFuncGObjByLink(s32 link, void (*func)(GObj*, u32), u32 param);
-extern void gcFuncGObjAll(void (*func)(GObj*, u32), u32 param);
-extern GObj* gcFuncGObjByLinkEx(s32 link, GObj* (*func)(GObj*, u32), u32 param, sb32 is_return_immediate);
-extern GObj* gcFuncGObjAllEx(GObj* (*func)(GObj*, u32), u32 param, sb32 is_return_immediate);
-extern GObj* gcGetGObjByID(GObj *gobj, u32 id);
+extern void gcFuncGObjByLink(s32 link, void (*func)(GObj*, uintptr_t), uintptr_t param);
+extern void gcFuncGObjAll(void (*func)(GObj*, uintptr_t), uintptr_t param);
+extern GObj* gcFuncGObjByLinkEx(s32 link, GObj* (*func)(GObj*, uintptr_t), uintptr_t param, sb32 is_return_immediate);
+extern GObj* gcFuncGObjAllEx(GObj* (*func)(GObj*, uintptr_t), uintptr_t param, sb32 is_return_immediate);
+extern GObj* gcGetGObjByID(GObj *gobj, uintptr_t id);
 extern GObj* gcFindGObjByLinkAndID(s32 link, u32 id);
 extern GObj* gcFindGObjByID(u32 id);
 extern void gcDefaultFuncRun(GObj *gobj);

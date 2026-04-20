@@ -2,7 +2,7 @@
 
 ## Status
 
-Flag 5 (`-Werror=int-conversion`) — **partially cleared, 57 of 158 errors remaining**.
+Flag 5 (`-Werror=int-conversion`) — **cleared, all 158 errors resolved, flag promoted to `-Werror=int-conversion` in `CMakeLists.txt:202` (uncommitted working tree).**
 Flag 6 (`-Werror=incompatible-pointer-types`) — not started.
 
 ### Flag 5 progress this pass
@@ -11,8 +11,44 @@ Flag 6 (`-Werror=incompatible-pointer-types`) — not started.
 |--------|----------------|----------:|
 | `055aacc` | `(intptr_t)` cast for submotion `D_ovl1_*` script pointer inits across 13 `scsubsysdata*.c` files | 158 → 81 |
 | `82982ec` | `(uintptr_t)` cast for ROM-symbol address inits in `ft/ftdata.c` (12) and `sys/audio.c` (11) | 81 → 57 |
+| *(pending commit)* | Remaining 57 fixes across categories C/D/E/F — see "Final pass" below | 57 → 0 |
 
-To reproduce the error list: flip `CMakeLists.txt:201` from `-Wno-int-conversion` to `-Werror=int-conversion`, then `cmake --build build --target ssb64 --clean-first -j 8 -- -k`.
+### Final pass (uncommitted, 29 files)
+
+Categories C, D, F — mechanical casts at call sites:
+- `mn/mncommon/mntitle.c:1490` — `(uintptr_t)&SYMBOL` for 4 args (C).
+- `gr/grcommon/grpupupu.c:690`, `gr/grcommon/gryoster.c:257`, `it/itmanager.c:159-162` — same `(uintptr_t)&SYMBOL` pattern (D).
+- `gr/grcommon/gryoster.c:208,229,240,245`, `gr/grcommon/grjungle.c:122`, `gr/grcommon/gryamabuki.c:122`, `it/itcommon/itharisen.c:246`, `sc/sccommon/scexplain.c:372` — `(TargetType *)` casts on `(uintptr_t)base + (intptr_t)offset` call args (D).
+- `mn/mncommon/mncongra.c:113-115`, `sc/sccommon/scstaffroll.c:2256-2258` — `(void *)` on `SYVIDEO_DEFINE_FRAMEBUFFER_ADDR` initializers (F).
+- `mn/mnplayers/mnplayers1pbonus.c:2469` — `(GObj *)(intptr_t)player` cast (F).
+
+Category E — LP64 landmines:
+- `mn/mnvsmode/mnvsoptions.c:84` — root-cause fix: changed `s32 sMNVSOptionsDamageGObj` → `GObj *sMNVSOptionsDamageGObj` (file-local; fixes 3 errors at 456/1420/1487 at once).
+- `sys/objscript.c` + `sys/objhelper.{c,h}` + `if/ifcommon.{c,h}` + `sc/sc1pmode/sc1pgame.{c,h}` — **widened `u32 param` → `uintptr_t param` across gc* helper family** (`gcFuncGObjByLink`, `gcFuncGObjAll`, `gcFuncGObjByLinkEx`, `gcFuncGObjAllEx`, `gcGetGObjByID`, `gcAddGObjScript`). Updated 2 `ifCommon*GObj` and 3 `sc1PGameBoss*` callback signatures. `gcAddGObjScript` reshaped to take `uintptr_t` and internally cast to `GObjScript *` (was the 64-bit-pointer-truncation hazard at `objscript.c:38`).
+- `ft/ftmain.c:4886,4896,4913` — added `(intptr_t)` cast on `*fp->data->p_file_{submotion,mainmotion}` reads so `intptr_t event_file_head` assignment is valid; replaced the `!= NULL` sentinel on the integer with `!= 0`.
+- `ft/ftmain.c:1070` — `(void *)(uintptr_t)` on `GMColEventDefault->value` (u32 bitfield) being stored into `void * p_subroutine[]` slot.
+- `ef/efmanager.c:5260,5969` — `(void *)` wrap on reloc-pointer subtraction expression (symmetric sites).
+- `sys/audio.c:839` — `(u8 *)(uintptr_t)` on `sbk_start` (already `uintptr_t`) passed to `alSeqFileNew(... u8 *base)`.
+- `sys/audio.c:955` — `(void *)(intptr_t)` on dead `unk38` (branch never executes; `unk34 == 0` is the live path).
+- `sys/audio.c:980` — `(s32)(uintptr_t)` on `unk44` (value is NULL; stored-as-0 preserved).
+- `sys/audio.c:1308` — `(s16 *)(uintptr_t)` on PORT-override `osVirtualToPhysical` return (`u64` under PORT).
+- `sys/audio.c:1386` — `(uintptr_t)` on `seqArray[i].offset` (u8* → uintptr_t rom arg).
+- `sys/dma.c:142,147` — `(u32)(uintptr_t)PHYS_TO_K1(...)` on both comparison and assignment to HW-register `baseAddress` field.
+- `lb/lbparticle.c:1318` — `(u16)` cast replaces wrong `(u8*)` cast; RHS computes a bytecode offset not a pointer.
+- `lb/lbcommon.c:1514` — `(Gfx **)(intptr_t)1` on no-op stub's unused param (body is just `return`).
+- `mp/mpcommon.c:379,391` — `(s32)(intptr_t)fp` on unused `s32 arg0` of `func_ovl2_800EBC0C` (arg truly unreferenced in body).
+- `libultra/n_audio/n_env.c:2705,2710` — `(s32)(intptr_t)` on dead `unknown0`/`unknown1` stores.
+- `libultra/n_audio/n_env.c:4458` — `(ALWaveTable *)(intptr_t)` on `arg0->unk40` (s32 stored earlier from pointer; under PORT the upstream truncates — see follow-up below).
+- `libultra/n_audio/n_env.c:5021,5022` — `(s32)(uintptr_t)arg0` on `void *` → `s32` store (short-circuited by early-return in PORT; paths dead).
+- `libultra/n_audio/n_env.c:5453` — `(ALWhatever8009EE0C_3 *)(intptr_t)` on `unk_80026204_0x1C` s32 → pointer.
+
+### Follow-up concerns (not blocking)
+
+1. `libultra/n_audio/n_env.c` has several `s32` struct fields (`unk20`, `unk24`, `unk40`, `unknown0/1`) that are storing actual pointers on N64. On LP64 these silently truncate. The FGM synth path is currently short-circuited (`PORT` early-return at `n_env.c:5000`), so the truncation is dead storage today — but if/when FGM is wired up for real these fields must be widened to `uintptr_t` or `void *`. Track alongside Phase 5/6 audio work.
+2. `mp/mpcommon.c` — `func_ovl2_800EBC0C(s32 arg0, ...)` declares an unused first parameter; callers pass `FTStruct *`. Body ignores it. If anyone ever reads `arg0`, they'd get a truncated pointer. Consider widening the prototype to `FTStruct *` since no other caller uses it.
+3. The `gcFunc*` helper family's `u32 param` → `uintptr_t param` widen changes function-pointer types. All compatible callback sites have been updated (2 in `ifcommon.c`, 3 in `sc1pgame.c`, 1 in `objscript.c`). `gcGetGObjByID`'s `u32 id` comparison still treats the low 32 bits (`(u32)id` cast in body) — intentional because IDs are u32 values; widening is zero-extending semantics on both sides.
+
+To reproduce the error list *before this pass*: revert these 29 files then flip `CMakeLists.txt:202` from `-Werror=int-conversion` to `-Wno-int-conversion`, then `cmake --build build --target ssb64 --clean-first -j 8 -- -k`.
 
 ### FTMotionDesc offset question — **resolved**
 

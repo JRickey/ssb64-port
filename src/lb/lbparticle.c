@@ -1315,7 +1315,7 @@ LBParticle* lbParticleUpdateStruct(LBParticle *this_pc, LBParticle *other_pc, s3
             while (bytecode_timer == 0);
             
         loop_break:
-            bytecode_csr = (u8*) ((uintptr_t)csr - (uintptr_t)this_pc->bytecode);
+            bytecode_csr = (u16) ((uintptr_t)csr - (uintptr_t)this_pc->bytecode);
             
             this_pc->bytecode_csr = bytecode_csr;
             this_pc->bytecode_timer = bytecode_timer;

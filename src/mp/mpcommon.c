@@ -376,7 +376,7 @@ void mpCommonUpdateFighterSlopeContour(GObj *fighter_gobj)
             {
                 joint = fp->joints[attr->joint_rfoot_id];
 
-                func_ovl2_800EBC0C(fp, &sp30, &sp2C, attr->joint_rfoot_rotate, joint);
+                func_ovl2_800EBC0C((s32)(intptr_t)fp, &sp30, &sp2C, attr->joint_rfoot_rotate, joint);
 
                 if (func_ovl2_800DDF74(fighter_gobj, fp, attr, joint, &sp30) != FALSE)
                 {
@@ -388,7 +388,7 @@ void mpCommonUpdateFighterSlopeContour(GObj *fighter_gobj)
             {
                 joint = fp->joints[attr->joint_lfoot_id];
 
-                func_ovl2_800EBC0C(fp, &sp30, &sp2C, attr->joint_lfoot_rotate, joint);
+                func_ovl2_800EBC0C((s32)(intptr_t)fp, &sp30, &sp2C, attr->joint_lfoot_rotate, joint);
 
                 if (func_ovl2_800DDF74(fighter_gobj, fp, attr, joint, &sp30) != FALSE)
                 {

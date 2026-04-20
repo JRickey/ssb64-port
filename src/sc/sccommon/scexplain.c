@@ -369,7 +369,7 @@ GObj* scExplainMakeControlStickInterface(void)
     gcSetupCustomDObjs
     (
         interface_gobj, 
-        ((uintptr_t)sSCExplainGraphicsFileHead + (intptr_t)llSCExplainGraphicsStickDObjDesc),
+        (DObjDesc *)((uintptr_t)sSCExplainGraphicsFileHead + (intptr_t)llSCExplainGraphicsStickDObjDesc),
         NULL,
         nGCMatrixKindTra,
         nGCMatrixKindNull,

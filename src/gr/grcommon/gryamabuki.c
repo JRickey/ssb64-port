@@ -119,7 +119,7 @@ void grYamabukiGateSetPositionNear(void)
 // 0x8010AE94
 void grYamabukiGateAddAnimOffset(intptr_t offset)
 {
-    gcAddAnimJointAll(gGRCommonStruct.yamabuki.gate_gobj, (uintptr_t)gGRCommonStruct.yamabuki.map_head + (intptr_t)offset, 0.0F);
+    gcAddAnimJointAll(gGRCommonStruct.yamabuki.gate_gobj, (AObjEvent32 **)((uintptr_t)gGRCommonStruct.yamabuki.map_head + (intptr_t)offset), 0.0F);
     gcPlayAnimAll(gGRCommonStruct.yamabuki.gate_gobj);
 }
 
