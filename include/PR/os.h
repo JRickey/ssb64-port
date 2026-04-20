@@ -1037,9 +1037,18 @@ extern "C"
 
 	/* byte string operations */
 
+#ifdef PORT
+	/* LP64 host: third arg is size_t (POSIX). The N64 signatures below use
+	 * int, which clashes with clang's builtin prototypes. */
+	#include <stddef.h>
+	extern void bcopy(const void*, void*, size_t);
+	extern int bcmp(const void*, const void*, size_t);
+	extern void bzero(void*, size_t);
+#else
 	extern void bcopy(const void*, void*, int);
 	extern int bcmp(const void*, const void*, int);
 	extern void bzero(void*, int);
+#endif
 
 	/* Miscellaneous operations */
 

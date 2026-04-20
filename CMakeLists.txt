@@ -201,7 +201,7 @@ if (NOT MSVC)
         -Wno-implicit-int
         -Wno-int-conversion
         -Wno-incompatible-pointer-types
-        -Wno-incompatible-library-redeclaration
+        -Werror=incompatible-library-redeclaration
         -Wno-shift-negative-value
         -Wno-parentheses-equality
         -Wno-pointer-sign
