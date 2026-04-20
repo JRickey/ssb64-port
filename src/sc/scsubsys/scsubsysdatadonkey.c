@@ -28,11 +28,11 @@ s32 D_ovl1_80391350[] =
 FTMotionDesc dFTDonkeySubMotionDescs[] =
 {
     ll_800_FileID, 0x80000000, 0x00000000,
-    ll_381_FileID, D_ovl1_80391340, 0x00000000,
-    ll_382_FileID, D_ovl1_80391348, 0x00000000,
+    ll_381_FileID, (intptr_t)D_ovl1_80391340, 0x00000000,
+    ll_382_FileID, (intptr_t)D_ovl1_80391348, 0x00000000,
     ll_383_FileID, 0x80000000, 0x00000000,
-    ll_384_FileID, D_ovl1_8039134C, 0x00000000,
-    ll_385_FileID, D_ovl1_80391350, 0x00000000,
+    ll_384_FileID, (intptr_t)D_ovl1_8039134C, 0x00000000,
+    ll_385_FileID, (intptr_t)D_ovl1_80391350, 0x00000000,
     ll_806_FileID, 0x80000000, 0x00000000,
     0x00000000,   0x80000000, 0x00000000,
     ll_386_FileID, 0x80000000, 0x80000000,

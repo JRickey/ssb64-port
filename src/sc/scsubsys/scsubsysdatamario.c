@@ -75,12 +75,12 @@ s32 D_ovl1_80390E7C[] =
 
 FTMotionDesc dFTMarioSubMotionDescs[] =
 {
-	llFTMarioAnimWaitFileID, &D_ovl1_80390DE4, 0x00000000,
-	ll_357_FileID, &D_ovl1_80390E14, 0x00000000,
-	ll_358_FileID, &D_ovl1_80390E34, 0x00000000,
+	llFTMarioAnimWaitFileID, (intptr_t)&D_ovl1_80390DE4, 0x00000000,
+	ll_357_FileID, (intptr_t)&D_ovl1_80390E14, 0x00000000,
+	ll_358_FileID, (intptr_t)&D_ovl1_80390E34, 0x00000000,
 	ll_359_FileID, 0x80000000, 0x00000000,
-	ll_360_FileID, &D_ovl1_80390E50, 0x00000000,
-	ll_361_FileID, &D_ovl1_80390E70, 0x00000000,
+	ll_360_FileID, (intptr_t)&D_ovl1_80390E50, 0x00000000,
+	ll_361_FileID, (intptr_t)&D_ovl1_80390E70, 0x00000000,
 	ll_505_FileID, 0x80000000, 0x00000000,
 	0x00000000, 0x80000000, 0x00000000,
 	ll_362_FileID, 0x80000000, 0x80000000,
@@ -90,7 +90,7 @@ FTMotionDesc dFTMarioSubMotionDescs[] =
 	ll_367_FileID, 0x80000000, 0x00000000,
 	ll_368_FileID, 0x80000000, 0x00000000,
 	ll_369_FileID, 0x80000000, 0x00000000,
-	ll_365_FileID, &D_ovl1_80390E7C, 0x00000000,
+	ll_365_FileID, (intptr_t)&D_ovl1_80390E7C, 0x00000000,
 	ll_637_FileID, 0x80000000, 0x40000000,
 	ll_635_FileID, 0x80000000, 0x00000000,
 	ll_638_FileID, 0x80000000, 0x00000000

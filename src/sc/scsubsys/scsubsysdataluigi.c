@@ -71,11 +71,11 @@ s32 D_ovl1_803917B4[] =
 
 FTMotionDesc dFTLuigiSubMotionDescs[] =
 {
-    ll_1103_FileID, D_ovl1_80391724, 0x00000000,
-    ll_462_FileID,  D_ovl1_80391754, 0x00000004,
-    ll_463_FileID,  D_ovl1_80391798, 0x00000004,
+    ll_1103_FileID, (intptr_t)D_ovl1_80391724, 0x00000000,
+    ll_462_FileID,  (intptr_t)D_ovl1_80391754, 0x00000004,
+    ll_463_FileID,  (intptr_t)D_ovl1_80391798, 0x00000004,
     ll_464_FileID,  0x80000000,       0x00000004,
-    ll_464_FileID,  D_ovl1_803917A0,  0x00000004,
+    ll_464_FileID,  (intptr_t)D_ovl1_803917A0,  0x00000004,
     ll_361_FileID,  0x80000000,       0x00000000,
     0x00000000,      0x80000000,       0x00000000,
     0x00000000,      0x80000000,       0x00000000,
@@ -85,6 +85,6 @@ FTMotionDesc dFTLuigiSubMotionDescs[] =
     0x00000000,      0x80000000,       0x00000000,
     0x00000000,      0x80000000,       0x00000000,
     ll_467_FileID,  0x80000000,       0x00000004,
-    ll_468_FileID,  D_ovl1_803917B4,  0x00000004
+    ll_468_FileID,  (intptr_t)D_ovl1_803917B4,  0x00000004
 };
 s32 dFTLuigiSubMotionDescsCount = sizeof(dFTLuigiSubMotionDescs)/sizeof(FTMotionDesc); // 0x0000000F

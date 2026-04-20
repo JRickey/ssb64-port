@@ -57,11 +57,11 @@ s32 D_ovl1_80391578[] =
 FTMotionDesc dFTSamusSubMotionDescs[] =
 {
     ll_953_FileID, 0x80000000, 0x00000000,
-    ll_393_FileID, D_ovl1_803914F0, 0x00000000,
-    ll_394_FileID, D_ovl1_8039154C, 0x00000000,
-    ll_395_FileID, D_ovl1_8039156C, 0x00000000,
-    ll_395_FileID, D_ovl1_8039156C, 0x00000000,
-    ll_396_FileID, D_ovl1_80391578, 0x00000000,
+    ll_393_FileID, (intptr_t)D_ovl1_803914F0, 0x00000000,
+    ll_394_FileID, (intptr_t)D_ovl1_8039154C, 0x00000000,
+    ll_395_FileID, (intptr_t)D_ovl1_8039156C, 0x00000000,
+    ll_395_FileID, (intptr_t)D_ovl1_8039156C, 0x00000000,
+    ll_396_FileID, (intptr_t)D_ovl1_80391578, 0x00000000,
     ll_959_FileID, 0x80000000, 0x00000000,
     0x00000000,   0x80000000, 0x00000000,
     ll_397_FileID, 0x80000000, 0x80000000,

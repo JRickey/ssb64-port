@@ -63,11 +63,11 @@ s32 D_ovl1_803922AC[] =
 
 FTMotionDesc dFTPikachuSubMotionDescs[] =
 {
-	ll_1957_FileID, D_ovl1_80392250, 0x00000000,
-	ll_476_FileID, D_ovl1_80392294, 0x80000000,
-	ll_477_FileID, D_ovl1_80392298, 0x00000000,
-	ll_478_FileID, D_ovl1_8039229C, 0x00000000,
-	ll_478_FileID, D_ovl1_8039229C, 0x00000000,
+	ll_1957_FileID, (intptr_t)D_ovl1_80392250, 0x00000000,
+	ll_476_FileID, (intptr_t)D_ovl1_80392294, 0x80000000,
+	ll_477_FileID, (intptr_t)D_ovl1_80392298, 0x00000000,
+	ll_478_FileID, (intptr_t)D_ovl1_8039229C, 0x00000000,
+	ll_478_FileID, (intptr_t)D_ovl1_8039229C, 0x00000000,
 	ll_479_FileID, 0x80000000, 0x00000000,
 	ll_1963_FileID, 0x80000000, 0x00000000,
 	0x00000000, 0x80000000, 0x00000000,
@@ -78,7 +78,7 @@ FTMotionDesc dFTPikachuSubMotionDescs[] =
 	ll_485_FileID, 0x80000000, 0x00000000,
 	ll_486_FileID, 0x80000000, 0x00000000,
 	ll_487_FileID, 0x80000000, 0x00000000,
-	ll_483_FileID, D_ovl1_803922AC, 0x00000000
+	ll_483_FileID, (intptr_t)D_ovl1_803922AC, 0x00000000
 };
 
 s32 dFTPikachuSubMotionDescsCount = sizeof(dFTPikachuSubMotionDescs)/sizeof(FTMotionDesc); // 0x00000010

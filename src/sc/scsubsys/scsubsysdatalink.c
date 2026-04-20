@@ -128,21 +128,21 @@ s32 D_ovl1_803919EC[] =
 
 FTMotionDesc dFTLinkSubMotionDescs[] =
 {
-    ll_1115_FileID, D_ovl1_803918A4, 0x00000000,
-    ll_404_FileID,  D_ovl1_803918D0, 0x00000000,
-    ll_405_FileID,  D_ovl1_8039191C, 0x00000000,
-    ll_406_FileID,  D_ovl1_80391954, 0x00000000,
-    ll_406_FileID,  D_ovl1_80391954, 0x00000000,
-    ll_407_FileID,  D_ovl1_80391978, 0x00000000,
+    ll_1115_FileID, (intptr_t)D_ovl1_803918A4, 0x00000000,
+    ll_404_FileID,  (intptr_t)D_ovl1_803918D0, 0x00000000,
+    ll_405_FileID,  (intptr_t)D_ovl1_8039191C, 0x00000000,
+    ll_406_FileID,  (intptr_t)D_ovl1_80391954, 0x00000000,
+    ll_406_FileID,  (intptr_t)D_ovl1_80391954, 0x00000000,
+    ll_407_FileID,  (intptr_t)D_ovl1_80391978, 0x00000000,
     ll_1121_FileID, 0x80000000,      0x00000000,
-    ll_1125_FileID, D_ovl1_8039198C, 0x00000000,
+    ll_1125_FileID, (intptr_t)D_ovl1_8039198C, 0x00000000,
     ll_408_FileID,  0x80000000,      0x80000000,
     ll_409_FileID,  0x80000000,      0x40000000,
     ll_410_FileID,  0x80000000,      0x40000000,
     ll_412_FileID,  0x80000000,      0x00000000,
     ll_413_FileID,  0x80000000,      0x00000000,
-    ll_414_FileID,  D_ovl1_803919EC, 0x00000000,
-    ll_415_FileID,  D_ovl1_803919EC, 0x00000000,
-    ll_411_FileID,  D_ovl1_803919A4, 0x00000000
+    ll_414_FileID,  (intptr_t)D_ovl1_803919EC, 0x00000000,
+    ll_415_FileID,  (intptr_t)D_ovl1_803919EC, 0x00000000,
+    ll_411_FileID,  (intptr_t)D_ovl1_803919A4, 0x00000000
 };
 s32 dFTLinkSubMotionDescsCount = sizeof(dFTLinkSubMotionDescs)/sizeof(FTMotionDesc); // 0x00000010
