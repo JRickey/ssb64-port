@@ -13,6 +13,7 @@ Detailed reference material lives under `docs/`. Read the file that matches the 
 | RDRAM / RSP / RDP / GBI / audio / threading / controller / endianness | `docs/n64_reference.md` |
 | CMake build, reloc stub regen, runtime logs, LP64 compat notes | `docs/build_and_tooling.md` |
 | GBI trace capture (port + M64P plugin) and `gbi_diff.py` usage | `docs/debug_gbi_trace.md` |
+| IDO BE bitfield layout audit (compile + rabbitizer disasm to verify port struct bit positions) | `docs/debug_ido_bitfield_layout.md` |
 | Resolved bugs (index + per-bug root cause / fix write-ups) | `docs/bugs/README.md` |
 
 Ongoing investigations and handoff notes are loose `.md` files at the top level of `docs/` — check there before starting work on rendering, collision, or animation issues so you don't duplicate prior effort.

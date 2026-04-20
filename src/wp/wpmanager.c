@@ -215,7 +215,9 @@ GObj* wpManagerMakeWeapon(GObj *parent_gobj, WPDesc *wp_desc, Vec3f *spawn_pos, 
     wp->attack_coll.size = attr->size * 0.5F;
 
 #ifdef PORT
-    wp->attack_coll.angle = BITFIELD_SEXT10(attr->angle);
+    // IDO BE stored `angle:10` at bits 15-6 of the u16 at offset 0x26.
+    // Extract via arithmetic shift on the signed interpretation of the raw u16.
+    wp->attack_coll.angle = ((s16)attr->_angle_raw) >> 6;
 #else
     wp->attack_coll.angle = attr->angle;
 #endif

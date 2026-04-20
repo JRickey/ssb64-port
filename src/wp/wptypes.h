@@ -51,56 +51,45 @@ struct WPAttributes                         // Moreso hitbox stuff
     s16 map_coll_center;
     s16 map_coll_bottom;
     s16 map_coll_width;
-    u16 size;
+    u16 size;                               // 0x24
 #ifdef PORT
-    /* Clang packs `u32 element:4 + u32 damage:8` (12 bits total) into the 2
-     * bytes of IMPLICIT padding between `u16 size` (0x24) and the natural u32
-     * alignment at 0x28 — treating the pad as an available 16-bit storage
-     * unit. Bytes 0x26-0x27 of the ROM contain real data (high half of the
-     * rotate16'd size+pad word = 0x5A40), so element and damage decode to
-     * garbage (damage reads 0xA4 = 164 instead of the intended bits at Word 1
-     * offset 0x28). Forcing an explicit u16 field at 0x26 consumes the pad
-     * space and pushes the u32 bitfield storage unit to 0x28 as intended,
-     * matching the SGI IDO BE compile's layout.  */
-    u16 _pad_before_combat_bits;
+    /* IDO BE packs `s32 angle : 10` into the 2 pad bytes between `u16 size`
+     * (0x24) and the natural u32 alignment at 0x28 — using them as a 16-bit
+     * storage unit with angle occupying the top 10 bits (bits 15-6 of u16 at
+     * 0x26) and the bottom 6 bits unused. This was verified by disassembling
+     * IDO's compiled reader: `lh $t, 0x26($attr); sra $t, 6`. Clang on LE
+     * won't replicate this packing with `s32 angle : 10`, so we expose the
+     * raw u16 explicitly and extract angle via arithmetic shift at the read
+     * site in wpmanager.c. The remaining Word 1 bitfields (u32 at 0x28) then
+     * hold kbs|damage|element|kbw in the positions IDO chose. */
+    u16 _angle_raw;                         // 0x26 — angle at bits 15-6 (signed), bits 5-0 pad
 #endif
 
-    // --- Bitfield Word 1: attack parameters ---
-    // On LE (PORT), all fields use u32 base type to prevent MSVC from
-    // splitting allocation units at signed/unsigned type boundaries.
-    // angle is read-as-unsigned; use BITFIELD_SEXT10() at read sites.
+    // --- Bitfield Word 1 (u32 at 0x28): kbs | damage | element | kbw ---
+    // IDO BE MSB-first packing placed these in one u32, with knockback_weight
+    // completing the word (not separated into Word 2 as we previously thought).
+    // Verified via disassembly of IDO reader: all four fields loaded from
+    // 0x28($attr). shield_damage / sfx / priority / flags are in Word 2.
 #if IS_BIG_ENDIAN
     s32 angle : 10;
     u32 knockback_scale : 10;
     u32 damage : 8;
     u32 element : 4;
+    u32 knockback_weight : 10;
 #else
-    u32 element : 4;
-    u32 damage : 8;
-    u32 knockback_scale : 10;
-    u32 angle : 10;
+    u32 knockback_weight : 10;              // bits 9-0
+    u32 element : 4;                        // bits 13-10
+    u32 damage : 8;                         // bits 21-14
+    u32 knockback_scale : 10;               // bits 31-22
 #endif
 
-    // --- Bitfield Word 2: combat flags A ---
-    // shield_damage is read-as-unsigned on LE; use BITFIELD_SEXT8().
+    // --- Bitfield Word 2 (u32 at 0x2C): shield_damage | atk_cnt | can_setoff | sfx | priority | 8 flag bits ---
+    // shield_damage is read-as-unsigned on LE; use BITFIELD_SEXT8() at read site.
 #if IS_BIG_ENDIAN
-    u32 knockback_weight : 10;
     s32 shield_damage : 8;
     u32 attack_count : 2;
     ub32 can_setoff : 1;
     u32 sfx : 10;
-    u32 : 1;
-#else
-    u32 : 1;
-    u32 sfx : 10;
-    u32 can_setoff : 1;
-    u32 attack_count : 2;
-    u32 shield_damage : 8;
-    u32 knockback_weight : 10;
-#endif
-
-    // --- Bitfield Word 3: combat flags B ---
-#if IS_BIG_ENDIAN
     u32 priority : 3;
     ub32 can_rehit_item : 1;
     ub32 can_rehit_fighter : 1;
@@ -110,20 +99,29 @@ struct WPAttributes                         // Moreso hitbox stuff
     ub32 can_shield : 1;
     ub32 unused_0x2F_b6 : 1;
     ub32 unused_0x2F_b7 : 1;
-    u32 knockback_base : 10;
-    u32 : 11;
 #else
-    u32 : 11;
+    u32 unused_0x2F_b7 : 1;                 // bit 0
+    u32 unused_0x2F_b6 : 1;                 // bit 1
+    u32 can_shield : 1;                     // bit 2
+    u32 can_absorb : 1;                     // bit 3
+    u32 can_reflect : 1;                    // bit 4
+    u32 can_hop : 1;                        // bit 5
+    u32 can_rehit_fighter : 1;              // bit 6
+    u32 can_rehit_item : 1;                 // bit 7
+    u32 priority : 3;                       // bits 10-8
+    u32 sfx : 10;                           // bits 20-11
+    u32 can_setoff : 1;                     // bit 21
+    u32 attack_count : 2;                   // bits 23-22
+    u32 shield_damage : 8;                  // bits 31-24 (read-as-unsigned; use BITFIELD_SEXT8)
+#endif
+
+    // --- Bitfield Word 3 (u32 at 0x30): knockback_base in top 10 bits, 22 pad ---
+#if IS_BIG_ENDIAN
     u32 knockback_base : 10;
-    u32 unused_0x2F_b7 : 1;
-    u32 unused_0x2F_b6 : 1;
-    u32 can_shield : 1;
-    u32 can_absorb : 1;
-    u32 can_reflect : 1;
-    u32 can_hop : 1;
-    u32 can_rehit_fighter : 1;
-    u32 can_rehit_item : 1;
-    u32 priority : 3;
+    u32 : 22;
+#else
+    u32 : 22;                               // bits 21-0 pad
+    u32 knockback_base : 10;                // bits 31-22
 #endif
 };
 
