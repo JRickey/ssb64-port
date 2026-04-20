@@ -2,8 +2,27 @@
 
 ## Status
 
-Flag 5 (`-Werror=int-conversion`) — **cleared, all 158 errors resolved, flag promoted to `-Werror=int-conversion` in `CMakeLists.txt:202` (uncommitted working tree).**
-Flag 6 (`-Werror=incompatible-pointer-types`) — not started.
+Flag 5 (`-Werror=int-conversion`) — **cleared, all 158 errors resolved, flag promoted to `-Werror=int-conversion` in `CMakeLists.txt:202`.**
+Flag 6 (`-Werror=incompatible-pointer-types`) — **cleared, all 99 errors resolved, flag promoted to `-Werror=incompatible-pointer-types` in `CMakeLists.txt:203` (uncommitted working tree). Boot-test pending.**
+
+## Flag 6 summary (2026-04-20)
+
+99 errors across 6 files, all resolved without regressions to the N64 build path.
+
+| File | Count | Class of fix |
+|------|------:|--------------|
+| `src/ft/ftdata.c` | 55 | 54× cast `&dFT*MotionDescs` → `(FTMotionDescArray *)&…` at FTData initializers; 1× `(void **)` cast on NPikachu particle-bank placed in `p_file_special2` slot (decomp layout quirk). |
+| `src/sys/audio.c` | 16 | Retyped `gSYAudioCSPlayers` from `ALCSPlayer *[]` → `N_ALCSPlayer *[]` (all 15 call sites use `n_alCSP*` API); `#ifdef PORT` widened `syAudioDma` to `uintptr_t(uintptr_t,s32,void*)` to match PORT-conditional `ALDMAproc` typedef (1 decl + 1 defn). |
+| `src/sys/scheduler.c` | 11 | Cast `sSYSchedulerPausedQueueHead/Tail` (typed `SYTaskGfx *` but used as `SYTaskInfo *` in paused-queue linkage) at 8 sites; broke up chained `sSYScheduler* = … = NULL;` init at 1219-1224 so each pointer global gets its own `NULL` (can't chain across 4 differently-typed pointers on strict C). |
+| `src/sys/objdisplay.c` | 9 | Fixed decomp typo `GCTranslate *scale;` → `GCScale *scale;` in `gcPrepDObjMatrix`; changed 8× `mtx_hub.f` → `mtx_hub.gbi` for `func_8001{0AE8,0748,0C2C,0918}` calls (union-aliased matrix hub — those funcs take `Mtx *` / fixed-point, not `Mtx44f *` / float). |
+| `src/libultra/n_audio/n_env.c` | 5 | Cast `N_ALVoice *` punning at 4508; cast `ALWhatever8009EE0C *` → `_2 *` at 4579; cast `siz34 *` → `siz24 *` at 4597/4609; cast `client->handler = (ALVoiceHandler)func_…` at 5463. All are in the FGM synth path which is already stubbed `return NULL` on PORT (n_env.c:5000), so behavior is unchanged; casts just satisfy the type checker. |
+| `src/lb/lbparticle.c` | 3 | Removed stray `&` at 3 call sites (`&projection_f` → `projection_f`) where callee `syMatrixPersp{F,FastF}(Mtx44f mf, …)` decays the parameter to `f32(*)[4]`; decomp had one-level-too-many of indirection. `syMatrixOrthoF(Mtx44f *mf, …)` call at 1596 kept its `&`. |
+
+### Follow-ups (not blocking)
+
+1. `src/sys/audio.c:467` / `src/sys/audio.h:196` — `syAudioDma` now `#ifdef PORT`-guarded. Function body still uses `(u32) dBuff->addr` / `(s32) osVirtualToPhysical(...)` casts that technically truncate on 64-bit. The values in practice are ROM offsets (fit in 32 bits) but this is the same class of future-concern as the `libultra/n_audio/n_env.c` "`unk20`/`unk24` storing pointers as `s32`" note from flag 5. Revisit when audio Phase 5/6 gets wired up.
+2. `src/sys/scheduler.c` — `sSYSchedulerPausedQueueHead/Tail` are typed `SYTaskGfx *` but the queue is actually polymorphic `SYTaskInfo *` (mixed Gfx/Audio/Vi/… tasks per `->info.type` checks at line 874). Retyping to `SYTaskInfo *` would be cleaner and remove the 8 casts I added, but touches ~20 call sites that access Gfx-specific fields (`->task`, `->task_id`, `->framebuffer_id`). Deferred — the casts are semantically correct (first-member embedding) and the build is stable.
+3. `src/libultra/n_audio/n_env.c` — the 5 casts above all land in a code path that's already `return NULL;`-stubbed on PORT. If FGM playback is ever enabled, the pointer-punning at 4508 (`temp_s0 = (N_ALVoice *)&this_node->voice;`) and the struct-conflation at 4597/4609 (siz24 vs siz34) will likely crash. Revisit alongside the n_env.c `unk20`/`unk24` widening from the flag-5 follow-up.
 
 ### Flag 5 progress this pass
 
