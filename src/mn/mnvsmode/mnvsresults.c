@@ -572,6 +572,7 @@ s32 mnVSResultsGetWinPlayer(void)
 		}
 		return win_player;
 	}
+	return 0;
 }
 
 // 0x80132A2C

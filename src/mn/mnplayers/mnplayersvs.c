@@ -162,9 +162,13 @@ s32 mnPlayersVSGetShade(s32 player)
 		}
 	}
 	// WARNING: Undefined behavior. If sMNPlayersVSIsTeamBattle is FALSE, returned value is indeterminate.
-#ifdef AVOID_UB
+#if defined(AVOID_UB) || defined(PORT)
 	else return 0;
 #endif
+	/* PORT: also covers the case where TeamBattle is TRUE but every shade
+	 * slot is already taken — the original would fall off with an
+	 * indeterminate return. */
+	return 0;
 }
 
 // 0x80131C74
@@ -1538,6 +1542,7 @@ s32 mnPlayersVSGetFreeCostumeRoyal(s32 fkind, s32 player)
 			return k;
 		}
 	}
+	return 0;
 }
 
 // 0x8013487C
@@ -1551,6 +1556,7 @@ s32 mnPlayersVSGetFreeCostume(s32 fkind, s32 player)
 	{
 		return ftParamGetCostumeTeamID(fkind, sMNPlayersVSSlots[player].team);
 	}
+	return 0;
 }
 
 // 0x801348EC
@@ -2920,6 +2926,7 @@ s32 mnPlayersVSUpdateCursorPlacementPriorities(s32 player, s32 puck)
 			unheld_id--;
 		}
 	}
+	return 0;
 }
 
 // 0x801375A8

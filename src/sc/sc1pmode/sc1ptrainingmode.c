@@ -1543,6 +1543,7 @@ s32 sc1PTrainingModeGetOptionSpriteID(void)
 	case nSC1PTrainingModeMenuMainExit:
 		return nSC1PTrainingModeMenuOptionSpriteEnumCount;
 	}
+	return 0;
 }
 
 // 0x8018FA54

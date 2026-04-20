@@ -998,6 +998,7 @@ sb32 mnPlayers1PTrainingCheckCostumeUsed(s32 fkind, s32 player, s32 costume)
 		}
 		else return FALSE;
 	}
+	return FALSE;
 }
 
 // 0x80133408
@@ -1040,6 +1041,7 @@ s32 mnPlayers1PTrainingGetFreeCostumeRoyal(s32 fkind, s32 player)
 			return l;
 		}
 	}
+	return 0;
 }
 
 // 0x801335F0

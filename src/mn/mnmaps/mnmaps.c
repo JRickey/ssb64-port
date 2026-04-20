@@ -503,6 +503,7 @@ s32 mnMapsGetSlot(s32 gkind)
 	case 0xDE:
 		return 9;
 	}
+	return 0;
 }
 
 // 0x80132528

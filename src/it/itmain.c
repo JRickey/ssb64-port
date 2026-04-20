@@ -628,13 +628,16 @@ s32 itMainSearchRandomWeight(s32 random, ITRandomWeights *weights, u32 min, u32 
 
         if (random < weights->blocks[avg])
         {
-            itMainSearchRandomWeight(random, weights, min, avg);
+            /* PORT: recursive calls were missing `return` — original relied on
+             * MIPS leaving the callee's return value in $v0. Explicit return
+             * makes the search correct under any ABI. */
+            return itMainSearchRandomWeight(random, weights, min, avg);
         }
         else if (random < weights->blocks[avg + 1])
         {
             return avg;
         }
-        else itMainSearchRandomWeight(random, weights, avg, max);
+        else return itMainSearchRandomWeight(random, weights, avg, max);
     }
 }
 

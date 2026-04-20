@@ -747,6 +747,7 @@ s32
   default:
     break;
   }
+  return 0;
 }
 
 Acmd *_decodeChunk(Acmd *ptr, N_PVoice *f, s32 tsam,
@@ -5321,6 +5322,7 @@ s32 func_80026594_27194(void)
         var_v1_2 = var_v0_2;
     }
     osSetIntMask(im);
+    return 0;
 }
 
 s32 func_800264A4_270A4(void)

@@ -561,7 +561,7 @@ void mnBackupClearApplyOptionID(s32 option)
 }
 
 // 0x801325CC - unused?
-func_ovl53_801325CC(void)
+void func_ovl53_801325CC(void)
 {
     return;
 }

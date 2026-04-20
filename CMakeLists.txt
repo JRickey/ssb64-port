@@ -212,7 +212,7 @@ if (NOT MSVC)
         -Wno-constant-conversion
         -Wno-tautological-constant-out-of-range-compare
         -Wno-return-mismatch
-        -Wno-return-type
+        -Werror=return-type
     )
 endif()
 
