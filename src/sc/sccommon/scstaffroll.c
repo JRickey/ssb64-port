@@ -4,7 +4,9 @@
 #include <sys/controller.h>
 #include <sys/interp.h>
 #include <sys/rdp.h>
+#include <sys/audio.h>
 #include <reloc_data.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // // // // // // // // // // // //
 //                               //

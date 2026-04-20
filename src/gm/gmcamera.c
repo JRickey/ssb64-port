@@ -4,6 +4,7 @@
 #include <if/interface.h>
 #include <sc/scene.h>
 #include <sys/rdp.h>
+#include <sys/debug.h>
 // #include <sys/taskman.h>
 
 // // // // // // // // // // // //

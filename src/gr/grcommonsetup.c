@@ -1,5 +1,7 @@
 #include <gr/ground.h>
 #include <mp/map.h>
+#include <ef/efground.h>
+#include <it/itmanager.h>
 
 // // // // // // // // // // // //
 //                               //

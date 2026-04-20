@@ -21,6 +21,7 @@ extern void port_log(const char *fmt, ...);
 #include <PR/os.h>
 #include <PR/rcp.h>
 #include <PR/ultratypes.h>
+#include <sc/scmanager.h>
 
 // libultra internal
 #if defined(REGION_US)

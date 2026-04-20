@@ -1,3 +1,4 @@
+#include <string.h>
 #include <lb/library.h>
 #include <sys/matrix.h>
 #include <ef/efdef.h>

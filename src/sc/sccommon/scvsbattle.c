@@ -7,6 +7,12 @@ extern void port_coroutine_yield(void);
 #include <sc/scene.h>
 #include <sys/video.h>
 #include <reloc_data.h>
+#include <gm/gmcamera.h>
+#include <it/itmanager.h>
+#include <sys/audio.h>
+#include <wp/wpmanager.h>
+extern void *func_800269C0_275C0(u16 id);
+extern void func_800266A0_272A0(void);
 
 // // // // // // // // // // // //
 //                               //

@@ -1,4 +1,5 @@
 #include <ft/fighter.h>
+#include <sys/objanim.h>
 
 #ifdef PORT
 extern void port_log(const char *fmt, ...);

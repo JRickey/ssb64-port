@@ -1,4 +1,7 @@
 #include <ft/fighter.h>
+#include <ef/efmanager.h>
+#include <ft/ftcommon/ftcommonfunctions.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // // // // // // // // // // // //
 //                               //

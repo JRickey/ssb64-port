@@ -29,6 +29,7 @@ CONTROLS.md
 *.otr
 *.o2r
 torch.hash.yml
+tex_dump/
 
 # Generated YAML extraction configs (regenerated from ROM by tools/generate_yamls.py)
 yamls/us/reloc_*.yml

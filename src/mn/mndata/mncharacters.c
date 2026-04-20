@@ -4,6 +4,7 @@
 #include <sys/video.h>
 #include <sys/rdp.h>
 #include <reloc_data.h>
+#include <sys/audio.h>
 
 
 // // // // // // // // // // // //

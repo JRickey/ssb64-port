@@ -76,6 +76,8 @@ GRAttackColl dFTMainGroundHitCollisionAttributes[/* */] =
 #include <ft/ftchar/ftpurin/ftpurinstatus.h>
 #include <ft/ftchar/ftness/ftnessstatus.h>
 #include <ft/ftchar/ftboss/ftbossstatus.h>
+#include <ef/efmanager.h>
+extern void func_80026738_27338(void *arg0);
 
 // 0x8012B740
 FTStatusDesc *dFTMainSpecialStatusDescs[/* */] =

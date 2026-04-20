@@ -6,6 +6,9 @@
 #include <sys/video.h>
 #include <sys/rdp.h>
 #include <reloc_data.h>
+#include <it/itmanager.h>
+#include <sys/debug.h>
+#include <wp/wpmanager.h>
 
 extern void syTaskmanSetLoadScene();
 extern u32 sySchedulerGetTicCount();

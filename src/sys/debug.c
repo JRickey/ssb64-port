@@ -1,4 +1,5 @@
 #include "common.h"
+#include <PR/os_internal.h>
 #include <sys/debug.h>
 
 #ifdef PORT

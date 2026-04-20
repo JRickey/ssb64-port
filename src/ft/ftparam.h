@@ -4,6 +4,7 @@
 #include <ssb_types.h>
 #include <sys/objdef.h>
 #include <ft/ftdef.h>
+#include <ef/efdef.h>
 #include <gm/gmdef.h>
 
 extern s32 ftParamGetItemMusicLength(u32 bgm_id);

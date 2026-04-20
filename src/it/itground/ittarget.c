@@ -1,5 +1,6 @@
 #include <it/item.h>
 #include <sc/scene.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // 0x8018F130
 ITDesc dITTargetItemDesc =

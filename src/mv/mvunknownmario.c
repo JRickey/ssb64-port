@@ -3,6 +3,12 @@
 #include <sc/scene.h>
 #include <sys/video.h>
 #include <reloc_data.h>
+#include <gr/grcommonsetup.h>
+#include <gr/grwallpaper.h>
+#include <it/itmanager.h>
+#include <sys/audio.h>
+#include <wp/wpmanager.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // // // // // // // // // // // //
 //                               //

@@ -1,5 +1,7 @@
 #include <ft/fighter.h>
 #include <sc/scene.h>
+#include <ft/ftmanager.h>
+#include <if/ifcommon.h>
 
 // // // // // // // // // // // //
 //                               //

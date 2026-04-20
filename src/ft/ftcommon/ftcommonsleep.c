@@ -1,6 +1,7 @@
 #include <ft/fighter.h>
 #include <if/interface.h>
 #include <sc/scene.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // // // // // // // // // // // //
 //                               //

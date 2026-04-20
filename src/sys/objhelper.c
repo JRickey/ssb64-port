@@ -1,4 +1,5 @@
 #include <sys/obj.h>
+#include <sys/debug.h>
 
 extern void port_log(const char *fmt, ...);
 

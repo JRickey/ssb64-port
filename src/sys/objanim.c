@@ -1,3 +1,4 @@
+#include <string.h>
 #include <sys/obj.h>
 #ifdef PORT
 #include <port_log.h>

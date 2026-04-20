@@ -2,6 +2,8 @@
 #include <lb/library.h>
 #include <sc/scene.h>
 #include <sys/video.h>
+#include <sys/audio.h>
+#include <sys/dma.h>
 
 // // // // // // // // // // // //
 //                               //

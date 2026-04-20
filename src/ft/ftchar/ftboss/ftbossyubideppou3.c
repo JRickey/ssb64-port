@@ -1,4 +1,5 @@
 #include <ft/fighter.h>
+#include <wp/wpboss/wpbossbullet.h>
 
 // // // // // // // // // // // //
 //                               //

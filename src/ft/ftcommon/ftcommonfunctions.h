@@ -174,6 +174,8 @@ void ftCommonOttottoProcUpdate(GObj* fighter_gobj);
 void ftCommonOttottoProcInterrupt(GObj* fighter_gobj);
 void ftCommonOttottoProcMap(GObj* fighter_gobj);
 void ftCommonOttottoWaitSetStatus(GObj* fighter_gobj);
+void ftCommonOttottoSetStatus(GObj* fighter_gobj);
+void ftCommonStopCeilSetStatus(GObj* fighter_gobj);
 
 // Damage
 void ftCommonDamageSetDustGFXInterval(FTStruct* fp);
@@ -365,7 +367,7 @@ void ftCommonItemThrowSetStatus(GObj* fighter_gobj, s32 status_id);
 void ftCommonLightThrowDecideSetStatus(GObj* fighter_gobj);
 void ftCommonHeavyThrowDecideSetStatus(GObj* fighter_gobj);
 sb32 ftCommonLightThrowCheckItemTypeThrow(FTStruct* fp);
-sb32 ftCommonLightThrowCheckInterruptGuardOnOn(GObj* fighter_gobj);
+sb32 ftCommonLightThrowCheckInterruptGuardOn(GObj* fighter_gobj);
 sb32 ftCommonLightThrowCheckInterruptEscape(GObj* fighter_gobj);
 sb32 ftCommonHeavyThrowCheckInterruptCommon(GObj* fighter_gobj);
 
@@ -459,7 +461,7 @@ void ftCommonEscapeProcInterrupt(GObj* fighter_gobj);
 void ftCommonEscapeProcStatus(GObj* fighter_gobj);
 
 // Samus erroneously calls this without specifying itemthrow_buffer_tics; same story as Link's Bomb?
-// void ftCommonEscapeSetStatus(GObj* fighter_gobj, s32 status_id, s32 itemthrow_buffer_tics); 
+void ftCommonEscapeSetStatus(GObj* fighter_gobj, s32 status_id, s32 itemthrow_buffer_tics);
 s32 ftCommonEscapeGetStatus(FTStruct* fp);
 sb32 ftCommonEscapeCheckInterruptSpecialNDonkey(GObj* fighter_gobj);
 sb32 ftCommonEscapeCheckInterruptDash(GObj* fighter_gobj);

@@ -2046,6 +2046,8 @@ extern u32 cnt_index, drvr_num, drvr_cnt, drvr_max, drvr_min, lastCnt[];
 extern u32 client_num, client_cnt, client_max, client_min;
 #endif
 
+extern void __n_setInstChanState_Alt(N_ALSeqPlayer *seqp, ALInstrument *inst, s32 chan);
+
 #ifndef MIN
 #   define MIN(a,b) (((a)<(b))?(a):(b))
 #endif

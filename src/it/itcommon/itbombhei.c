@@ -3,6 +3,7 @@
 
 #ifdef PORT
 #include <config.h>
+extern void *func_800269C0_275C0(u16 id);
 extern void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_words);
 #endif
 

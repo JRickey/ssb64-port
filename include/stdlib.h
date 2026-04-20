@@ -4,6 +4,13 @@
 #ifndef NULL
 #define NULL 0
 #endif
+
+#ifdef PORT
+extern void abort(void) __attribute__((noreturn));
+extern void *malloc(unsigned long size);
+extern void free(void *ptr);
+#endif
+
 typedef struct lldiv_t
 {
 	long long quot;

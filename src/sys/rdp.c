@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include <sys/video.h>
+#include <sys/taskman.h>
 
 // // // // // // // // // // // //
 //                               //

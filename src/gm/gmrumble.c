@@ -1,5 +1,6 @@
 #include <sc/scene.h>
 #include <gm/generic.h>
+#include <sys/controller.h>
 
 #ifdef PORT
 /* GMRumbleEventDefault reorders its bitfields by host endian so the opcode

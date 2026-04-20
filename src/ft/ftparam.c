@@ -1,7 +1,11 @@
+#include <string.h>
 #include <ft/fighter.h>
 #include <it/item.h>
 #include <sc/scene.h>
 #include <ft/ftcommondata.h>
+#include <sys/objanim.h>
+#include <sys/audio.h>
+extern void func_80026738_27338(void *arg0);
 
 extern alSoundEffect* func_800269C0_275C0(u16);
 

@@ -1,5 +1,6 @@
 #include <ft/fighter.h>
 #include <it/item.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // // // // // // // // // // // //
 //                               //

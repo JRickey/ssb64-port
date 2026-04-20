@@ -7,6 +7,7 @@
 #include <sys/audio.h>
 #include <sys/rdp.h>
 #include <reloc_data.h>
+extern void func_800266A0_272A0(void);
 
 extern void* func_800269C0_275C0(u16);
 

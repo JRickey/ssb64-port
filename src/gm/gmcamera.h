@@ -77,6 +77,7 @@ extern sb32 gmCameraPrepProjectionFuncMatrix(Mtx *mtx, CObj *cobj, Gfx **dl);
 extern void gmCameraPlayerMagnifyProcDisplay(GObj *camera_gobj);
 extern void gmCameraMakePlayerMagnifyCamera(void);
 extern void gmCameraPlayerArrowsProcDisplay(GObj *camera_gobj);
+extern void gmCameraMakePlayerArrowsCamera(void);
 extern GObj* gmCameraMakeInterfaceCamera(void);
 extern void gmCameraEffectProcDisplay(GObj *camera_gobj);
 extern GObj* gmCameraMakeEffectCamera(void);

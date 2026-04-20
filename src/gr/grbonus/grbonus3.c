@@ -3,6 +3,7 @@
 #include <ft/fighter.h>
 #include <sc/scene.h>
 #include <reloc_data.h>
+#include <sys/debug.h>
 
 // 0x8010B4D0
 void grBonus3InitHeaders(void)

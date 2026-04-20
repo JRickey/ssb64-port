@@ -1,5 +1,6 @@
 #include <gr/ground.h>
 #include <sc/scene.h>
+#include <sc/sc1pmode/sc1pgameboss.h>
 
 // // // // // // // // // // // //
 //                               //

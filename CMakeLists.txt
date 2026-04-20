@@ -197,7 +197,7 @@ target_include_directories(ssb64_game PRIVATE
 # without modifying every decomp source file.
 if (NOT MSVC)
     target_compile_options(ssb64_game PRIVATE
-        -Wno-implicit-function-declaration
+        -Werror=implicit-function-declaration
         -Wno-implicit-int
         -Wno-int-conversion
         -Wno-incompatible-pointer-types

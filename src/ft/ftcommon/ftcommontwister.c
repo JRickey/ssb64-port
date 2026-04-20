@@ -3,6 +3,7 @@
 #include <gr/ground.h>
 #include <sc/scene.h>
 #include <reloc_data.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // 0x801439D0
 void ftCommonTwisterProcUpdate(GObj *fighter_gobj)

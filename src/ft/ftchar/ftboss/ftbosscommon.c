@@ -1,4 +1,7 @@
 #include <ft/fighter.h>
+#include <sc/sc1pmode/sc1pgame.h>
+#include <sc/scmanager.h>
+#include <sys/debug.h>
 
 // // // // // // // // // // // //
 //                               //

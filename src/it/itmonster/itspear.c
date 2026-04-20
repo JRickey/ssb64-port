@@ -2,6 +2,7 @@
 #include <wp/weapon.h>
 #include <gr/ground.h>
 #include <reloc_data.h>
+extern void *func_800269C0_275C0(u16 id);
 
 // // // // // // // // // // // //
 //                               //

@@ -2,6 +2,10 @@
 #include <ft/fighter.h>
 #include <gr/ground.h>
 #include <sys/video.h>
+#include <sys/objanim.h>
+#include <sc/scmanager.h>
+#include <sys/debug.h>
+extern void func_800267F4_273F4(void *arg0);
 
 #ifdef PORT
 extern void port_log(const char *fmt, ...);

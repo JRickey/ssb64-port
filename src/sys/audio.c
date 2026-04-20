@@ -1,3 +1,4 @@
+#include <string.h>
 #include <sys/audio.h>
 #include <sys/scheduler.h>
 #include <sys/dma.h>
@@ -10,6 +11,9 @@
 #include "audio/audio_dma.h"
 #include "bridge/audio_bridge.h"
 #include "acmd_trace/acmd_trace.h"
+extern void func_80026738_27338(void *arg0);
+extern void func_800266A0_272A0(void);
+extern void func_80026204_26E04(void *arg0);
 #endif
 
 extern SYAudioSettings dSYAudioPublicSettings2, dSYAudioPublicSettings3;

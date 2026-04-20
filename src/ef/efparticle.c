@@ -1,4 +1,6 @@
 #include <ef/effect.h>
+#include <sc/scmanager.h>
+#include <sys/debug.h>
 
 // // // // // // // // // // // //
 //                               //

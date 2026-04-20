@@ -1,5 +1,7 @@
 #include <ft/fighter.h>
 #include <wp/weapon.h>
+#include <sc/scmanager.h>
+#include <sys/debug.h>
 
 // // // // // // // // // // // //
 //                               //

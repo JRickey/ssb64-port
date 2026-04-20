@@ -3,6 +3,7 @@
 
 #ifdef PORT
 #include <assert.h>
+extern char __alSeqNextDelta(ALSeq *seq, s32 *pDeltaTicks);
 #endif
 
 void __n_seqpStopOsc(N_ALSeqPlayer *seqp, N_ALVoiceState *vs);

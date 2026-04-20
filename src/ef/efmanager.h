@@ -23,6 +23,7 @@ extern LBParticle* efManagerDestroyParticleGObj(LBParticle *pc, GObj *effect_gob
 extern void efManagerDefaultProcDead(LBTransform *xf);
 extern void efManagerDefaultProcUpdate(GObj *effect_gobj);
 extern LBParticle* efManagerDamageNormalLightMakeEffect(Vec3f *pos, s32 player, s32 size, sb32 is_static);
+extern LBParticle* efManagerDamageNormalHeavyMakeEffect(Vec3f *pos, s32 player, s32 size);
 extern void efManagerDamageNormalHeavyProcDead(LBTransform *xf);
 extern LBParticle* efManagerImpactShockMakeEffect(Vec3f *pos, s32 size);
 extern void efManagerVelAddDestroyAnimEnd(GObj *effect_gobj);
@@ -76,6 +77,7 @@ extern void efManagerFoxReflectorProcUpdate(GObj *effect_gobj);
 extern GObj* efManagerFoxReflectorMakeEffect(GObj *fighter_gobj);
 extern void efManagerShieldProcUpdate(GObj *effect_gobj);
 extern void efManagerShieldProcDisplay(GObj *effect_gobj);
+extern GObj* efManagerShieldMakeEffect(GObj *fighter_gobj);
 extern GObj* LBParticle_Shield_MakeEffect(GObj *fighter_gobj);
 extern void efManagerYoshiShieldProcDisplay(GObj *effect_gobj);
 extern GObj* efManagerYoshiShieldMakeEffect(GObj *fighter_gobj);

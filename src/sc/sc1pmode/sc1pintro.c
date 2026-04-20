@@ -3,6 +3,8 @@
 #include <sys/video.h>
 #include <sys/rdp.h>
 #include <reloc_data.h>
+#include <sys/audio.h>
+#include <sys/scheduler.h>
 
 extern void func_800266A0_272A0();
 extern void* func_800269C0_275C0(u16);

@@ -29,5 +29,6 @@ extern void ftManagerDestroyFighter(GObj* fighter_gobj);
 extern void ftManagerDestroyFighterWeapons(GObj *fighter_gobj);
 extern void func_ovl2_800D79F0(GObj *fighter_gobj, FTDesc *desc);
 extern GObj* ftManagerMakeFighter(FTDesc *desc);
+extern void ftManagerInitFighter(GObj *fighter_gobj, FTDesc *desc);
 
 #endif

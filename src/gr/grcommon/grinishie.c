@@ -3,6 +3,7 @@
 #include <it/item.h>
 #include <sc/scene.h>
 #include <reloc_data.h>
+#include <sys/debug.h>
 
 // // // // // // // // // // // //
 //                               //

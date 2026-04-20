@@ -1,6 +1,7 @@
 #include <ft/fighter.h>
 #include <wp/weapon.h>
 #include <it/item.h>
+#include <ft/ftcommon/ftcommonfunctions.h>
 
 // // // // // // // // // // // //
 //                               //

@@ -162,5 +162,7 @@ extern void sySchedulerAddClient(SYClient *arg0, OSMesgQueue *mq, OSMesg *msg, u
 extern s32 sySchedulerCheckReadyFramebuffer(SYTaskGfx *t);
 extern void sySchedulerThreadMain(void *arg);
 extern s32 func_80000B54(UNUSED SYTaskInfo *t);
+extern u32 sySchedulerGetTicCount(void);
+extern void sySchedulerSetTicCount(u32 tics);
 
 #endif /* SYS_THREAD_3_H */

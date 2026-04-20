@@ -1,5 +1,6 @@
 #include <ft/fighter.h>
 #include <it/item.h>
+#include <if/ifscreenflash.h>
 
 extern alSoundEffect* func_800269C0_275C0(u16);
 

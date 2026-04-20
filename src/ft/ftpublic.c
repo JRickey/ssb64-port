@@ -1,5 +1,6 @@
 #include <ft/fighter.h>
 #include <sc/scene.h>
+extern void func_80026738_27338(void *arg0);
 
 extern alSoundEffect* func_800269C0_275C0(u16);
 

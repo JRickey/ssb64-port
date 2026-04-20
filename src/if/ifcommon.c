@@ -14,6 +14,10 @@ extern void syAudioSetBGMVolume(u32, u32);
 
 #ifdef PORT
 #include <stddef.h>
+#include <sys/scheduler.h>
+extern void func_800266A0_272A0(void);
+extern s32 func_80026594_27194(void);
+extern s32 func_800264A4_270A4(void);
 extern void portFixupSprite(void *sprite);
 extern void portFixupBitmapArray(void *bitmaps, unsigned int count);
 extern void portFixupSpriteBitmapData(void *sprite, void *bitmaps);

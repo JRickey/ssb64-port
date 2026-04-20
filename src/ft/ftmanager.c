@@ -5,6 +5,7 @@
 #include <reloc_data.h>
 #ifdef PORT
 #include <string.h>
+#include <sys/debug.h>
 extern void port_log(const char *fmt, ...);
 #endif
 #ifdef PORT

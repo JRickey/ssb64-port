@@ -47,7 +47,7 @@ Decomp has many of these for matching; they're not hiding bugs.
 6. Repeat for the next Category A flag.
 
 Order of attack (easiest → hardest, subjective):
-1. `-Werror=implicit-function-declaration` (today's class — likely 5-50 hits across decomp)
+1. `-Werror=implicit-function-declaration` — **DONE (2026-04-20)**. 521 errors across ~140 files, ~60 unique undeclared functions. Fix was almost entirely adding missing `#include`s to call-site files plus adding ~10 missing prototypes to existing headers (`efmanager.h`, `ftmanager.h`, `scheduler.h`, `gmcamera.h`, `objanim.h`, `sc1pgameboss.h`, `ftcommonfunctions.h`, `ftparam.h`). Custom `include/string.h` and `include/stdlib.h` shims needed LP64 branches (pull `size_t` from `<stddef.h>`, declare `abort`/`malloc`/`free`). Two Samus UB call sites (`ftCommonEscapeSetStatus` with 2 args instead of 3) were made deterministic by passing 0 — documented in the comment at each site. `func_800269C0_275C0` / `func_80026*_*` family (n_audio internals with no header) got local externs at each caller; ~50 files.
 2. `-Werror=incompatible-library-redeclaration` (probably few; libc shims are centralized)
 3. `-Werror=return-type` (easy to fix per site; may need `return 0;` or `return NULL;` added)
 4. `-Werror=return-mismatch` (usually paired with return-type)

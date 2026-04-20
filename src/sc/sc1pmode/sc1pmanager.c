@@ -2,6 +2,10 @@
 #include <ft/fighter.h>
 #include <sc/scene.h>
 #include <sys/dma.h>
+#include <mn/mncommon/mncongra.h>
+#include <mn/mncommon/mnmessage.h>
+#include <mn/mn1pmode/mn1pcontinue.h>
+#include <mv/mvending/mvending.h>
 
 // // // // // // // // // // // //
 //                               //

@@ -2,6 +2,8 @@
 #include <gr/ground.h>
 #include <sc/scene.h>
 #include <reloc_data.h>
+#include <sys/audio.h>
+#include <sys/debug.h>
 
 #ifdef PORT
 extern void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_words);

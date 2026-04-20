@@ -6,6 +6,10 @@
 #include <sys/video.h>
 #include <sys/rdp.h>
 #include <reloc_data.h>
+#include <sys/audio.h>
+extern void *func_800269C0_275C0(u16 id);
+extern void func_80026738_27338(void *arg0);
+extern void func_800266A0_272A0(void);
 
 
 // // // // // // // // // // // //
