@@ -6,6 +6,7 @@ This directory documents significant bugs encountered during the port, their sym
 
 | Date | Slug | Summary |
 |------|------|---------|
+| 2026-04-20 | [itattributes_type_field_offset](itattributes_type_field_offset_2026-04-20.md) | Item pickup (pokeball, capsule) SIGBUS: decomp's `ITAttributes.type:4` declared in wrong bitfield word; real field is bits 13-10 of Word B2 at offset `0x3C`, not bits 28-31 of Word B4 at offset `0x44`. Likely copy-paste from WPAttributes which has no `type` field |
 | 2026-04-20 | [item_map_coll_bottom_sign](item_map_coll_bottom_sign_2026-04-20.md) | Items embed into stage platforms: ROM stores `ITAttributes.map_coll_bottom` as positive magnitude, shared collision code expects negative signed offset — negate on load in `itManagerMakeItem` |
 | 2026-04-20 | [item_arrow_gobj_implicit_int](item_arrow_gobj_implicit_int_2026-04-20.md) | Dropped-item despawn segfault: `ifCommonItemArrowMakeInterface` called without prototype → implicit-int rule truncates the 64-bit `GObj*` return to 32 bits on LP64 |
 | 2026-04-19 | [rumble_event_bitfield_init](rumble_event_bitfield_init_2026-04-19.md) | Battle-start hang: positional initializers on endian-conditional bitfield stored opcode as param; gmRumbleUpdateEventExecute spins on phantom End |

@@ -5,6 +5,7 @@
 #include <sc/scene.h>
 #ifdef PORT
 extern void port_log(const char *fmt, ...);
+extern void port_dump_backtrace(void);
 #endif
 #include <sys/controller.h>
 
@@ -4486,6 +4487,14 @@ void ftMainEjectHiddenPartID(FTStruct *fp, s32 hiddenpart_id)
 // 0x800E6F24
 void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 anim_speed, u32 flags)
 {
+#ifdef PORT
+    if (status_id < 0) {
+        port_log("SSB64: !!! ftMainSetStatus ENTRY status_id=0x%x (negative) "
+                 "fighter_gobj=%p caller_ra=%p\n",
+            (u32)status_id, fighter_gobj, __builtin_return_address(0));
+        port_dump_backtrace();
+    }
+#endif
     FTStruct *fp = ftGetStruct(fighter_gobj);
     intptr_t event_file_head;
     FTAttributes *attr = fp->attr;

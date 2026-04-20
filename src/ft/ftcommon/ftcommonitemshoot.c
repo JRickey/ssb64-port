@@ -1,6 +1,9 @@
 #include <ft/fighter.h>
 #include <it/item.h>
 extern void *func_800269C0_275C0(u16 id);
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -309,6 +312,19 @@ void ftCommonItemShootSetStatus(GObj *fighter_gobj)
         status_id = nFTCommonStatusFireFlowerShoot;
         proc_accessory = ftCommonFireFlowerShootProcAccessory;
         break;
+#ifdef PORT
+    default:
+        /* Guard against ip->type miscoding as nITTypeShoot for non-shootable items
+         * (observed: pokeball, pill bottle crash here because the caller in
+         * ftCommonAttack1CheckInterruptCommon routes any nITTypeShoot to this
+         * function). Falling through without initializing status_id / proc_accessory
+         * corrupts ftMainSetStatus with garbage and triggers SIGBUS in
+         * ftMainProcPhysicsMap. Bail safely instead. */
+        port_log("SSB64: !!! ftCommonItemShootSetStatus: unexpected ip->kind=%d type=%d "
+                 "item_gobj=%p — aborting to avoid UB\n",
+            ip->kind, ip->type, fp->item_gobj);
+        return;
+#endif
     }
     fp->motion_vars.flags.flag0 = 0;
 

@@ -11,6 +11,7 @@
 #include <sys/debug.h>
 extern void *func_800269C0_275C0(u16 id);
 extern void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_words);
+extern void port_log(const char *fmt, ...);
 #endif
 
 // // // // // // // // // // // //
@@ -276,7 +277,26 @@ GObj* itManagerMakeItem(GObj *parent_gobj, ITDesc *item_desc, Vec3f *pos, Vec3f 
     ip->owner_gobj = NULL;
 
     ip->kind = item_desc->kind;
+#ifdef PORT
+    /* The original decomp's ITAttributes Word B2 layout is wrong for this port's
+     * PC build. The real ROM layout of Word B2 (u32 at offset 0x3C after pass1
+     * BSWAP32) is: kb_weight:10 | shield_damage:8 | type:4 | bits:10 — verified
+     * empirically across all items in file 251 (Sword/Bat/StarRod=Swing=1,
+     * LGun/FFlower=Shoot=2, Pokeball/Egg/MSBomb/GShell=Throw=3, Star=Touch=4,
+     * Heart/Tomato/Hammer=Consume=5, Box/Taru=Damage=0). The struct's `attr->type`
+     * bitfield (at offset 0x44 bits 28-31) reads a completely different position
+     * and produced garbage values that caused pokeball/capsule/etc. to route to
+     * the LGun/FFlower-only ftCommonItemShootSetStatus (SIGBUS fault_addr
+     * =0x6400000064 at ftMainProcPhysicsMap+196). Bypass the bitfield and
+     * extract from the known-correct word position. */
+    {
+        const u32 *word_b2 = (const u32 *)((const char *)attr + 0x3C);
+        ip->type = (*word_b2 >> 10) & 0xF;
+    }
+    port_log("SSB64: itMake kind=%d type=%d attr=%p\n", ip->kind, ip->type, attr);
+#else
     ip->type = attr->type;
+#endif
 
     ip->physics.vel_air = *vel;
     ip->physics.vel_ground = 0.0F;

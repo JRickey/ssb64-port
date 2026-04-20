@@ -31,6 +31,9 @@ void port_watchdog_note_resume_start(int thread_id);
 void port_watchdog_note_resume_end(int thread_id);
 void port_watchdog_note_frame_end(void);
 
+/* Dump a main-thread backtrace to stderr + ssb64.log. Async-signal-safe. */
+void port_dump_backtrace(void);
+
 #ifdef __cplusplus
 }
 #endif

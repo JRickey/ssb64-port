@@ -308,3 +308,11 @@ extern "C" void port_watchdog_note_resume_end(int /*thread_id*/) {
 extern "C" void port_watchdog_note_frame_end(void) {
     sFrameCount.fetch_add(1, std::memory_order_relaxed);
 }
+
+#if !defined(_WIN32)
+extern "C" void port_dump_backtrace(void) {
+    DumpBacktraceBoth();
+}
+#else
+extern "C" void port_dump_backtrace(void) { /* stub on Windows */ }
+#endif
