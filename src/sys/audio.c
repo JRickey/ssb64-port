@@ -473,16 +473,16 @@ s32 syAudioDma(s32 addr, s32 len, void *state)
     void *freeBuffer;
     AMDMAState *dState = state;
     s32 delta = 0;
-    u32 bStartAddr;
-    u32 bEndAddr;
+    uintptr_t bStartAddr;
+    uintptr_t bEndAddr;
     AMDMABuffer *dBuff = &dState->buffers[dState->currentBuffer];
     OSMesg dummyMesg;
 
     /*
      * Is it in the last buffer
      */
-    bStartAddr = (u32) dBuff->addr;
-    bEndAddr = (u32) bStartAddr + dBuff->len;
+    bStartAddr = (uintptr_t) dBuff->addr;
+    bEndAddr = bStartAddr + dBuff->len;
 
     if ((addr >= bStartAddr) && (addr + len <= bEndAddr))
     {
@@ -510,7 +510,7 @@ s32 syAudioDma(s32 addr, s32 len, void *state)
 
         osEPiStartDma(gSYDmaRomPiHandle, &audDMAIOMesgBuf[dSYAudioNextDma++], OS_READ);
     }
-    return (s32) osVirtualToPhysical(freeBuffer) + delta;
+    return (uintptr_t) osVirtualToPhysical(freeBuffer) + delta;
 }
 
 // 0x8001EAC8
