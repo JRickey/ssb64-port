@@ -113,13 +113,13 @@ SYAudioSettings dSYAudioPublicSettings =
     0,                              // ???
     50,                             // ???
     20,                             // Priority
-    &B1_sounds2_ctl_ROM_START,      // ROM address
-    &B1_sounds2_ctl_ROM_END,        // ROM address
-    &B1_sounds2_ctl_ROM_END,        // ROM address
-    &B1_sounds1_ctl_ROM_START,      // ROM address
-    &B1_sounds1_ctl_ROM_END,        // ROM address
-    &B1_sounds1_ctl_ROM_END,        // ROM address
-    &S1_music_sbk_ROM_START,        // ROM address
+    (uintptr_t)&B1_sounds2_ctl_ROM_START,      // bank1_start
+    (uintptr_t)&B1_sounds2_ctl_ROM_END,        // bank1_end
+    &B1_sounds2_ctl_ROM_END,                   // table1_start (void*)
+    (uintptr_t)&B1_sounds1_ctl_ROM_START,      // bank2_start
+    (uintptr_t)&B1_sounds1_ctl_ROM_END,        // bank2_end
+    &B1_sounds1_ctl_ROM_END,                   // table2_start (void*)
+    (uintptr_t)&S1_music_sbk_ROM_START,        // sbk_start
     AL_FX_NONE,                     // FX type
     48,                             // ???
     24,                             // ???
@@ -133,12 +133,12 @@ SYAudioSettings dSYAudioPublicSettings =
     0,                              // ucode count
     0,                              // table count
     0,                              // 0x4C
-    &fgm_unk_ROM_START,             // ROM address
-    &fgm_unk_ROM_END,               // ROM address
-    &fgm_tbl_ROM_START,             // ROM address
-    &fgm_tbl_ROM_END,               // ROM address
-    &fgm_ucd_ROM_START,             // ROM address
-    &fgm_ucd_ROM_END                // ROM address
+    (uintptr_t)&fgm_unk_ROM_START,             // fgm_table_start
+    (uintptr_t)&fgm_unk_ROM_END,               // fgm_table_end
+    (uintptr_t)&fgm_tbl_ROM_START,             // fgm_ucode_start
+    (uintptr_t)&fgm_tbl_ROM_END,               // fgm_ucode_end
+    (uintptr_t)&fgm_ucd_ROM_START,             // ???
+    (uintptr_t)&fgm_ucd_ROM_END                // ???
 };
 
 // // // // // // // // // // // //
