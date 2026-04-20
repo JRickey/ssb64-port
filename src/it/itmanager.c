@@ -431,10 +431,22 @@ GObj* itManagerMakeItem(GObj *parent_gobj, ITDesc *item_desc, Vec3f *pos, Vec3f 
     
     ip->coll_data.p_translate       = &DObjGetStruct(item_gobj)->translate.vec.f;
     ip->coll_data.p_lr              = &ip->lr;
+#ifdef PORT
+    // PORT DEVIATION (docs/bugs/item_map_coll_bottom_sign_2026-04-20.md):
+    // ROM stores attribute-driven map_coll_bottom as positive magnitude; the
+    // shared collision code (`translate.y + map_coll.bottom`) needs a signed
+    // negative offset — every manually-overriding item writes `-COLL_SIZE`.
+    // Negate on load to match the runtime convention.
+    ip->coll_data.map_coll.top      = attr->map_coll_top;
+    ip->coll_data.map_coll.center   = attr->map_coll_center;
+    ip->coll_data.map_coll.bottom   = -attr->map_coll_bottom;
+    ip->coll_data.map_coll.width    = attr->map_coll_width;
+#else
     ip->coll_data.map_coll.top      = attr->map_coll_top;
     ip->coll_data.map_coll.center   = attr->map_coll_center;
     ip->coll_data.map_coll.bottom   = attr->map_coll_bottom;
     ip->coll_data.map_coll.width    = attr->map_coll_width;
+#endif
     ip->coll_data.p_map_coll        = &ip->coll_data.map_coll;
     ip->coll_data.ignore_line_id    = -1;
     ip->coll_data.update_tic   = gMPCollisionUpdateTic;
