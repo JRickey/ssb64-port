@@ -3412,6 +3412,7 @@ void mnPlayers1PGameInitVars(void)
 	sMNPlayers1PGameBonusesGObj = NULL;
 	sMNPlayers1PGameLevelGObj = NULL;
 	sMNPlayers1PGameStockGObj = NULL;
+	sMNPlayers1PGameTimeGObj = NULL;
 	sMNPlayers1PGameIsTeamBattle = gSCManager1PGameBattleState.is_team_battle;
 	sMNPlayers1PGameRule = gSCManager1PGameBattleState.game_rules;
 
