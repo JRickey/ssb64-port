@@ -2,6 +2,10 @@
 #include <sc/scmanager.h>
 #include <sys/debug.h>
 
+#ifdef PORT
+#include "bridge/particle_bank_bridge.h"
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //   GLOBAL / STATIC VARIABLES   //
@@ -99,16 +103,16 @@ s32 efParticleGetLoadBankID(uintptr_t scripts_lo, uintptr_t scripts_hi, uintptr_
 
 #ifdef PORT
     /* On PC the scripts_lo/hi/textures_lo/hi values are &-of linker symbol
-     * stubs — meaningless PC addresses, not ROM offsets.  syDmaReadRom is a
-     * no-op, so the allocated buffers would contain stale heap data.
-     * lbParticleSetupBankID then reads garbage scripts_num/textures_num
-     * counts and iterates into a segfault.
-     *
-     * Register a dummy bank so callers get a valid bank_id.  Particle
-     * effects that reference this bank will simply not fire. */
+     * stubs (distinct per bank) or, for fighter/1P callers, relocated u32s
+     * holding the original ROM offset.  syDmaReadRom is a no-op, so we can't
+     * take the N64 path.  The particle bridge maps scripts_lo to the matching
+     * O2R resource, byte-swaps the blob, and hands it to lbParticleSetupBankID.
+     * If the lookup fails the bank stays empty and particle emissions for it
+     * silently drop (same fallback as the prior 2026-04-08 stub). */
     bank_id = sEFParticleBanksNum;
     sEFParticleScriptBanks[bank_id] = scripts_lo;
     sEFParticleBanksNum++;
+    portParticleLoadBank(scripts_lo, bank_id);
     return bank_id;
 #else
     script_size = scripts_hi - scripts_lo;

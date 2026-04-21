@@ -1,4 +1,13 @@
-# Particle Bank ROM DMA Segfault (2026-04-08) — FIXED
+# Particle Bank ROM DMA Segfault (2026-04-08) — **SUPERSEDED** by [particle_banks_silent_empty_2026-04-20.md](particle_banks_silent_empty_2026-04-20.md)
+
+The 2026-04-08 fix avoided the segfault but registered a dummy empty bank,
+which turned every particle emission in the game into a silent NULL return
+(see the 2026-04-20 entry for the follow-up root cause and the O2R-pipeline
+fix). Keeping this file for history.
+
+---
+
+
 
 **Symptoms:** Segfault in scene 30 (nSCKindOpeningMario) during `itManagerInitItems()` → `efParticleGetLoadBankID()`. Crash handler didn't fire. No log output after "about to call func_start".
 
