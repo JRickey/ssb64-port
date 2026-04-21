@@ -1500,41 +1500,70 @@ extern "C" void portFixupSpriteBitmapData(void *sprite_v, void *bitmaps_v)
 
 		// N64 RDP TMEM line swizzle: textures stored in DRAM are pre-swizzled
 		// to avoid TMEM bank conflicts when sampled. lbCommonDrawSObjBitmap
-		// loads ALL sprite formats (4b/8b/16b/32b) via LOAD_BLOCK with
-		// G_IM_SIZ_*_LOAD_BLOCK which are all #defined to G_IM_SIZ_16b.
-		// The same odd-row XOR-0x4 swizzle applies regardless of bpp.
+		// LOAD_BLOCKs the sprite and relies on the RDP's odd-row TMEM
+		// address XOR to unscramble at sample time; Fast3D reads DRAM
+		// linearly, so we have to un-swizzle in software.
+		//
+		// The swap granularity is bit-depth dependent:
+		//
+		//   4b/8b/16b: LoadBlock uses G_IM_SIZ_16b (per the *_LOAD_BLOCK
+		//              macros in gbi.h), so the sampler's XOR-0x4 on the
+		//              byte address lands as "swap the two 4-byte halves
+		//              of each 8-byte qword" on odd rows.
+		//
+		//   32b:       LoadBlock uses G_IM_SIZ_32b. The LOAD_BLOCK with
+		//              dxt=0 interleaves each 4-byte pixel across the
+		//              low/high TMEM banks (2 bytes per bank), so each
+		//              texel consumes 2 TMEM words instead of one. The
+		//              sampler's odd-row XOR still acts at the same TMEM
+		//              word granularity, which at the DRAM level means
+		//              "swap the two 8-byte halves of each 16-byte group"
+		//              — i.e. swap 2 RGBA32 pixels with the next 2.
+		//              Empirically verified by offline comparison of the
+		//              post-BSWAP32 TGA dumps (tex_dump/sprite_f167_* for
+		//              SMASH, _f19_* for fighter-select portraits) against
+		//              the original artwork: XOR-4 (1-pixel swap, which
+		//              used to be the unconditional behaviour for all
+		//              bpp) scrambled 32bpp sprites by swapping adjacent
+		//              pixels on every odd row; XOR-16 (2-pixel pair swap)
+		//              produces clean images.
 		//
 		// 4c (compressed) is excluded because the on-disk data is 2bpp
-		// compressed source; the decoder runs AFTER this fixup and produces
-		// data that needs a separate post-decode deswizzle.
+		// compressed source; the decoder runs AFTER this fixup and
+		// produces 4bpp data that needs its own post-decode deswizzle
+		// (portDeswizzleDecodedSprite4c below).
 		//
 		// Uses sDeswizzle4cFixups (separate from the BSWAP set) so that
 		// textures whose byte-swap was already handled by pass2 still get
 		// the deswizzle applied.
-		if (bpp > 0 && bpp < 32 && bmsiz != 4 &&
+		if (bpp > 0 && bmsiz != 4 &&
 		    width_img > 0 && actualHeight > 0 &&
 		    !sDeswizzle4cFixups.count(key))
 		{
 			sDeswizzle4cFixups.insert(key);
 
+			size_t group_size = (bpp == 32) ? 16 : 8;
+			size_t half       = group_size / 2;
+
 			// row_bytes = DRAM bytes per pixel row.
 			size_t row_bytes = ((size_t)width_img * (size_t)bpp + 7) / 8;
-			// The swizzle operates on 8-byte qwords. Require the row to
-			// hold at least one full qword. The inner loop only processes
-			// complete 8-byte groups (`qw + 8 <= row_bytes`), so any
-			// trailing bytes past the last full qword are left untouched.
-			if (row_bytes >= 8)
+
+			// Require the row to hold at least one full group. The inner
+			// loop only processes complete groups (`g + group_size <=
+			// row_bytes`), so any trailing bytes past the last full group
+			// are left untouched.
+			if (row_bytes >= group_size)
 			{
 				uint8_t *bytes = static_cast<uint8_t *>(buf);
 				for (int row = 1; row < actualHeight; row += 2)
 				{
 					uint8_t *row_p = bytes + (size_t)row * row_bytes;
-					for (size_t qw = 0; qw + 8 <= row_bytes; qw += 8)
+					for (size_t g = 0; g + group_size <= row_bytes; g += group_size)
 					{
-						uint8_t tmp[4];
-						std::memcpy(tmp, row_p + qw, 4);
-						std::memcpy(row_p + qw, row_p + qw + 4, 4);
-						std::memcpy(row_p + qw + 4, tmp, 4);
+						uint8_t tmp[8]; // max half is 8 (for group_size=16)
+						std::memcpy(tmp, row_p + g, half);
+						std::memcpy(row_p + g, row_p + g + half, half);
+						std::memcpy(row_p + g + half, tmp, half);
 					}
 				}
 			}

@@ -1,6 +1,17 @@
 # SMASH Title Screen 32bpp Sprite — Rendering Artifact
 
-## Status: OPEN — root cause unknown; two fixup approaches tried and ineffective
+## Status: **RESOLVED** — see [docs/bugs/sprite_32bpp_tmem_swizzle_2026-04-20.md](bugs/sprite_32bpp_tmem_swizzle_2026-04-20.md).
+
+Root cause: 32bpp sprites needed their own TMEM-line-swizzle granularity
+(16-byte group, 8-byte half = 2-pixel pair swap on odd rows), not the
+4b/8b/16b 8-byte-group / 4-byte-half granularity that was being tested. The
+`bpp < 32` guard in `portFixupSpriteBitmapData` now falls through to a
+bpp-dependent group size. The rest of this file is kept for historical
+context only.
+
+---
+
+## (original, superseded) Status: OPEN — root cause unknown; two fixup approaches tried and ineffective
 
 ## Symptom
 

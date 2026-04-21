@@ -1,7 +1,27 @@
 # Broken Sprite Textures — Investigation Handoff
 
-**Date:** 2026-04-19  
-**Status:** OPEN — root cause not found; two fixup approaches were ineffective
+**Date:** 2026-04-19
+**Status:** **PARTIALLY RESOLVED (2026-04-20)**
+
+- Items 1 (SMASH) and 5 (character portraits — corrected: real file is
+  `llMNPlayersPortraitsFileID = 0x13 = 19`, not `168`; file 168 is
+  `llMNTitleFireAnimFileID`) are fixed by the 32bpp-specific TMEM swizzle
+  granularity. See [docs/bugs/sprite_32bpp_tmem_swizzle_2026-04-20.md](bugs/sprite_32bpp_tmem_swizzle_2026-04-20.md).
+- Items 2–4 (tutorial CI8 "How to Play" banner, tutorial RGBA16 "HereText"
+  indicator, tutorial CI8 textbox with green horizontal combed stripes) are
+  **still open** and are a separate class of bug — suspected to involve the
+  Fast3D CI8 decode-stride-vs-upload-width mismatch in
+  `libultraship/src/fast/interpreter.cpp:1270-1321` (`ImportTextureCi8`
+  decodes at `lineSizeBytes` stride but uploads at post-clamp `width`) and/or
+  the RGBA16 `fullImageLineSizeBytes = width * 2` reassignment using
+  post-clamp `width`. These fixes haven't been landed yet.
+- Item 6 ("player card 2P/3P/4P horizontal stripes") is unconfirmed — needs a
+  fresh capture once 1-5 are fixed to see whether it was an artifact of the
+  same 32bpp bug or a distinct issue.
+
+---
+
+## (original, partially superseded) Status: OPEN — root cause not found; two fixup approaches were ineffective
 
 ## Affected Textures
 
