@@ -27,6 +27,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <algorithm>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -34,6 +35,210 @@
 extern "C" void port_log(const char *fmt, ...);
 extern "C" int  portRelocFindContainingFile(const void *ptr, uintptr_t *out_base, size_t *out_size);
 extern "C" int  portRelocFindFileIdAndBase(const void *ptr, uintptr_t *out_base);
+
+// ============================================================
+//  Stage audit (SSB64_STAGE_AUDIT=1)
+// ============================================================
+//
+// Per-file counters for the byteswap + reloc-chain fixup pipeline.
+// Reset at the top of portRelocByteSwapBlob; emitted as a single
+// port_log line by portStageAuditEmitLoadSummary after the reloc
+// chain walk completes. Helps identify stage files whose G_VTX /
+// G_SETTIMG targets the DL scan skipped AND the chain walk failed
+// to recover.
+
+static int sStageAuditState = 0;  // 0=unchecked, 1=on, -1=off
+
+struct StageAuditCounters {
+	uint32_t vtx_scan_caught      = 0;
+	uint32_t vtx_scan_skipped_seg = 0;
+	uint32_t settimg_scan_caught  = 0;
+	uint32_t settimg_scan_skipped_seg = 0;
+	uint32_t chain_vtx_fixups     = 0;
+	uint32_t chain_settimg_fixups = 0;
+	uint32_t runtime_vtx_fixups   = 0;
+	uint32_t runtime_tex_fixups   = 0;
+};
+
+static StageAuditCounters sStageAudit;
+static uint64_t sStageAuditRuntimeVtxTotal = 0;
+static uint64_t sStageAuditRuntimeTexTotal = 0;
+/* Total dispatches regardless of reloc-file membership vs heap-only. */
+static uint64_t sStageAuditRuntimeVtxDispatches = 0;
+static uint64_t sStageAuditRuntimeVtxHeap = 0;
+static uint64_t sStageAuditRuntimeTexDispatches = 0;
+static uint64_t sStageAuditRuntimeTexHeap = 0;
+
+static bool stage_audit_enabled()
+{
+	if (sStageAuditState == 0) {
+		const char *e = std::getenv("SSB64_STAGE_AUDIT");
+		sStageAuditState = (e != nullptr && e[0] == '1') ? 1 : -1;
+	}
+	return sStageAuditState == 1;
+}
+
+static inline void stage_audit_reset_per_file()
+{
+	sStageAudit = StageAuditCounters{};
+}
+
+/* Count u32 words at 8-byte-aligned (w0) positions whose high byte matches
+ * the given opcode — diagnostic for F3D vs F3DEX2 discrimination. */
+static uint32_t count_opcode_matches(const void *data, size_t size, uint8_t opcode)
+{
+	const uint32_t *words = static_cast<const uint32_t *>(data);
+	size_t n = size / 4;
+	uint32_t hits = 0;
+	for (size_t i = 0; i + 1 < n; i += 2) {
+		if (((words[i] >> 24) & 0xFF) == opcode) hits++;
+	}
+	return hits;
+}
+
+/* Same as count_opcode_matches but steps by 1 word, so it also catches
+ * commands whose (w0, w1) pair lands at an odd word offset within the file. */
+static uint32_t count_opcode_matches_any_phase(const void *data, size_t size, uint8_t opcode)
+{
+	const uint32_t *words = static_cast<const uint32_t *>(data);
+	size_t n = size / 4;
+	uint32_t hits = 0;
+	for (size_t i = 0; i + 1 < n; i += 1) {
+		if (((words[i] >> 24) & 0xFF) == opcode) hits++;
+	}
+	return hits;
+}
+
+extern "C" void portStageAuditEmitLoadSummary(unsigned int file_id, const char *path, size_t size)
+{
+	if (!stage_audit_enabled()) return;
+	port_log("[STAGE_AUDIT] file=%3u size=0x%06zx vtx_scan=%u/%u settimg_scan=%u/%u chain=vtx:%u,st:%u path=%s\n",
+	         file_id, size,
+	         sStageAudit.vtx_scan_caught, sStageAudit.vtx_scan_skipped_seg,
+	         sStageAudit.settimg_scan_caught, sStageAudit.settimg_scan_skipped_seg,
+	         sStageAudit.chain_vtx_fixups, sStageAudit.chain_settimg_fixups,
+	         path ? path : "(null)");
+	stage_audit_reset_per_file();
+}
+
+/* Separate entry point for opcode-census diagnostic. Call after the load
+ * summary from the bridge. */
+extern "C" void portStageAuditEmitOpcodeCensus(unsigned int file_id, const char *path,
+                                                const void *data, size_t size)
+{
+	if (!stage_audit_enabled() || data == nullptr || size < 8) return;
+	/* F3D: G_VTX=0x01, G_MTX=0x01 is ALSO MTX-first in F3DEX2 — use the
+	 * two cases that diverge most strongly to tell the formats apart.
+	 * F3D     : G_VTX=0x01  G_ENDDL=0xB8  G_DL=0x06
+	 * F3DEX2  : G_VTX=0x04  G_ENDDL=0xDF  G_DL=0x06
+	 */
+	uint32_t f3d_vtx    = count_opcode_matches(data, size, 0x01);
+	uint32_t f3d_enddl  = count_opcode_matches(data, size, 0xB8);
+	uint32_t f3dex2_vtx = count_opcode_matches(data, size, 0x04);
+	uint32_t f3dex2_end = count_opcode_matches(data, size, 0xDF);
+	/* Any-phase variants: step by 1 word rather than 2. If DL data is at
+	 * an odd-word offset within the file, the even-phase scan misses every
+	 * command. The difference between *_any and the scan counts flags that. */
+	uint32_t f3d_vtx_any    = count_opcode_matches_any_phase(data, size, 0x01);
+	uint32_t f3d_end_any    = count_opcode_matches_any_phase(data, size, 0xB8);
+	uint32_t f3dex2_vtx_any = count_opcode_matches_any_phase(data, size, 0x04);
+	uint32_t f3dex2_end_any = count_opcode_matches_any_phase(data, size, 0xDF);
+	port_log("[STAGE_AUDIT_GBI] file=%3u f3d:vtx=%u(%u),end=%u(%u)  f3dex2:vtx=%u(%u),end=%u(%u)  path=%s\n",
+	         file_id, f3d_vtx, f3d_vtx_any, f3d_enddl, f3d_end_any,
+	         f3dex2_vtx, f3dex2_vtx_any, f3dex2_end, f3dex2_end_any,
+	         path ? path : "(null)");
+
+	/* Stage-file deep inspection: byte histogram + first bytes to understand layout. */
+	if (path != nullptr && std::strstr(path, "reloc_stages/Stage") != nullptr) {
+		const uint8_t *p = static_cast<const uint8_t *>(data);
+		/* Byte-0 histogram: count occurrences at each (byte_offset % 4) position. */
+		uint32_t byte0_hits[256] = {0};
+		uint32_t byte3_hits[256] = {0};
+		for (size_t i = 0; i + 3 < size; i += 4) {
+			byte0_hits[p[i]]++;
+			byte3_hits[p[i + 3]]++;
+		}
+		port_log("[STAGE_AUDIT_HIST] file=%3u  byte0: 0x04=%u 0xDF=%u 0xF3=%u 0xFD=%u 0xB8=%u  byte3: 0x04=%u 0xDF=%u 0xF3=%u 0xFD=%u 0xB8=%u\n",
+		         file_id,
+		         byte0_hits[0x04], byte0_hits[0xDF], byte0_hits[0xF3], byte0_hits[0xFD], byte0_hits[0xB8],
+		         byte3_hits[0x04], byte3_hits[0xDF], byte3_hits[0xF3], byte3_hits[0xFD], byte3_hits[0xB8]);
+		size_t dump = size < 128 ? size : 128;
+		char hex[512];
+		size_t pos = 0;
+		for (size_t i = 0; i < dump && pos + 4 < sizeof(hex); i++) {
+			pos += std::snprintf(hex + pos, sizeof(hex) - pos, "%02X", p[i]);
+			if ((i & 3) == 3 && pos + 1 < sizeof(hex)) hex[pos++] = ' ';
+		}
+		hex[pos] = '\0';
+		port_log("[STAGE_AUDIT_HEX] file=%3u first128=%s\n", file_id, hex);
+	}
+}
+
+extern "C" void portStageAuditNoteRuntimeVtx(unsigned int num_vtx)
+{
+	if (!stage_audit_enabled()) return;
+	sStageAuditRuntimeVtxTotal += num_vtx;
+}
+
+extern "C" void portStageAuditNoteRuntimeTex(unsigned int num_bytes)
+{
+	if (!stage_audit_enabled()) return;
+	sStageAuditRuntimeTexTotal += num_bytes;
+}
+
+/* Per-file dispatch counters so we can see exactly which reloc files
+ * supply vertex data during gameplay. */
+static std::unordered_map<int, uint64_t> sStageAuditVtxPerFile;
+static std::unordered_map<int, uint64_t> sStageAuditTexPerFile;
+
+static void stage_audit_dump_per_file_vtx()
+{
+	/* Sort by count desc, emit as one line. */
+	std::vector<std::pair<int, uint64_t>> v(sStageAuditVtxPerFile.begin(), sStageAuditVtxPerFile.end());
+	std::sort(v.begin(), v.end(), [](auto &a, auto &b){ return a.second > b.second; });
+	for (auto &p : v) {
+		extern const char* const gRelocFileTable[];
+		const char *path = (p.first >= 0) ? gRelocFileTable[p.first] : "(heap)";
+		port_log("[STAGE_AUDIT] vtx_per_file: file=%4d hits=%llu path=%s\n",
+		         p.first, (unsigned long long)p.second, path ? path : "(null)");
+	}
+}
+
+extern "C" void portStageAuditNoteVtxDispatch(int in_reloc_file)
+{
+	if (!stage_audit_enabled()) return;
+	sStageAuditRuntimeVtxDispatches++;
+	if (!in_reloc_file) sStageAuditRuntimeVtxHeap++;
+	if ((sStageAuditRuntimeVtxDispatches & 0xFFF) == 0) {
+		port_log("[STAGE_AUDIT] runtime: vtx_disp=%llu vtx_heap=%llu vtx_fix=%llu  tex_disp=%llu tex_heap=%llu tex_fix=%llu\n",
+		         (unsigned long long)sStageAuditRuntimeVtxDispatches,
+		         (unsigned long long)sStageAuditRuntimeVtxHeap,
+		         (unsigned long long)sStageAuditRuntimeVtxTotal,
+		         (unsigned long long)sStageAuditRuntimeTexDispatches,
+		         (unsigned long long)sStageAuditRuntimeTexHeap,
+		         (unsigned long long)sStageAuditRuntimeTexTotal);
+		stage_audit_dump_per_file_vtx();
+	}
+}
+
+extern "C" void portStageAuditNoteVtxDispatchFile(int file_id)
+{
+	if (!stage_audit_enabled()) return;
+	sStageAuditVtxPerFile[file_id]++;
+}
+
+extern "C" void portStageAuditNoteTexDispatchFile(int file_id)
+{
+	if (!stage_audit_enabled()) return;
+	sStageAuditTexPerFile[file_id]++;
+}
+
+extern "C" void portStageAuditNoteTexDispatch(int in_reloc_file)
+{
+	if (!stage_audit_enabled()) return;
+	sStageAuditRuntimeTexDispatches++;
+	if (!in_reloc_file) sStageAuditRuntimeTexHeap++;
+}
 
 // ============================================================
 //  Texture-fixup diagnostic log (SSB64_TEX_FIXUP_LOG=1)
@@ -505,6 +710,11 @@ static void scan_display_lists(const uint32_t *words, size_t num_words,
 			    offset_sz <= file_size && vtx_bytes <= (file_size - offset_sz))
 			{
 				regions.push_back({offset, num_vtx * 16, FIXUP_VERTEX});
+				if (stage_audit_enabled()) sStageAudit.vtx_scan_caught++;
+			}
+			else if (stage_audit_enabled() && num_vtx > 0)
+			{
+				sStageAudit.vtx_scan_skipped_seg++;
 			}
 			break;
 		}
@@ -519,10 +729,12 @@ static void scan_display_lists(const uint32_t *words, size_t num_words,
 				pending_tex_offset = w1 & 0x00FFFFFF;
 				pending_tex_siz = siz;
 				has_pending_tex = true;
+				if (stage_audit_enabled()) sStageAudit.settimg_scan_caught++;
 			}
 			else
 			{
 				has_pending_tex = false;
+				if (stage_audit_enabled()) sStageAudit.settimg_scan_skipped_seg++;
 			}
 			break;
 		}
@@ -734,8 +946,24 @@ extern "C" void portRelocByteSwapBlob(void *data, size_t size, unsigned int file
 	if (data == nullptr || size < 4)
 		return;
 
+	if (stage_audit_enabled()) stage_audit_reset_per_file();
+
+	if (stage_audit_enabled() && file_id == 104) {
+		const uint8_t *p = static_cast<const uint8_t *>(data);
+		port_log("[STAGE_AUDIT_104_LOAD] pre_pass1 bytes=%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X\n",
+		         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+		         p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+	}
+
 	// Pass 1: blanket u32 swap
 	pass1_swap_u32(data, size);
+
+	if (stage_audit_enabled() && file_id == 104) {
+		const uint8_t *p = static_cast<const uint8_t *>(data);
+		port_log("[STAGE_AUDIT_104_LOAD] post_pass1 bytes=%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X\n",
+		         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+		         p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+	}
 
 	// Pass 2: DL-guided fixup
 	size_t num_words = size / 4;
@@ -766,6 +994,25 @@ extern "C" void portFixupStructU16(void *base, unsigned int byte_offset, unsigne
 	for (unsigned int i = 0; i < num_words; i++)
 	{
 		words[i] = (words[i] << 16) | (words[i] >> 16);
+	}
+}
+
+// Undo the blanket pass1 u32 byteswap for a single-u8-inside-a-u32 field.
+// After pass1, a BE ROM u8 at struct offset N lives at native offset (N|3);
+// reversing the containing u32 word puts the u8 back at offset N where the
+// C struct definition expects to read it.  Idempotent via sStructU16Fixups.
+extern "C" void portFixupStructU32(void *base, unsigned int byte_offset, unsigned int num_words)
+{
+	uintptr_t key = reinterpret_cast<uintptr_t>(base) + byte_offset;
+	if (sStructU16Fixups.count(key))
+		return;
+	sStructU16Fixups.insert(key);
+
+	uint32_t *words = reinterpret_cast<uint32_t *>(
+		static_cast<uint8_t *>(base) + byte_offset);
+	for (unsigned int i = 0; i < num_words; i++)
+	{
+		words[i] = __builtin_bswap32(words[i]);
 	}
 }
 
@@ -937,6 +1184,7 @@ static int chain_fixup_settimg(void *file_base, size_t file_size,
 		}
 	}
 
+	if (stage_audit_enabled()) sStageAudit.chain_settimg_fixups++;
 	return 1;
 }
 
@@ -1003,6 +1251,16 @@ static int chain_fixup_vertex(void *file_base, size_t file_size,
 
 	// Per-vertex idempotency (matches portRelocFixupVertexAtRuntime).
 	uintptr_t target_addr = reinterpret_cast<uintptr_t>(file_base) + (uintptr_t)target_byte_off;
+	if (stage_audit_enabled()) {
+		int tgt_file = portRelocFindFileIdAndBase((const void *)target_addr, nullptr);
+		int src_file = portRelocFindFileIdAndBase(file_base, nullptr);
+		static uint32_t sChainTrace = 0;
+		if (tgt_file == 104 && sChainTrace < 30) {
+			sChainTrace++;
+			port_log("[STAGE_AUDIT_CHAIN] chain_fixup_vertex src=file%d tgt=file%d target_off=0x%x num_vtx=%u\n",
+			         src_file, tgt_file, target_byte_off, num_vtx);
+		}
+	}
 	for (uint32_t i = 0; i < num_vtx; i++)
 	{
 		uintptr_t vtx_key = target_addr + (uintptr_t)i * 16;
@@ -1014,6 +1272,7 @@ static int chain_fixup_vertex(void *file_base, size_t file_size,
 		region[i * 4 + 2] = (region[i * 4 + 2] << 16) | (region[i * 4 + 2] >> 16);
 		region[i * 4 + 3] = BSWAP32(region[i * 4 + 3]);
 	}
+	if (stage_audit_enabled()) sStageAudit.chain_vtx_fixups++;
 	return 1;
 }
 
@@ -1091,7 +1350,9 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 	// correct host byte order.
 	uintptr_t fileBase = 0;
 	size_t    fileSize = 0;
-	if (!portRelocFindContainingFile(addr, &fileBase, &fileSize))
+	int in_reloc_file = portRelocFindContainingFile(addr, &fileBase, &fileSize);
+	portStageAuditNoteTexDispatch(in_reloc_file);
+	if (!in_reloc_file)
 	{
 		// Log heap textures so we can spot any geometry texture that
 		// somehow lives outside any reloc file (the "third path" case).
@@ -1199,6 +1460,8 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 		             -1, -1, -1, reinterpret_cast<uint32_t *>(target),
 		             already_fixed_bytes > 0 ? "extend" : "loadblock/loadtile/loadtlut");
 	}
+
+	portStageAuditNoteRuntimeTex(num_bytes);
 }
 
 extern "C" void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num_vtx)
@@ -1210,7 +1473,13 @@ extern "C" void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num
 	// already-correct byte order on the host LE side.
 	uintptr_t fileBase = 0;
 	size_t    fileSize = 0;
-	if (!portRelocFindContainingFile(addr, &fileBase, &fileSize))
+	int in_reloc_file = portRelocFindContainingFile(addr, &fileBase, &fileSize);
+	portStageAuditNoteVtxDispatch(in_reloc_file);
+	{
+		int rt_file_id = in_reloc_file ? portRelocFindFileIdAndBase(addr, nullptr) : -1;
+		portStageAuditNoteVtxDispatchFile(rt_file_id);
+	}
+	if (!in_reloc_file)
 	{
 		return;
 	}
@@ -1227,11 +1496,14 @@ extern "C" void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num
 	// Instead we mark each individual 16-byte Vtx; only un-marked vertices
 	// get fixed.
 	uint32_t *region = reinterpret_cast<uint32_t *>(target);
+	unsigned int fixed_here = 0;
+	unsigned int skipped_here = 0;
 	for (unsigned int i = 0; i < num_vtx; i++)
 	{
 		uintptr_t vtx_key = target + (uintptr_t)i * 16;
-		if (sStructU16Fixups.count(vtx_key)) continue;
+		if (sStructU16Fixups.count(vtx_key)) { skipped_here++; continue; }
 		sStructU16Fixups.insert(vtx_key);
+		fixed_here++;
 
 		// word 0: s16 ob[0] | s16 ob[1] → rotate16
 		region[i * 4 + 0] = (region[i * 4 + 0] << 16) | (region[i * 4 + 0] >> 16);
@@ -1241,6 +1513,24 @@ extern "C" void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num
 		region[i * 4 + 2] = (region[i * 4 + 2] << 16) | (region[i * 4 + 2] >> 16);
 		// word 3: u8 cn[0..3] → bswap32 to restore byte order
 		region[i * 4 + 3] = BSWAP32(region[i * 4 + 3]);
+	}
+	if (fixed_here > 0) portStageAuditNoteRuntimeVtx(fixed_here);
+
+	/* Focused trace on ExternDataBank104 to see who's marking its vertices. */
+	if (stage_audit_enabled()) {
+		int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
+		if (rt_file_id == 104) {
+			static uint32_t sBank104Trace = 0;
+			sBank104Trace++;
+			if (sBank104Trace <= 5) {
+				const uint8_t *p = (const uint8_t *)addr;
+				port_log("[STAGE_AUDIT_104] call#%u addr=%p num_vtx=%u fixed=%u skipped=%u offset=0x%zx bytes=%02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X %02X%02X%02X%02X\n",
+				         sBank104Trace, addr, num_vtx, fixed_here, skipped_here,
+				         (size_t)(target - fileBase),
+				         p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7],
+				         p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
+			}
+		}
 	}
 }
 

@@ -530,6 +530,14 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 		 * knows to only touch EVENT32 streams inside this file's memory. */
 		port_aobj_register_halfswapped_range(ram_dst, (unsigned long)copySize);
 	}
+
+	{
+		extern void portStageAuditEmitLoadSummary(unsigned int file_id, const char *path, size_t size);
+		extern void portStageAuditEmitOpcodeCensus(unsigned int file_id, const char *path, const void *data, size_t size);
+		const char *audit_path = (file_id < RELOC_FILE_COUNT) ? gRelocFileTable[file_id] : nullptr;
+		portStageAuditEmitLoadSummary(file_id, audit_path, copySize);
+		portStageAuditEmitOpcodeCensus(file_id, audit_path, ram_dst, copySize);
+	}
 }
 
 // // // // // // // // // // // //

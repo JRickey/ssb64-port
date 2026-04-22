@@ -23,6 +23,7 @@ endif()
 option(NON_MATCHING "Build without matching decomp constraints" ON)
 option(NON_EQUIVALENT "Build without equivalent decomp constraints" ON)
 option(USE_AUTO_VCPKG "Use automated vcpkg for dependency management" ON)
+option(SSB64_STAGE_CYCLE_DEMO "Boot directly into attract-demo stage cycle for rendering regression testing" OFF)
 
 ################################################################################
 # libultraship configuration (set before add_subdirectory)
@@ -125,6 +126,10 @@ set(SSB64_COMPILE_DEFS
     # ImGui
     CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 )
+
+if(SSB64_STAGE_CYCLE_DEMO)
+    list(APPEND SSB64_COMPILE_DEFS PORT_STAGE_CYCLE_DEMO=1)
+endif()
 
 ################################################################################
 # Decomp C code — OBJECT library with custom include/ shadowing system headers

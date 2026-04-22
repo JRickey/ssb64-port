@@ -876,6 +876,12 @@ void scManagerRunLoop(sb32 arg)
 	{
 		gSCManagerSceneData.scene_curr = nSCKindNoController;
 	}
+#ifdef PORT_STAGE_CYCLE_DEMO
+	gSCManagerSceneData.scene_curr    = nSCKindAutoDemo;
+	gSCManagerSceneData.scene_prev    = nSCKindAutoDemo;
+	gSCManagerSceneData.demo_fkind[0] = nFTKindMario;
+	gSCManagerSceneData.demo_fkind[1] = nFTKindFox;
+#endif
 #ifdef PORT
 	port_log("SSB64: scManagerRunLoop — controllers=%d scene=%d\n",
 	         (int)gSYControllerConnectedNum, (int)gSCManagerSceneData.scene_curr);

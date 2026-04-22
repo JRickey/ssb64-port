@@ -232,6 +232,7 @@ void scAutoDemoStartBattle(void)
 // 0x8018D134
 void scAutoDemoDetectExit(void)
 {
+#ifndef PORT_STAGE_CYCLE_DEMO
 	s32 player;
 
 	for (player = 0; player < ARRAY_COUNT(gSYControllerDevices); player++)
@@ -247,6 +248,7 @@ void scAutoDemoDetectExit(void)
 			break;
 		}
 	}
+#endif
 }
 
 // 0x8018D19C
@@ -393,7 +395,9 @@ void scAutoDemoSetMagnifyDisplayOn(void)
 void scAutoDemoExit(void)
 {
 	gSCManagerSceneData.scene_prev = gSCManagerSceneData.scene_curr;
-#if defined(REGION_US)        
+#if defined(PORT_STAGE_CYCLE_DEMO)
+    gSCManagerSceneData.scene_curr = nSCKindAutoDemo;
+#elif defined(REGION_US)
     gSCManagerSceneData.scene_curr = nSCKindStartup;
 #else
     gSCManagerSceneData.scene_curr = nSCKindOpeningRoom;

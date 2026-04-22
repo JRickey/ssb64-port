@@ -7,6 +7,7 @@
 
 #ifdef PORT
 extern void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_words);
+extern void portFixupStructU32(void *base, unsigned int byte_offset, unsigned int num_words);
 #endif
 
 // // // // // // // // // // // //
@@ -4101,6 +4102,16 @@ void mpCollisionInitGroundData(void)
         portFixupStructU16(gMPCollisionGroundData, bounds_off, 4);
         // Team bounds + zoom: all s16 from alt_warning through zoom_end
         portFixupStructU16(gMPCollisionGroundData, team_off, (end_off - team_off + 3) / 4);
+
+        // Fix u8 layer_mask — lives in the high byte of its u32 word after pass1
+        // blanket byteswap.  The struct read `layer_mask` picks up the low byte
+        // of the word (always 0 for valid masks), so Sector Z's layer-1 yakumono
+        // draw path mis-selects pri_proc_display (Gfx*) instead of sec_proc_display
+        // (DObjDLLink chain), dispatching DObjDLLink structs as raw GBI code.
+        {
+            unsigned int lmask_off = (unsigned int)((uintptr_t)&gMPCollisionGroundData->layer_mask - (uintptr_t)gMPCollisionGroundData);
+            portFixupStructU32(gMPCollisionGroundData, lmask_off & ~3U, 1);
+        }
     }
 #endif
 }
