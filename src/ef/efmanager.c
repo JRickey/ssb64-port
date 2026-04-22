@@ -5251,13 +5251,25 @@ GObj* efManagerMBallThrownMakeEffect(Vec3f *pos, s32 lr)
 {
     GObj *effect_gobj;
     DObj *dobj;
+#ifdef PORT
+    // PORT reloc writes a 4-byte token into the pointer slot, not an 8-byte
+    // void*; read it as u32 and resolve, or *p_file slurps the next slot's
+    // token too and produces a garbage pointer (e.g. 0x3a3000003a2).
+    u32 *p_file;
+#else
     void **p_file;
+#endif
     void *file;
 
     dEFManagerMBallThrownEffectDesc.file_head = &file;
 
+#ifdef PORT
+    p_file = lbRelocGetFileData(u32*, gITManagerCommonData, llITCommonDataMBallThrownFileHead);
+    file = (void *)((uintptr_t)PORT_RESOLVE(*p_file) - (intptr_t)llITCommonDataMBallThrownDObjDesc);
+#else
     p_file = lbRelocGetFileData(void**, gITManagerCommonData, llITCommonDataMBallThrownFileHead);
     file = (void *)((uintptr_t)*p_file - (intptr_t)llITCommonDataMBallThrownDObjDesc);
+#endif
 
     if (lr == +1)
     {
@@ -5882,7 +5894,11 @@ GObj* efManagerCaptureKirbyStarMakeEffect(GObj *fighter_gobj)
     GObj *effect_gobj;
     EFStruct *ep;
     void *addr;
+#ifdef PORT
+    u32 *p_addr;
+#else
     void **p_addr;
+#endif
     DObj *dobj;
     FTKirbyCopy *copy;
 
@@ -5890,8 +5906,14 @@ GObj* efManagerCaptureKirbyStarMakeEffect(GObj *fighter_gobj)
 
     dEFManagerCaptureKirbyStarEffectDesc.file_head = &addr;
 
+#ifdef PORT
+    // See efManagerMBallThrownMakeEffect: PORT reloc slot is u32 token.
+    p_addr = lbRelocGetFileData(u32*, gITManagerCommonData, llITCommonDataStarRodWeaponAttributes);
+    addr = (void*) ((uintptr_t)PORT_RESOLVE(*p_addr) - (intptr_t)llITCommonDataKirbyStarDObjDesc);
+#else
     p_addr = lbRelocGetFileData(void**, gITManagerCommonData, llITCommonDataStarRodWeaponAttributes);
     addr = (void*) ((uintptr_t)*p_addr - (intptr_t)llITCommonDataKirbyStarDObjDesc);
+#endif
 
     effect_gobj = efManagerMakeEffectNoForce(&dEFManagerCaptureKirbyStarEffectDesc);
 
@@ -5960,13 +5982,23 @@ GObj* efManagerLoseKirbyStarMakeEffect(GObj *fighter_gobj)
     GObj *effect_gobj;
     EFStruct *ep;
     void *addr;
+#ifdef PORT
+    u32 *p_addr;
+#else
     void **p_addr;
+#endif
     DObj *dobj;
 
     dEFManagerLoseKirbyStarEffectDesc.file_head = &addr;
 
+#ifdef PORT
+    // See efManagerMBallThrownMakeEffect: PORT reloc slot is u32 token.
+    p_addr = lbRelocGetFileData(u32*, gITManagerCommonData, llITCommonDataStarRodWeaponAttributes);
+    addr = (void *)((uintptr_t)PORT_RESOLVE(*p_addr) - (intptr_t)llITCommonDataKirbyStarDObjDesc);
+#else
     p_addr = lbRelocGetFileData(void**, gITManagerCommonData, llITCommonDataStarRodWeaponAttributes);
     addr = (void *)((uintptr_t)*p_addr - (intptr_t)llITCommonDataKirbyStarDObjDesc);
+#endif
 
     effect_gobj = efManagerMakeEffectNoForce(&dEFManagerLoseKirbyStarEffectDesc);
 
