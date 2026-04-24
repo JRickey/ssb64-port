@@ -117,7 +117,17 @@ struct SC1PStageClearScore
 struct SC1PTrainingModeSprites
 {
 	Vec2h pos;
+#ifdef PORT
+	// On N64 this is Sprite* (4 bytes). Port struct must stay 8 bytes
+	// to match the on-disk array stride in the reloc file; otherwise
+	// ts[i].sprite reads 8 bytes spanning into the next entry and
+	// lbCommonMakeSObjForGObj sees a bogus "pointer" like 0x1fe00140024
+	// (two adjacent u32 tokens concatenated as u64).
+	// The intra-file reloc chain has already tokenized this slot.
+	u32 sprite;
+#else
 	Sprite *sprite;
+#endif
 };
 
 struct SC1PTrainingModeFiles
@@ -140,9 +150,21 @@ struct SC1PTrainingModeMenu
 	s32 view_menu_option;					  // Option selected in "View" settings
 	s32 dummy;							 	  // Dummy fighter's port ID
 	SC1PTrainingModeSprites *display_label_sprites; // "DAMAGE", "COMBO", "ENEMY", "SPEED" text
+#ifdef PORT
+	// On N64: Sprite** (array of 4-byte pointers in the reloc file).
+	// On LP64 Sprite** would stride 8B and read two tokens per slot.
+	// Each slot holds a u32 reloc token (already registered by the
+	// intra-file reloc chain). Use SC1P_SPRITE_RESOLVE(arr, i) to read.
+	u32 *display_option_sprites;
+#else
 	Sprite **display_option_sprites;
+#endif
 	SC1PTrainingModeSprites *menu_label_sprites; // Orange text describing what each option is?
+#ifdef PORT
+	u32 *menu_option_sprites;
+#else
 	Sprite **menu_option_sprites;
+#endif
 	SC1PTrainingModeSprites *unk_trainmenu_0x34;
 	SC1PTrainingModeSprites *unk_trainmenu_0x38;
 	GObj *damage_display_gobj; // Interface GObj of damage stat display

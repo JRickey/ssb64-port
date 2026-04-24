@@ -1,6 +1,7 @@
 #include <ft/fighter.h>
 #ifdef PORT
 extern void port_coroutine_yield(void);
+extern void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_words);
 #endif
 #include <it/item.h>
 #include <gr/ground.h>
@@ -14,6 +15,31 @@ extern void port_coroutine_yield(void);
 #include <wp/wpmanager.h>
 extern void *func_800269C0_275C0(u16 id);
 extern void func_800266A0_272A0(void);
+
+#ifdef PORT
+// SC1PTrainingModeSprites entries live in a reloc file. Pass1's blanket
+// u32 BSWAP32 scrambles the {s16 x, s16 y} pos word — on LE, pos.x reads
+// the original y and pos.y reads the original x. The sprite slot is
+// already tokenized by the intra-file reloc chain, so it just needs to
+// go through PORT_RESOLVE. Fix is idempotent via sStructU16Fixups.
+static inline Sprite* sc1PTrainingModeResolveTS(SC1PTrainingModeSprites *ts)
+{
+	portFixupStructU16(ts, 0, 1);
+	return (Sprite*)PORT_RESOLVE(ts->sprite);
+}
+// Sprite** arrays in reloc files store 4-byte tokens per slot. On LP64
+// a native Sprite** would stride 8B and straddle two tokens per slot.
+// Port struct keeps them as u32* (see sctypes.h); readers resolve each
+// slot through PORT_RESOLVE. Matches the sc1pbonusstage.c anim_joints
+// pattern.
+static inline Sprite* sc1PTrainingModeResolveOpt(u32 *arr, s32 i)
+{
+	return (Sprite*)PORT_RESOLVE(arr[i]);
+}
+#else
+#define sc1PTrainingModeResolveTS(ts)     ((ts)->sprite)
+#define sc1PTrainingModeResolveOpt(arr,i) ((arr)[i])
+#endif
 
 extern void syAudioSetBGMVolume(s32 playerID, u32 vol);
 
@@ -650,9 +676,21 @@ void sc1PTrainingModeLoadSprites(void)
 	void *file = lbRelocGetExternHeapFile((u32)llSC1PTrainingModeFileID, syTaskmanMalloc(lbRelocGetFileSize((u32)llSC1PTrainingModeFileID), 0x10));
 
 	sSC1PTrainingModeMenu.display_label_sprites = lbRelocGetFileData(SC1PTrainingModeSprites*, file, llSC1PTrainingModeDisplayLabelPosSpriteArray);
+#ifdef PORT
+	// On N64 these are Sprite** (array of 4B pointers in the reloc file).
+	// Port struct is u32* to preserve the 4B stride — LP64 Sprite** would
+	// walk two tokens per slot. Each slot is a reloc token pre-registered
+	// by the intra-file reloc chain.
+	sSC1PTrainingModeMenu.display_option_sprites = lbRelocGetFileData(u32*, file, llSC1PTrainingModeDisplayOptionSpriteArray);
+#else
 	sSC1PTrainingModeMenu.display_option_sprites = lbRelocGetFileData(Sprite**, file, llSC1PTrainingModeDisplayOptionSpriteArray);
+#endif
 	sSC1PTrainingModeMenu.menu_label_sprites = lbRelocGetFileData(SC1PTrainingModeSprites*, file, llSC1PTrainingModeMenuLabelPosSpriteArray);
+#ifdef PORT
+	sSC1PTrainingModeMenu.menu_option_sprites = lbRelocGetFileData(u32*, file, llSC1PTrainingModeMenuOptionSpriteArray);
+#else
 	sSC1PTrainingModeMenu.menu_option_sprites = lbRelocGetFileData(Sprite**, file, llSC1PTrainingModeMenuOptionSpriteArray);
+#endif
 	sSC1PTrainingModeMenu.unk_trainmenu_0x34 = lbRelocGetFileData(SC1PTrainingModeSprites*, file, llSC1PTrainingMode0x10CPosSpriteArray);
 	sSC1PTrainingModeMenu.unk_trainmenu_0x38 = lbRelocGetFileData(SC1PTrainingModeSprites*, file, llSC1PTrainingMode0x1B8PosSpriteArray);
 }
@@ -660,7 +698,7 @@ void sc1PTrainingModeLoadSprites(void)
 // 0x8018DDB0
 void sc1PTrainingModeLoadWallpaper(void)
 {
-	gMPCollisionGroundData->wallpaper = (uintptr_t)lbRelocGetFileData
+	Sprite *sprite = lbRelocGetFileData
 	(
 		Sprite*,
 		lbRelocGetForceExternHeapFile
@@ -670,6 +708,16 @@ void sc1PTrainingModeLoadWallpaper(void)
 		),
 		dSC1PTrainingModeWallpaperDescs[dSC1PTrainingModeWallpaperIDs[gSCManagerBattleState->gkind]].offset
 	);
+#ifdef PORT
+	// MPGroundData::wallpaper is a u32 reloc token on the port (Sprite* on N64).
+	// Storing the raw host pointer would truncate to 32 bits on LP64 and resolve
+	// to NULL through PORT_RESOLVE in grWallpaperMakeStatic, crashing training
+	// mode entry at lbCommonMakeSObjForGObj with fault_addr=0x34 (offsetof
+	// Sprite::bitmap). Register as a token so PORT_RESOLVE round-trips.
+	gMPCollisionGroundData->wallpaper = PORT_REGISTER(sprite);
+#else
+	gMPCollisionGroundData->wallpaper = sprite;
+#endif
 }
 
 // 0x8018DE60
@@ -683,8 +731,8 @@ void sc1PTrainingModeInitDisplayVars(void)
 // 0x8018DEDC
 SObj* sc1PTrainingModeMakeStatDisplay(GObj *interface_gobj, SC1PTrainingModeSprites *ts)
 {
-	SObj *sobj = lbCommonMakeSObjForGObj(interface_gobj, ts->sprite);
-	
+	SObj *sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveTS(ts));
+
 	sobj->pos.x = ts->pos.x;
 	sobj->pos.y = ts->pos.y;
 
@@ -726,7 +774,7 @@ void sc1PTrainingModeUpdateDamageDisplay(GObj *interface_gobj, s32 damage)
 		s32 modulo = damage / dSC1PTrainingModeDamageUnitLengths[i];
 		damage -= modulo * dSC1PTrainingModeDamageUnitLengths[i];
 
-		sobj->sprite = *sSC1PTrainingModeMenu.display_option_sprites[modulo];
+		sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, modulo);
 		sobj->pos.x = (s32) (dSC1PTrainingModeDamagePositionsX[i] - (sobj->sprite.width * 0.5F));
 		sobj = sobj->next;
 	}
@@ -777,7 +825,7 @@ void sc1PTrainingModeInitStatDisplayCharacterSprites(void)
 
 	for (i = 0; i < 39; i++)
 	{
-		Sprite *sprite = sSC1PTrainingModeMenu.display_option_sprites[i];
+		Sprite *sprite = sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, i);
 
 		sprite->red = 0x6C;
 		sprite->green = 0xFF;
@@ -814,12 +862,12 @@ void sc1PTrainingModeMakeDamageDisplay(void)
 
 	for (i = 0; i < 3; i++)
 	{
-		sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[0]);
+		sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, 0));
 		sc1PTrainingModeInitSpriteEnvColors(sobj);
 		sobj->pos.y = 20.0F;
 	}
 	sc1PTrainingModeUpdateDamageDisplay(interface_gobj, 0);
-	sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[38]);
+	sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, 38));
 	sc1PTrainingModeInitSpriteEnvColors(sobj);
 
 	sobj->pos.y = 20.0F;
@@ -837,7 +885,7 @@ void sc1PTrainingModeUpdateComboDisplay(GObj *interface_gobj, s32 combo)
 		s32 modulo = combo / dSC1PTrainingModeComboUnitLengths[i];
 		combo -= (modulo * dSC1PTrainingModeComboUnitLengths[i]);
 
-		sobj->sprite = *sSC1PTrainingModeMenu.display_option_sprites[modulo];
+		sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, modulo);
 		sobj->pos.x = (s32) (dSC1PTrainingModeComboPositionsX[i] - (sobj->sprite.width * 0.5F));
 		sobj = sobj->next;
 	}
@@ -897,7 +945,7 @@ void sc1PTrainingModeMakeComboDisplay(void)
 
 	for (i = 0; i < 2; i++)
 	{
-		SObj *sobj = lbCommonMakeSObjForGObj(interface_gobj, *sSC1PTrainingModeMenu.display_option_sprites);
+		SObj *sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, 0));
 		sc1PTrainingModeInitSpriteEnvColors(sobj);
 		sobj->pos.y = 36.0F;
 	}
@@ -908,7 +956,7 @@ void sc1PTrainingModeMakeComboDisplay(void)
 void sc1PTrainingModeUpdateSpeedDisplaySprite(void)
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.speed_display_gobj);
-	sobj->sprite = *sSC1PTrainingModeMenu.display_option_sprites[sSC1PTrainingModeMenu.speed_menu_option + 27];
+	sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, sSC1PTrainingModeMenu.speed_menu_option + 27);
 }
 
 // 0x8018E774
@@ -926,7 +974,7 @@ void sc1PTrainingModeMakeSpeedDisplay(void)
 	);
 	gcAddGObjDisplay(interface_gobj, lbCommonDrawSObjAttr, 23, GOBJ_PRIORITY_DEFAULT, ~0);
 
-	sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[sSC1PTrainingModeMenu.speed_menu_option + 27]);
+	sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, sSC1PTrainingModeMenu.speed_menu_option + 27));
 
 	sobj->pos.x = 276.0F;
 	sobj->pos.y = 20.0F;
@@ -938,7 +986,7 @@ void sc1PTrainingModeMakeSpeedDisplay(void)
 void sc1PTrainingModeUpdateCPDisplaySprite(void)
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.cp_display_gobj);
-	sobj->sprite = *sSC1PTrainingModeMenu.display_option_sprites[sSC1PTrainingModeMenu.cp_menu_option + 31];
+	sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, sSC1PTrainingModeMenu.cp_menu_option + 31);
 }
 
 // 0x8018E870
@@ -956,7 +1004,7 @@ void sc1PTrainingModeMakeCPDisplay(void)
 	);
 	gcAddGObjDisplay(interface_gobj, lbCommonDrawSObjAttr, 23, GOBJ_PRIORITY_DEFAULT, ~0);
 
-	sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[sSC1PTrainingModeMenu.cp_menu_option + 31]);
+	sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, sSC1PTrainingModeMenu.cp_menu_option + 31));
 
 #if defined(REGION_US)
 	sobj->pos.x = 191.0F;
@@ -973,7 +1021,7 @@ void sc1PTrainingModeUpdateItemDisplaySprite(void)
 {
 	SObj *root_sobj = SObjGetStruct(sSC1PTrainingModeMenu.item_display_gobj)->next, *next_sobj = root_sobj->next;
 
-	root_sobj->sprite = *sSC1PTrainingModeMenu.display_option_sprites[sSC1PTrainingModeMenu.item_hold + 10];
+	root_sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, sSC1PTrainingModeMenu.item_hold + 10);
 
 	root_sobj->pos.x = 292 - root_sobj->sprite.width;
 	next_sobj->pos.x = root_sobj->pos.x - next_sobj->sprite.width;
@@ -1025,16 +1073,16 @@ void sc1PTrainingModeMakeItemDisplay(void)
 	);
 	gcAddGObjDisplay(interface_gobj, sc1PTrainingModeItemDisplayProcDisplay, 23, GOBJ_PRIORITY_DEFAULT, ~0);
 
-	sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[37]);
+	sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, 37));
 	sobj->pos.x = 292.0F;
 	sobj->pos.y = 36.0F;
 	sc1PTrainingModeInitSpriteEnvColors(sobj);
 
-	sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[0]);
+	sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, 0));
 	sobj->pos.y = 36.0F;
 	sc1PTrainingModeInitSpriteEnvColors(sobj);
 
-	sobj = lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.display_option_sprites[36]);
+	sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, 36));
 	sobj->pos.y = 36.0F;
 	sc1PTrainingModeInitSpriteEnvColors(sobj);
 }
@@ -1091,7 +1139,7 @@ void sc1PTrainingModeInitMenuOptionSpriteAttrs(void)
 
 	for (i = 0; i < 31; i++)
 	{
-		sSC1PTrainingModeMenu.menu_option_sprites[i]->attr = SP_TEXSHUF | SP_TRANSPARENT;
+		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, i)->attr = SP_TEXSHUF | SP_TRANSPARENT;
 	}
 }
 
@@ -1133,7 +1181,7 @@ void sc1PTrainingModeInitCPOptionSpriteColors(void)
 
 	for (i = nSC1PTrainingModeMenuOptionSpriteCPStart; i <= nSC1PTrainingModeMenuOptionSpriteCPEnd; i++)
 	{
-		Sprite *sprite = sSC1PTrainingModeMenu.menu_option_sprites[i];
+		Sprite *sprite = sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, i);
 
 		sprite->red = 0xFF;
 		sprite->green = 0xFF;
@@ -1146,7 +1194,7 @@ void sc1PTrainingModeUpdateCPOptionSprite(void)
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.cp_option_gobj);
 
-	sobj->sprite = *sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.cp_menu_option + nSC1PTrainingModeMenuOptionSpriteCPStart];
+	sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.cp_menu_option + nSC1PTrainingModeMenuOptionSpriteCPStart);
 #if defined(REGION_US)
 	sobj->pos.x = 191 - (sobj->sprite.width / 2);
 #endif
@@ -1170,7 +1218,7 @@ void sc1PTrainingModeMakeCPOption(void)
 	sobj = lbCommonMakeSObjForGObj
 	(
 		interface_gobj,
-		sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.cp_menu_option + nSC1PTrainingModeMenuOptionSpriteCPStart]
+		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.cp_menu_option + nSC1PTrainingModeMenuOptionSpriteCPStart)
 	);
 
 #if defined(REGION_US)
@@ -1191,7 +1239,7 @@ void sc1PTrainingModeUpdateItemOptionSprite(void)
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.item_option_gobj);
 
-	sobj->sprite = *sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.item_menu_option + nSC1PTrainingModeMenuOptionSpriteItemStart];
+	sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.item_menu_option + nSC1PTrainingModeMenuOptionSpriteItemStart);
 
 #if defined(REGION_US)
 	sobj->pos.x = 191 - (sobj->sprite.width / 2);
@@ -1208,7 +1256,7 @@ void sc1PTrainingModeInitItemOptionSpriteColors(void)
 
 	for (i = nSC1PTrainingModeMenuOptionSpriteItemStart; i <= nSC1PTrainingModeMenuOptionSpriteItemEnd; i++)
 	{
-		Sprite *sprite = sSC1PTrainingModeMenu.menu_option_sprites[i];
+		Sprite *sprite = sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, i);
 
 		sprite->red = 0xFF;
 		sprite->green = 0xFF;
@@ -1234,7 +1282,7 @@ void sc1PTrainingModeMakeItemOption(void)
 	sobj = lbCommonMakeSObjForGObj
 	(
 		interface_gobj,
-		sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.item_menu_option + nSC1PTrainingModeMenuOptionSpriteItemStart]
+		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.item_menu_option + nSC1PTrainingModeMenuOptionSpriteItemStart)
 	);
 
 #if defined(REGION_US)
@@ -1257,7 +1305,7 @@ void sc1PTrainingModeInitSpeedOptionSpriteColors(void)
 
 	for (i = nSC1PTrainingModeMenuOptionSpriteSpeedStart; i <= nSC1PTrainingModeMenuOptionSpriteSpeedEnd; i++)
 	{
-		Sprite *sprite = sSC1PTrainingModeMenu.menu_option_sprites[i];
+		Sprite *sprite = sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, i);
 
 		sprite->red = 0xFF;
 		sprite->green = 0xFF;
@@ -1270,7 +1318,7 @@ void sc1PTrainingModeUpdateSpeedOptionSprite(void)
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.speed_option_gobj);
 
-	sobj->sprite = *sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.speed_menu_option + nSC1PTrainingModeMenuOptionSpriteSpeedStart];
+	sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.speed_menu_option + nSC1PTrainingModeMenuOptionSpriteSpeedStart);
 #if defined(REGION_US)
 	sobj->pos.x = 191 - (sobj->sprite.width / 2);
 #endif
@@ -1294,7 +1342,7 @@ void sc1PTrainingModeMakeSpeedOption(void)
 	sobj = lbCommonMakeSObjForGObj
 	(
 		interface_gobj,
-		sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.speed_menu_option + nSC1PTrainingModeMenuOptionSpriteSpeedStart]
+		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.speed_menu_option + nSC1PTrainingModeMenuOptionSpriteSpeedStart)
 	);
 
 #if defined(REGION_US)
@@ -1320,7 +1368,7 @@ void sc1PTrainingModeUpdateViewOptionSprite(void)
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.view_option_gobj);
 
-	sobj->sprite = *sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.view_menu_option + nSC1PTrainingModeMenuOptionSpriteViewStart];
+	sobj->sprite = *sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.view_menu_option + nSC1PTrainingModeMenuOptionSpriteViewStart);
 #if defined(REGION_US)
 	sobj->pos.x = 191 - (sobj->sprite.width / 2);
 #endif
@@ -1358,7 +1406,7 @@ void sc1PTrainingModeMakeViewOption(void)
 	sobj = lbCommonMakeSObjForGObj
 	(
 		interface_gobj,
-		sSC1PTrainingModeMenu.menu_option_sprites[sSC1PTrainingModeMenu.view_menu_option + nSC1PTrainingModeMenuOptionSpriteViewStart]
+		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, sSC1PTrainingModeMenu.view_menu_option + nSC1PTrainingModeMenuOptionSpriteViewStart)
 	);
 
 #if defined(REGION_US)
@@ -1453,11 +1501,11 @@ void sc1PTrainingModeMakeOptionArrows(void)
 
 	sc1PTrainingModeInitOptionArrowSpriteColors
 	(
-		lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.menu_option_sprites[nSC1PTrainingModeMenuOptionSpriteLeftArrow])
+		lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, nSC1PTrainingModeMenuOptionSpriteLeftArrow))
 	);
 	sc1PTrainingModeInitOptionArrowSpriteColors
 	(
-		lbCommonMakeSObjForGObj(interface_gobj, sSC1PTrainingModeMenu.menu_option_sprites[nSC1PTrainingModeMenuOptionSpriteRightArrow])
+		lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, nSC1PTrainingModeMenuOptionSpriteRightArrow))
 	);
 	sc1PTrainingModeUpdateOptionArrows();
 }
@@ -1465,7 +1513,7 @@ void sc1PTrainingModeMakeOptionArrows(void)
 // 0x8018F7C8
 SObj* func_ovl7_8018F7C8(GObj *interface_gobj, SC1PTrainingModeSprites *ts)
 {
-	SObj *sobj = lbCommonMakeSObjForGObj(interface_gobj, ts->sprite);
+	SObj *sobj = lbCommonMakeSObjForGObj(interface_gobj, sc1PTrainingModeResolveTS(ts));
 
 	sobj->pos.x = ts->pos.x;
 
@@ -1479,7 +1527,7 @@ void func_ovl7_8018F804(void) // Unused?
 
 	for (i = 0; i < 6; i++)
 	{
-		sSC1PTrainingModeMenu.unk_trainmenu_0x34[i].sprite->attr = SP_TEXSHUF | SP_TRANSPARENT;
+		sc1PTrainingModeResolveTS(&sSC1PTrainingModeMenu.unk_trainmenu_0x34[i])->attr = SP_TEXSHUF | SP_TRANSPARENT;
 	}
 }
 
@@ -1488,7 +1536,7 @@ void func_ovl7_8018F874(void) // Unused?
 {
 	SObj *sobj = SObjGetStruct(sSC1PTrainingModeMenu.unk_trainmenu_0x7C);
 
-	sobj->sprite = *sSC1PTrainingModeMenu.unk_trainmenu_0x34[sSC1PTrainingModeMenu.main_menu_option].sprite;
+	sobj->sprite = *sc1PTrainingModeResolveTS(&sSC1PTrainingModeMenu.unk_trainmenu_0x34[sSC1PTrainingModeMenu.main_menu_option]);
 	sobj->pos.x = sSC1PTrainingModeMenu.unk_trainmenu_0x34[sSC1PTrainingModeMenu.main_menu_option].pos.x;
 }
 
@@ -1516,7 +1564,7 @@ void func_ovl7_8018F984(void) // Unused?
 
 	for (i = 0; i < 28; i++)
 	{
-		sSC1PTrainingModeMenu.unk_trainmenu_0x38[i].sprite->attr = SP_TEXSHUF | SP_TRANSPARENT;
+		sc1PTrainingModeResolveTS(&sSC1PTrainingModeMenu.unk_trainmenu_0x38[i])->attr = SP_TEXSHUF | SP_TRANSPARENT;
 	}
 }
 
@@ -1558,7 +1606,7 @@ void func_ovl7_8018FA54(void) // Unused but referenced?
 	}
 	else
 	{
-		sobj->sprite = *sSC1PTrainingModeMenu.unk_trainmenu_0x38[sprite_id].sprite;
+		sobj->sprite = *sc1PTrainingModeResolveTS(&sSC1PTrainingModeMenu.unk_trainmenu_0x38[sprite_id]);
 		sobj->pos.x = sSC1PTrainingModeMenu.unk_trainmenu_0x38[sprite_id].pos.x;
 		sobj->pos.y = (sprite_id == nSC1PTrainingModeMenuOptionSpriteItemMotionSensorBomb) ? 178.0F : 182.0F;
 		sobj->sprite.attr &= ~SP_HIDDEN;
@@ -1613,7 +1661,7 @@ void sc1PTrainingModeMakeCursor(void)
 	target_sprite = lbCommonMakeSObjForGObj
 	(
 		interface_gobj,
-		sSC1PTrainingModeMenu.menu_option_sprites[nSC1PTrainingModeMenuOptionSpriteCursor]
+		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, nSC1PTrainingModeMenuOptionSpriteCursor)
 	);
 #if defined(REGION_US)
 	target_sprite->pos.x = 71.0F;
