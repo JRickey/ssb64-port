@@ -45,6 +45,20 @@ void portFixupStructU16(void *base, unsigned int byte_offset, unsigned int num_w
 void portResetStructFixups(void);
 
 /**
+ * Evict idempotency entries whose keys land inside [begin, begin+size).
+ * Call before overwriting a heap region with a fresh file load so the
+ * fixup set doesn't falsely skip a re-swap of the new bytes.
+ *
+ * Without this, bump-reset heaps (e.g. the stage-select wallpaper heaps
+ * reused on every cursor tick via lbRelocGetForceExternHeapFile) end up
+ * with stale entries pointing at re-used addresses: portFixupSprite et al.
+ * then skip, fields stay in post-BSWAP32 byte order, width_img/actualHeight
+ * read as huge swapped values, and the texel BSWAP loop walks past the
+ * texture into an unmapped page.
+ */
+void portEvictStructFixupsInRange(const void *begin, size_t size);
+
+/**
  * Undo pass1 BSWAP32 on a raw texture blob so its bytes return to N64
  * BE order.  Use for raw-texel file regions that the Sprite/Bitmap fixup
  * path never reaches and that pass2 can't discover statically (e.g. the

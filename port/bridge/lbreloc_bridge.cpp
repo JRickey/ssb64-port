@@ -346,6 +346,13 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	{
 		figatree_reloc_words.resize(copySize / sizeof(u32), 0);
 	}
+	// Invalidate fixup idempotency state that keyed on addresses inside the
+	// region we're about to overwrite. Needed because bump-reset heaps (e.g.
+	// the stage-select wallpaper heaps rewound by lbRelocGetForceExternHeapFile
+	// on every cursor tick) reuse the same addresses across stages; without
+	// this, portFixupSprite/Bitmap/SpriteBitmapData wrongly skip the new load
+	// and the BSWAP texel loop later walks past the texture on bogus sizes.
+	portEvictStructFixupsInRange(ram_dst, copySize);
 	memcpy(ram_dst, relocFile->Data.data(), copySize);
 
 	// One-shot raw dump for verification against ROM extraction.

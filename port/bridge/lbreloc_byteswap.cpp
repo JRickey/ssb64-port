@@ -1024,6 +1024,36 @@ extern "C" void portResetStructFixups(void)
 	sDeswizzle4cFixups.clear();
 }
 
+extern "C" void portEvictStructFixupsInRange(const void *begin, size_t size)
+{
+	if (begin == nullptr || size == 0)
+		return;
+
+	uintptr_t lo = reinterpret_cast<uintptr_t>(begin);
+	uintptr_t hi = lo + size;
+
+	auto evict_set = [&](std::unordered_set<uintptr_t> &s) {
+		for (auto it = s.begin(); it != s.end(); ) {
+			if (*it >= lo && *it < hi) it = s.erase(it);
+			else ++it;
+		}
+	};
+	evict_set(sStructU16Fixups);
+	evict_set(sDeswizzle4cFixups);
+
+	for (auto it = sTexFixupExtent.begin(); it != sTexFixupExtent.end(); ) {
+		if (it->first >= lo && it->first < hi) it = sTexFixupExtent.erase(it);
+		else ++it;
+	}
+
+	sProtectedStructRanges.erase(
+		std::remove_if(sProtectedStructRanges.begin(), sProtectedStructRanges.end(),
+		               [&](const ProtectedRange &r) {
+		                   return r.begin < hi && r.end > lo;
+		               }),
+		sProtectedStructRanges.end());
+}
+
 // For raw texel blobs loaded via a runtime-built SETTIMG (where pass2's
 // DL scan never saw the SETTIMG inside a stored display list) — apply
 // BSWAP32 again to restore N64 BE byte order that pass1 destroyed.
