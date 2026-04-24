@@ -443,14 +443,24 @@ void sc1PBonusStageBonus1LoadFile(void)
 void sc1PBonusStageMakeTargets(void)
 {
 	GRBonusTarget *target = &dSC1PBonusStageTargetDescs[gSCManagerBattleState->gkind - nGRKindBonus1Start];
+#ifdef PORT
+	u32 *anim_joints;
+	uintptr_t file_base = (uintptr_t)PORT_RESOLVE(gMPCollisionGroundData->gr_desc[1].dobjdesc) - target->start;
+#else
 	AObjEvent32 **anim_joints;
+#endif
 	DObjDesc *dobjdesc;
 	Vec3f vel;
 
 	vel.x = vel.y = vel.z = 0.0F;
 
+#ifdef PORT
+	dobjdesc = (DObjDesc*)(file_base + target->dobjdesc);
+	anim_joints = (u32*)(file_base + target->anim_joint);
+#else
 	dobjdesc = lbRelocGetFileData(DObjDesc*, ((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - target->start), target->dobjdesc);
 	anim_joints = lbRelocGetFileData(AObjEvent32**, ((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - target->start), target->anim_joint);
+#endif
 
 	gGRCommonStruct.bonus1.target_count = 0;
 
@@ -460,11 +470,22 @@ void sc1PBonusStageMakeTargets(void)
 	{
 		GObj *item_gobj = itManagerMakeItemSetupCommon(NULL, nITKindTarget, &dobjdesc->translate, &vel, ITEM_FLAG_PARENT_GROUND);
 
+#ifdef PORT
+		{
+			AObjEvent32 *aj = (AObjEvent32*)PORT_RESOLVE(*anim_joints);
+			if (aj != NULL)
+			{
+				gcAddDObjAnimJoint(DObjGetStruct(item_gobj), aj, 0.0F);
+				gcPlayAnimAll(item_gobj);
+			}
+		}
+#else
 		if (*anim_joints != NULL)
 		{
 			gcAddDObjAnimJoint(DObjGetStruct(item_gobj), *anim_joints, 0.0F);
 			gcPlayAnimAll(item_gobj);
 		}
+#endif
 		dobjdesc++, anim_joints++, gGRCommonStruct.bonus1.target_count++;
 	}
 	if (gGRCommonStruct.bonus1.target_count != SCBATTLE_BONUSGAME_TASK_MAX)
@@ -710,7 +731,11 @@ void sc1PBonusStageMakeBumpers(void)
 {
 	void *file;
 	DObjDesc *dobjdesc;
+#ifdef PORT
+	u32 *anim_joints;
+#else
 	AObjEvent32 **anim_joints;
+#endif
 	Vec3f vel;
 
 	if (gMPCollisionGroundData->map_nodes != NULL)
@@ -720,7 +745,11 @@ void sc1PBonusStageMakeBumpers(void)
 		vel.x = vel.y = vel.z = 0.0F;
 
 		dobjdesc = lbRelocGetFileData(DObjDesc*, file, dSC1PBonusStageBumperDescs[gSCManagerBattleState->gkind - nGRKindBonus2Start][0]);
+#ifdef PORT
+		anim_joints = (u32*)((uintptr_t)file + (intptr_t)dSC1PBonusStageBumperDescs[gSCManagerBattleState->gkind - nGRKindBonus2Start][1]);
+#else
 		anim_joints = lbRelocGetFileData(AObjEvent32**, file, dSC1PBonusStageBumperDescs[gSCManagerBattleState->gkind - nGRKindBonus2Start][1]);
+#endif
 
 		dobjdesc++, anim_joints++;
 
@@ -728,11 +757,22 @@ void sc1PBonusStageMakeBumpers(void)
 		{
 			GObj *item_gobj = itManagerMakeItemSetupCommon(NULL, nITKindGBumper, &dobjdesc->translate, &vel, ITEM_FLAG_PARENT_GROUND);
 
+#ifdef PORT
+			{
+				AObjEvent32 *aj = (AObjEvent32*)PORT_RESOLVE(*anim_joints);
+				if (aj != NULL)
+				{
+					gcAddDObjAnimJoint(DObjGetStruct(item_gobj), aj, 0.0F);
+					gcPlayAnimAll(item_gobj);
+				}
+			}
+#else
 			if (*anim_joints != NULL)
 			{
 				gcAddDObjAnimJoint(DObjGetStruct(item_gobj), *anim_joints, 0.0F);
 				gcPlayAnimAll(item_gobj);
 			}
+#endif
 			dobjdesc++, anim_joints++;
 		}
 	}

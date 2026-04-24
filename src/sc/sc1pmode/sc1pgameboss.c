@@ -1017,7 +1017,7 @@ void sc1PGameBossInitWallpaper(void)
 
         sSC1PGameBossMain.is_skip_wallpaper_change = FALSE;
         sSC1PGameBossMain.wallpaper_id = 0;
-        sSC1PGameBossMain.file_head = (void*) ((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - (intptr_t)llGRLastMapFileHead);
+        sSC1PGameBossMain.file_head = (void*) ((uintptr_t)PORT_RESOLVE(gMPCollisionGroundData->gr_desc[1].dobjdesc) - (intptr_t)llGRLastMapFileHead);
         sSC1PGameBossMain.change_wait = 0;
         sSC1PGameBossWallpaperStepRGBA = 0.0F;
     }

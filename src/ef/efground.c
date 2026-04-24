@@ -1591,7 +1591,7 @@ void efGroundMakeAppearActor(void)
             sEFGroundActor.effect_id = 0;
             sEFGroundActor.effect_data = &dEFGroundDatas[gSCManagerBattleState->gkind];
 
-            sEFGroundActor.file_head = (void*) ((uintptr_t)gMPCollisionGroundData->gr_desc[1].dobjdesc - (intptr_t)dEFGroundDatas[gSCManagerBattleState->gkind].o_data);
+            sEFGroundActor.file_head = (void*) ((uintptr_t)PORT_RESOLVE(gMPCollisionGroundData->gr_desc[1].dobjdesc) - (intptr_t)dEFGroundDatas[gSCManagerBattleState->gkind].o_data);
             sEFGroundActor.make_queue = 0;
 
             efGroundSetupRandomWeights();
