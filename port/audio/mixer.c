@@ -392,11 +392,23 @@ void aSetVolumeImpl(uint16_t flags, uint16_t vol, uint16_t voltgt, uint16_t volr
 /*    AL_AUX_L_OUT  (1728), AL_AUX_R_OUT  (2048)                     */
 /* ================================================================== */
 
-/* DMEM addresses for the 4 output buses — from synthInternals.h */
-#define MIX_MAIN_L 1088
-#define MIX_MAIN_R 1408
-#define MIX_AUX_L  1728
-#define MIX_AUX_R  2048
+/* DMEM bus addresses.  SSB64 builds with N_MICRO, which uses the
+ * N_AL_* DMEM layout (n_synthInternals.h), NOT the standard AL_*
+ * layout (synthInternals.h).  Using the wrong bank silently routes
+ * envmix output to one address while mainbuspull / interleave read
+ * from another → stereo channels see only the AUX-bus residue and
+ * sound like wildly different signals.  Verified empirically: this is
+ * THE bug behind the BGM-noise issue captured 2026-04-24.
+ *
+ *   N_AL_MAIN_L_OUT = 1248   (vs AL_MAIN_L_OUT = 1088)
+ *   N_AL_MAIN_R_OUT = 1616   (vs AL_MAIN_R_OUT = 1408)
+ *   N_AL_AUX_L_OUT  = 1984   (vs AL_AUX_L_OUT  = 1728)
+ *   N_AL_AUX_R_OUT  = 2352   (vs AL_AUX_R_OUT  = 2048)
+ */
+#define MIX_MAIN_L 1248
+#define MIX_MAIN_R 1616
+#define MIX_AUX_L  1984
+#define MIX_AUX_R  2352
 
 void aEnvMixerImpl(uint8_t flags, int16_t *state) {
 	int16_t *in = BUF_S16(rspa.in);
