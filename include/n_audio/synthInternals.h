@@ -104,6 +104,17 @@ typedef struct ALParam_s {
         s32             i;
     } yetstillmoredata;
 	s32 unk1C;
+#ifdef PORT
+    /* PORT: variant structs (ALStartParamAlt etc.) are routinely cast
+     * through ALParam-allocated freelist storage.  On LP64 their pointer
+     * fields widened from 4→8 bytes so e.g. ALStartParamAlt grew to 48,
+     * but sizeof(ALParam) is only 40.  Without extra slack, writes to
+     * `update->unk1C/unk1D` (at offset 40/41 within ALStartParamAlt)
+     * spill into the next param's `next` pointer in the freelist array
+     * and corrupt em_ctrlList on the very next consumer.  Pad ALParam
+     * up to 48 bytes so all variants fit.  See _Static_asserts below. */
+    u8 _port_overlay_pad[12];
+#endif
 } ALParam;
 
 typedef struct {
@@ -135,6 +146,15 @@ typedef struct {
     s16                 type;
     struct PVoice_s     *pvoice;
 } ALFreeParam;
+
+#ifdef PORT
+_Static_assert(sizeof(ALStartParamAlt) <= sizeof(ALParam),
+               "ALStartParamAlt must fit in ALParam freelist storage");
+_Static_assert(sizeof(ALStartParam)    <= sizeof(ALParam),
+               "ALStartParam must fit in ALParam freelist storage");
+_Static_assert(sizeof(ALFreeParam)     <= sizeof(ALParam),
+               "ALFreeParam must fit in ALParam freelist storage");
+#endif
 
 typedef Acmd *(*ALCmdHandler)(void *, s16 *, s32, s32, Acmd *);
 typedef s32   (*ALSetParam)(void *, s32, void *);
