@@ -520,7 +520,7 @@ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 outCount, Acmd *p)
   if (outCount == 0)
     return ptr;
 
-#ifndef N_MICRO  
+#ifndef N_MICRO
   inp = AL_DECODER_IN;
 #else
   inp = N_AL_DECODER_IN;
@@ -562,8 +562,13 @@ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 outCount, Acmd *p)
      * Now fix up state info to reflect the loop start point
      */
     f->dc_lastsam = f->dc_loop.start &0xf;
+#ifdef PORT
+    f->dc_memin = (uintptr_t) f->dc_table->base + ADPCMFBYTES *
+      ((s32) (f->dc_loop.start>>LFSAMPLES) + 1);
+#else
     f->dc_memin = (s32) f->dc_table->base + ADPCMFBYTES *
       ((s32) (f->dc_loop.start>>LFSAMPLES) + 1);
+#endif
     f->dc_sample = f->dc_loop.start;
     
     bEnd = *outp;
@@ -624,7 +629,11 @@ Acmd *n_alAdpcmPull(N_PVoice *filter, s16 *outp, s32 outCount, Acmd *p)
    * overFlow is the number of bytes past the end
    * of the bitstream I try to generate
    */
+#ifdef PORT
+  overFlow = f->dc_memin + nbytes - ((uintptr_t) f->dc_table->base + f->dc_table->len);
+#else
   overFlow = f->dc_memin + nbytes - ((s32) f->dc_table->base + f->dc_table->len);
+#endif
   if (overFlow < 0)
     overFlow = 0;
   nOver = (overFlow/ADPCMFBYTES)<<LFSAMPLES;
@@ -679,7 +688,11 @@ s32
   switch (paramID) {
   case (AL_FILTER_SET_WAVETABLE):
     a->dc_table = (ALWaveTable *) param;
+#ifdef PORT
+    a->dc_memin = (uintptr_t) a->dc_table->base;
+#else
     a->dc_memin = (s32) a->dc_table->base;
+#endif
     a->dc_sample = 0;
     switch (a->dc_table->type){
     case (AL_ADPCM_WAVE):
@@ -759,7 +772,7 @@ Acmd *_decodeChunk(Acmd *ptr, N_PVoice *f, s32 tsam,
 #else
   s32 dramAlign, dramLoc;
 #endif
-  
+
   if (nbytes > 0){
     dramLoc = (f->dc_dma)(f->dc_memin, nbytes, f->dc_dmaState);
     /*
@@ -910,15 +923,14 @@ Acmd *n_alEnvmixerPull(N_PVoice *filter, s32 sampleOffset, Acmd *p)
 
     switch (e->em_ctrlList->type) {
     case (AL_FILTER_START_VOICE_ALT):
-      {                  
+      {
 	ALStartParamAlt *param = (ALStartParamAlt *)e->em_ctrlList;
 	ALFilter     *f = (ALFilter *) e;
 	s32 tmp;
-	
 	if (param->unity) {
 	  e->rs_upitch = 1;
 	}
-	
+
 	n_alLoadParam(e, AL_FILTER_SET_WAVETABLE, param->wave);
 	e->em_motion = AL_PLAYING;
 	e->em_first  = 1;
@@ -1144,7 +1156,7 @@ s32
       e->em_ctrlTail->next = (ALParam *)param;
     } else {
       e->em_ctrlList = (ALParam *)param;
-    }            
+    }
     e->em_ctrlTail = (ALParam *)param;
     break;
   case (AL_FILTER_RESET):
@@ -1481,17 +1493,18 @@ Acmd *n_alAuxBusPull(s32 sampleOffset, Acmd *p)
 /***********************************************************************
  * Resampler filter public interfaces
  ***********************************************************************/
-Acmd *n_alResamplePull(N_PVoice *e, s16 *outp, Acmd *p) 
+Acmd *n_alResamplePull(N_PVoice *e, s16 *outp, Acmd *p)
 {
     Acmd        *ptr = p;
     s16         inp;
     s32         inCount;
     s32		incr;
     f32         finCount;
-    
+
 #ifdef AUD_PROFILE
     lastCnt[++cnt_index] = osGetCount();
 #endif
+
 
 #ifndef N_MICRO
     inp = AL_DECODER_OUT;
@@ -2701,13 +2714,22 @@ static ALMicroTime __n_CSPVoiceHandler(void *node)
 	 now be handled by __n_CSPHandleNextSeqEvent */
 
     case (AL_SEQ_END_EVT+20):
-        // TODO: may be wrong case, may be wrong RHS
+        /* PORT: unknown0 is an extra ALBank* slot addressed via
+         * `(&seqp->bank)[1]`.  The RHS carries an ALBank* through
+         * the spseq.seq union alias — cast directly, don't truncate. */
+#ifdef PORT
+        seqp->unknown0 = (ALBank *)seqp->nextEvent.msg.spseq.seq;
+#else
         seqp->unknown0 = (s32)(intptr_t)seqp->nextEvent.msg.spseq.seq;
+#endif
         __n_initFromBank((N_ALSeqPlayer *)seqp, seqp->nextEvent.msg.spseq.seq);
         break;
     case (AL_SEQ_END_EVT+21):
-        // TODO: may be wrong case, may be wrong RHS
+#ifdef PORT
+        seqp->unknown1 = (ALBank *)seqp->nextEvent.msg.spseq.seq;
+#else
         seqp->unknown1 = (s32)(intptr_t)seqp->nextEvent.msg.spseq.seq;
+#endif
         __n_initFromBank((N_ALSeqPlayer *)seqp, seqp->nextEvent.msg.spseq.seq);
         break;
     case (AL_SEQ_END_EVT):
@@ -2806,10 +2828,10 @@ static void __n_CSPHandleMIDIMsg(N_ALCSPlayer *seqp, N_ALEvent *event)
   chan = midi->status & AL_MIDI_ChannelMask;
   byte1 = key  = midi->byte1;
   byte2 = vel  = midi->byte2;
-  
+
   switch (status) {
   case (AL_MIDI_NoteOn):
-    
+
     if (vel != 0) /* a real note on */ {
       ALVoiceConfig   config;
       ALSound        *sound;
@@ -2828,12 +2850,12 @@ static void __n_CSPHandleMIDIMsg(N_ALCSPlayer *seqp, N_ALEvent *event)
       
       sound = __n_lookupSoundQuick((N_ALSeqPlayer*)seqp, key, vel, chan);
       ALFlagFailIf(!sound, seqp->debugFlags & NO_SOUND_ERR_MASK,
-		   ERR_ALSEQP_NO_SOUND); 
-      
+		   ERR_ALSEQP_NO_SOUND);
+
       config.priority = seqp->chanState[chan].priority;
       config.fxBus    = 0;
       config.unityPitch = 0;
-      
+
       vstate = __n_mapVoice((N_ALSeqPlayer*)seqp, key, vel, chan);
       ALFlagFailIf(!vstate, seqp->debugFlags & NO_VOICE_ERR_MASK,
 		   ERR_ALSEQP_NO_VOICE );
