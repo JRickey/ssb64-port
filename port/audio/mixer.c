@@ -76,17 +76,6 @@ static struct {
 	/* Pole filter coefficients (loaded via A_LOADADPCM for POLEF) */
 	int16_t  polef_coefs[8];
 
-	/* PORT: int32 bus accumulators for the four output buses (MAIN_L/R,
-	 * AUX_L/R).  The original N64 RSP envmix uses 32-bit accumulators
-	 * internally and clamps only at the final output; an int16 saturating
-	 * bus loses ~6 dB of dynamic range when many voices sum.  Voices
-	 * accumulate here without clamping; aInterleaveImpl clamp16s during
-	 * the L+R interleave step before writing back to int16 DMEM. */
-	int32_t  mix_main_l_acc[184];   /* FIXED_SAMPLE */
-	int32_t  mix_main_r_acc[184];
-	int32_t  mix_aux_l_acc[184];
-	int32_t  mix_aux_r_acc[184];
-
 	/* Simulated DMEM */
 	uint8_t  buf[DMEM_SIZE];
 } rspa;
@@ -144,15 +133,9 @@ static inline int16_t clamp16(int32_t v) {
 /*  A_CLEARBUFF (opcode 2) — Zero a region of DMEM                    */
 /* ================================================================== */
 
-/* Forward decls — int32 bus accumulator helpers, defined below. */
-static int32_t *bus_acc_for_addr(uint16_t addr);
-static void bus_acc_clear(uint16_t addr, int n_bytes);
-
 void aClearBufferImpl(uint16_t addr, int nbytes) {
 	nbytes = ROUND_UP_16(nbytes);
 	memset(BUF_U8(addr), 0, nbytes);
-	/* Also zero the int32 bus accumulator if this addr shadows a bus. */
-	bus_acc_clear(addr, nbytes);
 }
 
 /* ================================================================== */
@@ -454,36 +437,19 @@ void aResampleImpl(uint8_t flags, uint16_t pitch, int16_t *state) {
 
 void aInterleaveImpl(uint16_t left, uint16_t right) {
 	int count;
-	int16_t *d;
+	int16_t *l, *r, *d;
 	int i;
-	int32_t *bus_l, *bus_r;
 
 	if (rspa.nbytes == 0) return;
 
 	count = rspa.nbytes / (2 * sizeof(int16_t));
+	l = BUF_S16(left);
+	r = BUF_S16(right);
 	d = BUF_S16(rspa.out);
 
-	/* If both addrs reference int32 bus accumulators, clamp16 each sample
-	 * here (final output stage).  This is where the wider bus pays off:
-	 * intermediate per-voice mixes never lost dynamic range to clamp.    */
-	bus_l = bus_acc_for_addr(left);
-	bus_r = bus_acc_for_addr(right);
-	if (bus_l && bus_r) {
-		for (i = 0; i < count; i++) {
-			*d++ = clamp16(bus_l[i]);
-			*d++ = clamp16(bus_r[i]);
-		}
-		return;
-	}
-
-	/* Fallback: plain int16 DMEM interleave (unused on N_MICRO main path). */
-	{
-		int16_t *l = BUF_S16(left);
-		int16_t *r = BUF_S16(right);
-		for (i = 0; i < count; i++) {
-			*d++ = *l++;
-			*d++ = *r++;
-		}
+	for (i = 0; i < count; i++) {
+		*d++ = *l++;
+		*d++ = *r++;
 	}
 }
 
@@ -565,38 +531,6 @@ void aSetVolumeImpl(uint16_t flags, uint16_t vol, uint16_t voltgt, uint16_t volr
 #define MIX_AUX_L  1984
 #define MIX_AUX_R  2352
 
-/* Returns the int32 accumulator buffer that shadows a bus DMEM address,
- * or NULL if the address is plain DMEM.  Used by aClearBuffer / aMix /
- * aInterleave / aEnvMixer to operate on the wider accumulator instead of
- * the saturating int16 DMEM region. */
-static int32_t *bus_acc_for_addr(uint16_t addr)
-{
-	switch (addr) {
-		case MIX_MAIN_L: return rspa.mix_main_l_acc;
-		case MIX_MAIN_R: return rspa.mix_main_r_acc;
-		case MIX_AUX_L:  return rspa.mix_aux_l_acc;
-		case MIX_AUX_R:  return rspa.mix_aux_r_acc;
-		default:         return NULL;
-	}
-}
-
-/* Helper: zero a bus accumulator and (if the clear extent crosses an L/R
- * pair boundary) the matching R buffer too.  The N_MICRO main/aux clears
- * use a single aClearBuffer call covering both channels contiguously. */
-static void bus_acc_clear(uint16_t addr, int n_bytes)
-{
-	int32_t *acc = bus_acc_for_addr(addr);
-	int n_samples;
-	if (!acc) return;
-	n_samples = n_bytes / 2;   /* DMEM byte count → s16-equivalent samples */
-	if (n_samples > 184) n_samples = 184;
-	memset(acc, 0, n_samples * sizeof(int32_t));
-	if (n_bytes > 184 * 2) {   /* combined L+R clear; also zero R buffer */
-		if (addr == MIX_MAIN_L) memset(rspa.mix_main_r_acc, 0, sizeof(rspa.mix_main_r_acc));
-		if (addr == MIX_AUX_L)  memset(rspa.mix_aux_r_acc,  0, sizeof(rspa.mix_aux_r_acc));
-	}
-}
-
 void aEnvMixerImpl(uint8_t flags, int16_t *state) {
 	int16_t *in = BUF_S16(rspa.in);
 	int nbytes = ROUND_UP_16(rspa.nbytes);
@@ -638,18 +572,34 @@ void aEnvMixerImpl(uint8_t flags, int16_t *state) {
 			int32_t sL, sR;
 			int idx = (int)(in - 1 - BUF_S16(rspa.in));
 
-			sL = (s * cur_vol_l) >> 15;
-			sR = (s * cur_vol_r) >> 15;
+			/* Per-voice volume + dry/wet mix.
+			 *
+			 * IMPORTANT: shift `>> 16` (treating vol as u16 with full-scale
+			 * 0xFFFF) NOT `>> 15`.  This matches the OOT-port (Wiseguy /
+			 * Shipwright) and SM64-port HLE conventions: voice contribution
+			 * = (sample × vol × dry_amt) >> 30, not >> 30 doubled-via-15.
+			 * Using `>> 15` here makes each voice 4× hotter than it should
+			 * be, producing the ~10× overall loudness vs. mupen64plus and
+			 * the broadband clipping the user perceived as "scratchy noise."
+			 *
+			 * Bus is int16 with `clamp16` per voice — matches the real RSP
+			 * envmix (the bus literally cannot exceed s16 full scale, which
+			 * is where the natural headroom comes from). */
+			sL = (s * cur_vol_l) >> 16;
+			sR = (s * cur_vol_r) >> 16;
 
-			/* Accumulate into int32 dry buses (main L/R).  No clamp here —
-			 * the bus has 16 extra bits of headroom for many voices summing.
-			 * Final clamp happens in aInterleaveImpl. */
-			rspa.mix_main_l_acc[idx] += (sL * dry_amt) >> 15;
-			rspa.mix_main_r_acc[idx] += (sR * dry_amt) >> 15;
+			{
+				int16_t *dryL = BUF_S16(MIX_MAIN_L);
+				int16_t *dryR = BUF_S16(MIX_MAIN_R);
+				dryL[idx] = clamp16(dryL[idx] + ((sL * dry_amt) >> 16));
+				dryR[idx] = clamp16(dryR[idx] + ((sR * dry_amt) >> 16));
+			}
 
 			if (has_aux) {
-				rspa.mix_aux_l_acc[idx] += (sL * wet_amt) >> 15;
-				rspa.mix_aux_r_acc[idx] += (sR * wet_amt) >> 15;
+				int16_t *wetL = BUF_S16(MIX_AUX_L);
+				int16_t *wetR = BUF_S16(MIX_AUX_R);
+				wetL[idx] = clamp16(wetL[idx] + ((sL * wet_amt) >> 16));
+				wetR[idx] = clamp16(wetR[idx] + ((sR * wet_amt) >> 16));
 			}
 
 			nbytes -= sizeof(int16_t);
@@ -694,55 +644,31 @@ void aEnvMixerImpl(uint8_t flags, int16_t *state) {
 
 void aMixImpl(uint8_t flags, int16_t gain, uint16_t in_addr, uint16_t out_addr) {
 	int nbytes = ROUND_UP_16(rspa.nbytes);
-	int32_t *bus_in  = bus_acc_for_addr(in_addr);
-	int32_t *bus_out = bus_acc_for_addr(out_addr);
-	int n_samples;
+	int16_t *in = BUF_S16(in_addr);
+	int16_t *out = BUF_S16(out_addr);
+	int32_t sample;
 
 	(void)flags;
 
-	/* Bus-to-bus mix on int32 accumulators (e.g. AUX_L → MAIN_L).
-	 * Gain is treated as Q1.15.  No clamp here — the bus stays wide. */
-	if (bus_in && bus_out) {
-		n_samples = nbytes / 2;
-		if (n_samples > 184) n_samples = 184;
-		if (gain == -0x8000) {
+	if (gain == -0x8000) {
+		/* Special case: subtract only */
+		while (nbytes > 0) {
 			int i;
-			for (i = 0; i < n_samples; i++) {
-				bus_out[i] -= bus_in[i];
-			}
-		} else {
-			int i;
-			for (i = 0; i < n_samples; i++) {
-				/* (out + (in * gain) / 0x8000)  with rounding */
-				bus_out[i] += ((int64_t)bus_in[i] * gain + 0x4000) >> 15;
+			for (i = 0; i < 16 && nbytes > 0; i++) {
+				sample = *out - *in++;
+				*out++ = clamp16(sample);
+				nbytes -= sizeof(int16_t);
 			}
 		}
 		return;
 	}
 
-	/* Plain DMEM int16 mix path (unchanged from before). */
-	{
-		int16_t *in = BUF_S16(in_addr);
-		int16_t *out = BUF_S16(out_addr);
-		int32_t sample;
-		if (gain == -0x8000) {
-			while (nbytes > 0) {
-				int i;
-				for (i = 0; i < 16 && nbytes > 0; i++) {
-					sample = *out - *in++;
-					*out++ = clamp16(sample);
-					nbytes -= sizeof(int16_t);
-				}
-			}
-			return;
-		}
-		while (nbytes > 0) {
-			int i;
-			for (i = 0; i < 16 && nbytes > 0; i++) {
-				sample = ((*out * 0x7fff + *in++ * gain) + 0x4000) >> 15;
-				*out++ = clamp16(sample);
-				nbytes -= sizeof(int16_t);
-			}
+	while (nbytes > 0) {
+		int i;
+		for (i = 0; i < 16 && nbytes > 0; i++) {
+			sample = ((*out * 0x7fff + *in++ * gain) + 0x4000) >> 15;
+			*out++ = clamp16(sample);
+			nbytes -= sizeof(int16_t);
 		}
 	}
 }
