@@ -187,6 +187,15 @@ void aPoleFilterImpl(uint8_t flags, uint16_t gain, int16_t *state);
 /*    1. Call aSetBufferImpl to configure I/O state                   */
 /*    2. Call the corresponding CPU impl function                     */
 /*    3. Log the N_MICRO-encoded w0/w1 for trace comparison           */
+/*                                                                    */
+/*  IMPORTANT: TU must include this header AFTER both abi.h AND       */
+/*  n_abi.h so the n_a* originals exist to be #undef'd.  abi.h used   */
+/*  to auto-include this header, but that ran BEFORE n_abi.h was      */
+/*  pulled in via n_synthInternals.h, so n_abi.h's later #defines     */
+/*  silently clobbered our redefinitions of n_aLoadBuffer /           */
+/*  n_aADPCMdec / etc.  The pull chain wrote Acmd words that nothing  */
+/*  consumed → silent BGM.  Now n_env.c explicitly includes mixer.h   */
+/*  after the n_audio headers, and abi.h no longer auto-includes us.  */
 /* ================================================================== */
 
 #undef n_aADPCMdec
