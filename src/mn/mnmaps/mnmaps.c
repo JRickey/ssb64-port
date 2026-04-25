@@ -887,6 +887,7 @@ void mnMapsLoadMapFile(s32 gkind, void *heap)
 		),
 		dMNMapsFileInfos[gkind].offset
 	);
+	mpCollisionFixGroundDataLayout(sMNMapsGroundInfo);
 }
 
 // 0x80132BC8

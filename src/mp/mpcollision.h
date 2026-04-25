@@ -86,6 +86,7 @@ extern void mpCollisionAdvanceUpdateTic(GObj *ground_gobj);
 extern void mpCollisionInitYakumonoAll();
 extern s32 mpCollisionAllocLinesGetCountTotal();
 extern void mpCollisionInitLineIDsAll();
+extern void mpCollisionFixGroundDataLayout(MPGroundData *ground_data);
 extern void mpCollisionInitGroundData();
 extern void mpCollisionSetPlayBGM();
 extern void mpCollisionSetBGM();

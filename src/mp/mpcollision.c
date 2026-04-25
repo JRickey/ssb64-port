@@ -3966,6 +3966,24 @@ void mpCollisionInitLineIDsAll(void)
 }
 
 // 0x800FC284
+void mpCollisionFixGroundDataLayout(MPGroundData *ground_data)
+{
+#ifdef PORT
+    if (ground_data != NULL)
+    {
+        unsigned int bounds_off = (unsigned int)((uintptr_t)&ground_data->camera_bound_top - (uintptr_t)ground_data);
+        unsigned int team_off   = (unsigned int)((uintptr_t)&ground_data->alt_warning - (uintptr_t)ground_data);
+        unsigned int end_off    = (unsigned int)((uintptr_t)(&ground_data->zoom_end + 1) - (uintptr_t)ground_data);
+        unsigned int lmask_off  = (unsigned int)((uintptr_t)&ground_data->layer_mask - (uintptr_t)ground_data);
+
+        portFixupStructU16(ground_data, bounds_off, 4);
+        portFixupStructU16(ground_data, team_off, (end_off - team_off + 3) / 4);
+        portFixupStructU32(ground_data, lmask_off & ~3U, 1);
+    }
+#endif
+}
+
+// 0x800FC284
 void mpCollisionInitGroundData(void)
 {
     MPGeometryData *gdata;
@@ -4099,30 +4117,7 @@ void mpCollisionInitGroundData(void)
     gMPCollisionLightAngleX = gMPCollisionGroundData->light_angle.x;
     gMPCollisionLightAngleY = gMPCollisionGroundData->light_angle.y;
 
-#ifdef PORT
-    // Fix s16 pairs in MPGroundData that are position-swapped by blanket u32 swap.
-    // Use runtime pointer arithmetic to get correct offsets.
-    {
-        unsigned int bounds_off = (unsigned int)((uintptr_t)&gMPCollisionGroundData->camera_bound_top - (uintptr_t)gMPCollisionGroundData);
-        unsigned int team_off   = (unsigned int)((uintptr_t)&gMPCollisionGroundData->alt_warning - (uintptr_t)gMPCollisionGroundData);
-        unsigned int end_off    = (unsigned int)((uintptr_t)(&gMPCollisionGroundData->zoom_end + 1) - (uintptr_t)gMPCollisionGroundData);
-
-        // Camera/map bounds: 8 consecutive s16 fields = 4 u32 words
-        portFixupStructU16(gMPCollisionGroundData, bounds_off, 4);
-        // Team bounds + zoom: all s16 from alt_warning through zoom_end
-        portFixupStructU16(gMPCollisionGroundData, team_off, (end_off - team_off + 3) / 4);
-
-        // Fix u8 layer_mask — lives in the high byte of its u32 word after pass1
-        // blanket byteswap.  The struct read `layer_mask` picks up the low byte
-        // of the word (always 0 for valid masks), so Sector Z's layer-1 yakumono
-        // draw path mis-selects pri_proc_display (Gfx*) instead of sec_proc_display
-        // (DObjDLLink chain), dispatching DObjDLLink structs as raw GBI code.
-        {
-            unsigned int lmask_off = (unsigned int)((uintptr_t)&gMPCollisionGroundData->layer_mask - (uintptr_t)gMPCollisionGroundData);
-            portFixupStructU32(gMPCollisionGroundData, lmask_off & ~3U, 1);
-        }
-    }
-#endif
+    mpCollisionFixGroundDataLayout(gMPCollisionGroundData);
 }
 
 // 0x800FC3E8
