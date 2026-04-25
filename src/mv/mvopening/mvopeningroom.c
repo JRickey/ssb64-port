@@ -1073,6 +1073,19 @@ void mvOpeningRoomMakeLogoCamera(void)
 // 0x80133B58
 void mvOpeningRoomTransitionOverlayProcDisplay(GObj *gobj)
 {
+#ifdef PORT
+	{
+		static sb32 sLogged = FALSE;
+		if (!sLogged) {
+			DObj *d = DObjGetStruct(gobj);
+			port_log("SSB64: mvOpeningRoom transition-overlay display gobj=%p dobj=%p dl=%p tics=%d trans=(%.2f,%.2f,%.2f) scale=(%.3f,%.3f,%.3f)\n",
+				gobj, d, d ? d->dl : NULL, sMVOpeningRoomTotalTimeTics,
+				d ? d->translate.vec.f.x : 0.0F, d ? d->translate.vec.f.y : 0.0F, d ? d->translate.vec.f.z : 0.0F,
+				d ? d->scale.vec.f.x : 0.0F, d ? d->scale.vec.f.y : 0.0F, d ? d->scale.vec.f.z : 0.0F);
+			sLogged = TRUE;
+		}
+	}
+#endif
 	gDPPipeSync(gSYTaskmanDLHeads[0]++);
 	gDPSetCycleType(gSYTaskmanDLHeads[0]++, G_CYC_1CYCLE);
 	gDPSetColorImage(gSYTaskmanDLHeads[0]++, G_IM_FMT_RGBA, G_IM_SIZ_16b, gSYVideoResWidth, gSYVideoZBuffer);
@@ -1091,6 +1104,19 @@ void mvOpeningRoomTransitionOverlayProcDisplay(GObj *gobj)
 // 0x80133CEC
 void mvOpeningRoomTransitionOutlineProcDisplay(GObj *gobj)
 {
+#ifdef PORT
+	{
+		static sb32 sLogged = FALSE;
+		if (!sLogged) {
+			DObj *d = DObjGetStruct(gobj);
+			port_log("SSB64: mvOpeningRoom transition-outline display gobj=%p dobj=%p dl=%p tics=%d trans=(%.2f,%.2f,%.2f) scale=(%.3f,%.3f,%.3f)\n",
+				gobj, d, d ? d->dl : NULL, sMVOpeningRoomTotalTimeTics,
+				d ? d->translate.vec.f.x : 0.0F, d ? d->translate.vec.f.y : 0.0F, d ? d->translate.vec.f.z : 0.0F,
+				d ? d->scale.vec.f.x : 0.0F, d ? d->scale.vec.f.y : 0.0F, d ? d->scale.vec.f.z : 0.0F);
+			sLogged = TRUE;
+		}
+	}
+#endif
 	gDPPipeSync(gSYTaskmanDLHeads[0]++);
 	gDPSetCycleType(gSYTaskmanDLHeads[0]++, G_CYC_1CYCLE);
 	gDPSetColorImage(gSYTaskmanDLHeads[0]++, G_IM_FMT_RGBA, G_IM_SIZ_16b, gSYVideoResWidth, gSYVideoZBuffer);
