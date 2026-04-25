@@ -332,6 +332,44 @@ void aResampleImpl(uint8_t flags, uint16_t pitch, int16_t *state) {
 	const int16_t *tbl;
 	int32_t sample;
 
+	/* PORT: dump first resample call to disk for offline reference comparison.
+	 * Captures: flags, pitch, prior state (16 s16), DMEM contents around the
+	 * input area (the resampler reads in[-4..nbytes/8+4] roughly), rspa.in/out/
+	 * nbytes — enough for a Python reference to reproduce the math.
+	 * Set SSB64_RESAMPLE_DUMP=1 to enable. */
+	{
+		extern void port_log(const char *fmt, ...);
+		static int dumped = -1;
+		if (dumped == -1) {
+			dumped = (getenv("SSB64_RESAMPLE_DUMP") &&
+			          getenv("SSB64_RESAMPLE_DUMP")[0] == '1') ? 0 : -2;
+		}
+		if (dumped == 0) {
+			dumped = 1;
+			FILE *f = fopen("/tmp/resample_dump.bin", "wb");
+			if (f) {
+				/* Header (32 bytes): magic 'RSAMPDP1', flags(u32), pitch(u32),
+				 * nbytes(s32), in(u16), out(u16), reserved(12) */
+				fwrite("RSAMPDP1", 1, 8, f);
+				uint32_t fl = flags;          fwrite(&fl, 4, 1, f);
+				uint32_t pt = pitch;          fwrite(&pt, 4, 1, f);
+				int32_t  nb = nbytes;         fwrite(&nb, 4, 1, f);
+				uint16_t in_o = rspa.in;      fwrite(&in_o, 2, 1, f);
+				uint16_t out_o = rspa.out;    fwrite(&out_o, 2, 1, f);
+				uint8_t pad[10] = {0};        fwrite(pad, 1, 10, f);
+				/* Prior state: 16 s16 */
+				fwrite(state, sizeof(int16_t), 16, f);
+				/* Full DMEM (4 KB) — captures any input range the resampler
+				 * may touch including lookbehind / lookahead. */
+				fwrite(rspa.buf, 1, sizeof(rspa.buf), f);
+				fclose(f);
+				port_log("SSB64 Audio: resample dump → /tmp/resample_dump.bin (flags=0x%02x pitch=0x%04x nbytes=%d in=0x%04x out=0x%04x)\n",
+				         (unsigned)flags, (unsigned)pitch, nbytes,
+				         (unsigned)rspa.in, (unsigned)rspa.out);
+			}
+		}
+	}
+
 	if (flags & 0x01) { /* A_INIT */
 		memset(tmp, 0, 5 * sizeof(int16_t));
 	} else {
@@ -370,6 +408,26 @@ void aResampleImpl(uint8_t flags, uint16_t pitch, int16_t *state) {
 	}
 	state[5] = (int16_t)i;
 	memcpy(state + 8, in, 8 * sizeof(int16_t));
+
+	/* Append output samples to the dump on first call only. */
+	{
+		static int output_dumped = 0;
+		if (!output_dumped && getenv("SSB64_RESAMPLE_DUMP") &&
+		    getenv("SSB64_RESAMPLE_DUMP")[0] == '1') {
+			output_dumped = 1;
+			FILE *f = fopen("/tmp/resample_dump_output.bin", "wb");
+			if (f) {
+				int16_t *out_base = BUF_S16(rspa.out);
+				int n_samples = (int)(out - out_base);
+				/* Also write final state (post-call) so reference can
+				 * verify state save matches. */
+				fwrite(&n_samples, 4, 1, f);
+				fwrite(out_base, sizeof(int16_t), n_samples, f);
+				fwrite(state, sizeof(int16_t), 16, f);
+				fclose(f);
+			}
+		}
+	}
 }
 
 /* ================================================================== */

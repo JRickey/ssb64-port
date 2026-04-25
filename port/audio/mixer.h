@@ -275,7 +275,17 @@ void aPoleFilterImpl(uint8_t flags, uint16_t gain, int16_t *state);
 /* n_aEnvMixer(pkt, f, t, s) — envelope mixer:
  *   f=flags, t=cvolR (on A_INIT) or 0, s=state
  *   N_MICRO packs cvolR into the command; standard path sets it via
- *   a separate aSetVolume(A_RIGHT|A_VOL) call before aEnvMixer. */
+ *   a separate aSetVolume(A_RIGHT|A_VOL) call before aEnvMixer.
+ *
+ * IMPORTANT: N_MICRO envmix has a FIXED input DMEM address
+ * (N_AL_RESAMPLER_OUT = 0); the original RSP firmware hard-codes it.
+ * Without resetting rspa.in here, our impl would inherit whatever the
+ * previous aSetBuffer call set — typically the resampler's INPUT (the
+ * un-resampled ADPCM data at DMEM[~400]) rather than its OUTPUT (DMEM[0]).
+ * That bug routes the wrong DMEM region into the bus accumulator and
+ * shows up audibly as broadband noise overlaying recognizable music.
+ *
+ * FIXED_SAMPLE = SAMPLES = 184 (per n_synthInternals.h N_MICRO config). */
 #define n_aEnvMixer(pkt, f, t, s) \
 	do { (void)(pkt); \
 	     acmd_trace_log_cmd(_SHIFTL(A_ENVMIXER, 24, 8) | _SHIFTL(f, 16, 8) | _SHIFTL(t, 0, 16), \
@@ -283,6 +293,9 @@ void aPoleFilterImpl(uint8_t flags, uint16_t gain, int16_t *state);
 	     if ((f) & 0x01) { /* A_INIT */ \
 	         aSetVolumeImpl(0x04 /* A_RIGHT|A_VOL */, (uint16_t)(t), 0, 0); \
 	     } \
+	     /* Reset rspa.in to N_AL_RESAMPLER_OUT (= 0) and nbytes to a full \
+	      * sub-frame (FIXED_SAMPLE * 2) before invoking the impl. */ \
+	     aSetBufferImpl(0, 0 /* N_AL_RESAMPLER_OUT */, 0, 184 * 2 /* FIXED_SAMPLE * 2 */); \
 	     aEnvMixerImpl((uint8_t)(f), (int16_t*)(uintptr_t)(s)); \
 	} while (0)
 
