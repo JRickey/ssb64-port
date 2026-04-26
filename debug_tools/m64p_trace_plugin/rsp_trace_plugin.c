@@ -316,9 +316,6 @@ EXPORT unsigned int CALL DoRspCycles(unsigned int cycles)
 {
 	uint32_t task_type, dl_addr;
 
-	if (!sTraceFile) goto done;
-	if (sMaxFrames > 0 && sFrameNum >= sMaxFrames) goto done;
-
 	/* Read task type from DMEM (native byte order) */
 	task_type = dmem_read32(TASK_TYPE);
 
@@ -370,6 +367,9 @@ EXPORT unsigned int CALL DoRspCycles(unsigned int cycles)
 	if (task_type != M_GFXTASK) {
 		goto done;
 	}
+
+	if (!sTraceFile) goto done;
+	if (sMaxFrames > 0 && sFrameNum >= sMaxFrames) goto done;
 
 	/* Read display list start address from DMEM */
 	dl_addr = dmem_read32(TASK_DATA_PTR);
