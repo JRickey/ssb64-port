@@ -152,6 +152,43 @@ static int32_t *fixed_bus_acc(uint16_t addr) {
 	}
 }
 
+static void fixed_bus_clear(uint16_t addr, int nbytes) {
+	int count = nbytes / (int)sizeof(int16_t);
+	int offset;
+
+	if (addr < PORT_NAUDIO_DRY_LEFT || count <= 0) {
+		return;
+	}
+
+	offset = (addr - PORT_NAUDIO_DRY_LEFT) / (int)sizeof(int16_t);
+	if (offset < 0 || offset >= (int)(PORT_NAUDIO_COUNT * 4 / sizeof(int16_t))) {
+		return;
+	}
+
+	while (count > 0 && offset < (int)(PORT_NAUDIO_COUNT * 4 / sizeof(int16_t))) {
+		int bus = offset / (PORT_NAUDIO_COUNT / (int)sizeof(int16_t));
+		int bus_index = offset % (PORT_NAUDIO_COUNT / (int)sizeof(int16_t));
+		int run = (PORT_NAUDIO_COUNT / (int)sizeof(int16_t)) - bus_index;
+		int32_t *acc;
+
+		if (run > count) {
+			run = count;
+		}
+
+		switch (bus) {
+		case 0: acc = rspa.dry_left_acc; break;
+		case 1: acc = rspa.dry_right_acc; break;
+		case 2: acc = rspa.wet_left_acc; break;
+		case 3: acc = rspa.wet_right_acc; break;
+		default: return;
+		}
+
+		memset(acc + bus_index, 0, (size_t)run * sizeof(*acc));
+		offset += run;
+		count -= run;
+	}
+}
+
 static int32_t sample_read(uint16_t base, int index) {
 	int32_t *acc = fixed_bus_acc(base);
 	return acc ? acc[index] : BUF_S16(base)[index];
@@ -189,7 +226,7 @@ void aClearBufferImpl(uint16_t addr, int nbytes) {
 	int32_t *acc = fixed_bus_acc(addr);
 	nbytes = ROUND_UP_16(nbytes);
 	if (acc) {
-		memset(acc, 0, (size_t)(nbytes / sizeof(int16_t)) * sizeof(*acc));
+		fixed_bus_clear(addr, nbytes);
 	}
 	memset(BUF_U8(addr), 0, nbytes);
 }

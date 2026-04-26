@@ -11,7 +11,9 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <cmath>
 
 // SSB64 original output rate is 32 kHz.
 // At 60 fps that's ~533 samples/frame. We use the same high/low watermarks
@@ -67,15 +69,15 @@ extern "C" void portAudioPushSilence(void)
 /* ---------------------------------------------------------------------- */
 /*  WAV dump for offline inspection                                       */
 /*                                                                        */
-/*  Writes the first ~10 seconds of submitted PCM to /tmp/ssb64_dump.wav  */
+/*  Writes the first ~16 seconds of submitted PCM to /tmp/ssb64_dump.wav  */
 /*  (interleaved stereo s16 @ 32 kHz).  Open in Audacity to look at the   */
-/*  waveform / spectrogram and decide whether the noise is wrong-codec,   */
-/*  wrong-buffer-routing, or wrong-rate.                                  */
+/*  waveform / spectrogram and inspect the intro's 10-15s high-note       */
+/*  section where small aliasing/tinniness artifacts are easiest to hear. */
 /* ---------------------------------------------------------------------- */
 
 static FILE *sWavFile = nullptr;
 static uint32_t sWavBytesWritten = 0;
-static const uint32_t kWavMaxBytes = 32000u * 2u * 2u * 10u; /* 10 s stereo s16 @ 32 kHz */
+static const uint32_t kWavMaxBytes = 32000u * 2u * 2u * 16u; /* 16 s stereo s16 @ 32 kHz */
 
 static void wavWriteHeader(FILE *fp, uint32_t dataBytes)
 {
@@ -112,7 +114,7 @@ static void wavMaybeOpen(void)
     }
     /* Placeholder header — finalized when we close. */
     wavWriteHeader(sWavFile, 0);
-    port_log("SSB64 Audio: WAV dump opened /tmp/ssb64_dump.wav (will capture %u bytes ~ 10 s)\n",
+    port_log("SSB64 Audio: WAV dump opened /tmp/ssb64_dump.wav (will capture %u bytes ~ 16 s)\n",
              (unsigned)kWavMaxBytes);
 }
 
@@ -134,6 +136,63 @@ static void wavAppend(const void *buf, size_t bytes)
         port_log("SSB64 Audio: WAV dump finalized (%u bytes captured)\n",
                  (unsigned)sWavBytesWritten);
     }
+}
+
+static int16_t clampS16FromDouble(double v)
+{
+    long out = std::lrint(v);
+    if (out < -32768) return -32768;
+    if (out > 32767) return 32767;
+    return static_cast<int16_t>(out);
+}
+
+static bool outputFilterEnabled()
+{
+    static int sEnabled = -1;
+    if (sEnabled < 0) {
+        const char* env = std::getenv("SSB64_AUDIO_OUTPUT_FILTER");
+        sEnabled = !(env && (env[0] == '0' || env[0] == 'n' || env[0] == 'N'));
+    }
+    return sEnabled != 0;
+}
+
+static const int16_t* applyOutputFilter(const int16_t* input, int sampleCount)
+{
+    /* 32 kHz N64 output lands close to Nyquist on the intro's highest notes.
+     * This light 14.5 kHz Butterworth stage mimics the final output chain's
+     * anti-imaging rolloff without touching the actual mixer/resampler math. */
+    static int16_t sFilteredBuf[MAX_SAMPLES_STEREO];
+    static double sZ1[2] = { 0.0, 0.0 };
+    static double sZ2[2] = { 0.0, 0.0 };
+    static bool sLogged = false;
+
+    constexpr double b0 = 0.8118317459078658;
+    constexpr double b1 = 1.6236634918157316;
+    constexpr double b2 = 0.8118317459078658;
+    constexpr double a1 = 1.5879371063123660;
+    constexpr double a2 = 0.6593898773190974;
+
+    if (!outputFilterEnabled() || sampleCount <= 0 ||
+        sampleCount * 2 > MAX_SAMPLES_STEREO) {
+        return input;
+    }
+
+    if (!sLogged) {
+        sLogged = true;
+        port_log("SSB64 Audio: output low-pass enabled (set SSB64_AUDIO_OUTPUT_FILTER=0 to disable)\n");
+    }
+
+    for (int i = 0; i < sampleCount; i++) {
+        for (int ch = 0; ch < 2; ch++) {
+            double x = static_cast<double>(input[i * 2 + ch]);
+            double y = (b0 * x) + sZ1[ch];
+            sZ1[ch] = (b1 * x) - (a1 * y) + sZ2[ch];
+            sZ2[ch] = (b2 * x) - (a2 * y);
+            sFilteredBuf[i * 2 + ch] = clampS16FromDouble(y);
+        }
+    }
+
+    return sFilteredBuf;
 }
 
 extern "C" void portAudioSubmitFrame(const void *buf, int sampleCount)
@@ -168,7 +227,10 @@ extern "C" void portAudioSubmitFrame(const void *buf, int sampleCount)
             }
         }
     }
-    wavAppend(buf, byteLen);
+    const int16_t* pcm = reinterpret_cast<const int16_t*>(buf);
+    pcm = applyOutputFilter(pcm, sampleCount);
 
-    AudioPlayerPlayFrame(reinterpret_cast<const uint8_t*>(buf), byteLen);
+    wavAppend(pcm, byteLen);
+
+    AudioPlayerPlayFrame(reinterpret_cast<const uint8_t*>(pcm), byteLen);
 }
