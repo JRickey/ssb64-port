@@ -353,6 +353,15 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	// this, portFixupSprite/Bitmap/SpriteBitmapData wrongly skip the new load
 	// and the BSWAP texel loop later walks past the texture on bogus sizes.
 	portEvictStructFixupsInRange(ram_dst, copySize);
+	// Evict any libultraship texture-cache entries whose origAddr falls in
+	// the heap range we're about to overwrite. The Fast3D cache key is
+	// {addr, fmt, siz, sizeBytes, masks, maskt, w, h} — same-shape textures
+	// (e.g. the 300x6 RGBA16 wallpaper tile rows used by every stage) at a
+	// reused heap address would otherwise hit a stale cached upload from
+	// the prior file. Symptom: scene 45 (DK+Samus Kongo Jungle) renders
+	// the prior scene's wallpaper. See docs/dk_intro_wallpaper_*.md
+	extern void portTextureCacheDeleteRange(const void *base, size_t size);
+	portTextureCacheDeleteRange(ram_dst, copySize);
 	memcpy(ram_dst, relocFile->Data.data(), copySize);
 
 	// One-shot raw dump for verification against ROM extraction.
