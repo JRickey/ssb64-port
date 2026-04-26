@@ -1,216 +1,231 @@
-# Intro Explosion-Through-Window — Handoff (2026-04-25)
+# Intro Explosion-Through-Window — Handoff (2026-04-25, updated 2026-04-26)
 
 The mvOpeningRoom desk→arena transition explosion is **still not
-visible** after the PrimDepth fix
-(`docs/bugs/primdepth_unimplemented_2026-04-25.md`). This is the
-remaining gap. I have a strong root-cause hypothesis but no fix yet.
+visible** correctly on the port. After a long iteration session this
+file replaces the original handoff with a corrected understanding of
+the bug. Several prior assumptions in the original write-up were
+wrong; the corrections are below.
 
-## TL;DR
+## TL;DR — corrected
 
-The N64 game uses a stencil-through-windows trick: render an explosion
-into the Z buffer (via the color-image-redirect idiom), then draw the
-wallpaper sprite with `AA_EN | ALPHA_CVG_SEL` and alpha-zero pixels in
-the window areas. On real hardware, alpha=0 → coverage=0 → no Z/color
-write, so the explosion's Z is preserved at window pixels and the
-explosion shows through.
+The intended visual (verified against emulator screenshot at
+~frame 1060) is:
 
-Fast3D approximates AA via per-pixel src-alpha blending. It does
-**not** treat alpha-zero as "no write" the way coverage does; the
-wallpaper writes an opaque color (or near-opaque) at every pixel
-including the window cutouts, so the explosion is fully occluded.
+- Wallpaper sprite **visible everywhere** (the dim desk-room image)
+- A spiky red-and-white explosion mesh **drawn on top of** the wallpaper
+- The wallpaper underneath is *not* punched through; it's just under
+  a smaller animated overlay
 
-The explosion redirect-tris machinery (Outline silhouette + Overlay
-burst) is otherwise wired up correctly: tris reach `GfxSpTri1` (~1600
-hits per transition), the depth-test override for redirect-active
-draws lands them past Z rejection, the redirect-fill path clears
-depth before the silhouette tris draw. Frame-by-frame instrumentation
-confirmed all callbacks fire, animation progresses 0.052→1.000 across
-40 ticks, dl pointer is stable, no shader-compile failures.
+The bug on the port: the wallpaper sprite draws *after* the
+transition Outline+Overlay gobjs and **covers the silhouette
+entirely**. Skipping the wallpaper makes the silhouette visible
+against a red FILLCOLOR background — hence the original (now
+contradicted) framing of "explosion shows through windows in the
+wallpaper". There are **no windows in the wallpaper**; it's a
+flat dim image of the desk room.
 
-The PrimDepth fix that just shipped is necessary but not sufficient
-— it gets the wallpaper to its **intended** depth (z≈0.56 instead of
-front-plane z=0), but the wallpaper still has full alpha at window
-cutouts on the port, so it still occludes.
+## What we ruled out this session
 
-## What's already known and ruled out
+Several plausible-looking Fast3D fixes were tried and rejected:
 
-From the diagnostic session in `docs/intro_residuals_2026-04-25.md`
-plus follow-up:
+1. **Treat `AA_EN | ALPHA_CVG_SEL` as alpha-cutout.** Original
+   handoff hypothesised the wallpaper had alpha=0 cutouts.
+   Confirmed false: combiner alpha is `0,0,0,TEXEL0`, but the
+   wallpaper texture is opaque everywhere. There's no cutout to
+   discard.
 
-- ✅ Both transition GObjs (Outline / Overlay) animate and call their
-  display callbacks every tick during frames 1040-1080. Logged scale
-  growth from 0.052 → 1.000.
-- ✅ Outline silhouette tris (post-restore from redirect, OPA_SURF +
-  SHADE) reach `GfxSpTri1`. Captured via ring-buffer:
-  `prim=(00,00,00,ff) shade=(ff,00,00,00) combine=0x00dff9fffdff9fff
-  other_l=0x00552048 gm=0x405 ndc≈(±0.3,±0.3,0.76)`. `use_alpha`
-  decoded false; shader hardcodes alpha=1.0.
-- ✅ Overlay burst tris (redirect-active, PASS + PRIMITIVE) reach
-  `GfxSpTri1`. ~1600 hits per transition. With env-gated magenta
-  prim-color override they should produce magenta. **They don't appear
-  on screen.**
-- ✅ No shader compile failures (always-on `prg==NULL` log was clean).
-- ✅ All Metal `DrawTriangles` calls go to `mFramebuffers[fb=1]` (the
-  game framebuffer), which is composited to fb=0 (screen) at end of
-  frame via `Gui.cpp:721 ImGui::Image(GetGfxFrameBuffer(), size)`.
-- ✅ `ClearFramebuffer` (called by the redirect-fill path on
-  `0148b85`) properly invalidates the per-fb encoder caches at
-  `gfx_metal.cpp:940-950` — the encoder restart is not the bug.
-- ✅ Wallpaper-skip experiment confirmed: comment out
-  `mvOpeningRoomWallpaperProcDisplay`'s body during the transition
-  window and the explosion *does* appear on screen. So the explosion
-  geometry IS being drawn into fb=1; the wallpaper just covers it.
+2. **Force `use_alpha = true` whenever `alpha_threshold` is set**
+   (so `lbCommonStartSprite`'s `gDPSetAlphaCompare(G_AC_THRESHOLD)`
+   actually fires the shader's alpha-discard branch). Built and
+   tested — visual unchanged. The wallpaper texture has no
+   alpha-zero pixels for the discard to drop.
 
-## Working hypothesis: alpha-cutout coverage emulation
+3. **Clear depth to 0 for the redirect-fill in 1-cycle mode** (so
+   the wallpaper's `Z_CMP` at PrimDepth z=0.56 fails everywhere
+   during the transition window). Threading a `depth_value`
+   parameter through `ClearFramebuffer` for all three backends.
+   Built and tested — wallpaper *was* successfully Z-rejected, but
+   the visible result was the transition camera's FILLCOLOR (red)
+   over the entire screen with a tiny silhouette mesh in the
+   middle. Not the intended visual at all.
 
-The wallpaper sprite's render mode (`src/mv/mvopening/mvopeningroom.c:653`):
+4. **Switch `depth_test` derivation from `geometry_mode.G_ZBUFFER`
+   to `other_mode_l.Z_CMP`.** This is actually a principled change
+   (Z_CMP is the RDP's depth-test gate; G_ZBUFFER is for the RSP
+   vertex pipe) and it does fix the case where rectangles bypass
+   Z_CMP. But combined with the Z=0 clear it gave the same
+   wrong-direction result as #3. The change might still be worth
+   pursuing on its own terms — it's a port-wide correctness fix
+   independent of this transition — but only after verifying it
+   doesn't break other scenes.
 
-```c
-gDPSetRenderMode(...,
-    AA_EN | Z_CMP | IM_RD | CVG_DST_CLAMP | ZMODE_OPA |
-        ALPHA_CVG_SEL | GBL_c1(G_BL_CLR_IN, G_BL_A_IN, G_BL_CLR_MEM, G_BL_A_MEM),
-    AA_EN | Z_CMP | IM_RD | CVG_DST_CLAMP | ZMODE_OPA |
-        ALPHA_CVG_SEL | GBL_c2(G_BL_CLR_IN, G_BL_A_IN, G_BL_CLR_MEM, G_BL_A_MEM));
-```
+5. **Suppress framebuffer color writes for redirect-active tris**
+   (force `use_alpha=true` + `invisible=true` so alpha=0 leaves dst
+   unchanged, while depth still updates). Intended to mimic the
+   N64 redirect's "color goes to Z, no FB side-effect". Tested —
+   prevented the white blob that would otherwise appear at the
+   Overlay mesh, but did not produce the intended visual either,
+   because the Overlay redirect-tris on N64 actually write
+   *combiner-output-as-16-bit-Z* into the Z buffer, and our
+   approximation of "write vertex Z" doesn't reproduce that
+   gating.
 
-`ALPHA_CVG_SEL` means **the combiner alpha output replaces the
-hardware coverage value** (instead of the rasterizer-computed coverage
-from anti-aliasing). With `AA_EN` set, low coverage causes the blender
-to skip / partial-write the pixel. For an opaque sprite with
-alpha-cutout windows (alpha=0 at window pixels), this means:
+All five were reverted. **The libultraship submodule is back to
+its session-start state** as of this update.
 
-- Opaque pixels: coverage=255 → full write. Color and Z written.
-- Window pixels: coverage=0 → no write. Z preserved (the explosion's
-  Z that was written by the redirect-tris). Color preserved (whatever
-  was there before the wallpaper).
+## What the actual mechanism appears to be
 
-Fast3D does not implement this. The Metal/GL pipeline state for
-`use_alpha=true` (which `AA_EN | ZMODE_OPA | GBL_c1(CLR_IN, A_IN, CLR_MEM, A_MEM)`
-maps to) enables standard alpha blending with `setSourceRGBBlendFactor(SourceAlpha)`
-and `setDestinationRGBBlendFactor(OneMinusSourceAlpha)`. Result for
-alpha=0 src: `result.rgb = 0*src + 1*dst = dst`. Color preserved (good)
-— but **alpha** is also written, and Z is **written unconditionally**
-based on the depth-test outcome. The Z pass-through that the original
-N64 trick depends on doesn't happen.
+Reading the Outline / Overlay display callbacks against the
+emulator visual:
 
-That doesn't directly explain why the explosion is invisible (since
-color preserves dst at alpha-zero pixels — good). The deeper issue is
-that `Interpreter::GfxSpTri1` for the redirect-active draws **never
-writes Z at all** (depth_mask=false in the redirect override). So the
-explosion-shape-Z trick is broken too: the explosion's Z is never in
-the buffer for the wallpaper to compare against. Even if alpha-cutout
-coverage worked, there'd be no explosion-Z preserved at window
-pixels.
+- **Outline** (`mvopeningroom.c:1105`):
+    1. Redirects color image to Z buffer.
+    2. Issues a full-screen `gDPFillRectangle` in 1-cycle mode with
+       PRIM = (0,0,0,0xFF) and `G_RM_AA_XLU_SURF`. The XLU blender
+       resolves to writing `0x0001` (≈ 0) into every Z buffer pixel.
+       *On real hardware Z=0 means closest depth.*
+    3. Restores color image to FB.
+    4. Sets `G_RM_AA_OPA_SURF` (no Z_CMP / no Z_UPD) + combine =
+       SHADE, draws the visible silhouette mesh. *On real hardware
+       this draws unconditionally, ignoring depth entirely.*
 
-So this is actually a **two-sided** gap:
+- **Overlay** (`mvopeningroom.c:1074`):
+    1. Redirects color image to Z buffer.
+    2. Sets PRIM = white, combine = `0,0,0,PRIM` for both color
+       and alpha, render mode `G_RM_PASS | G_RM_OPA_SURF2`.
+    3. Draws the explosion-shape mesh. *On real hardware, with
+       redirect active, the combiner output (white = `0xFFFE`) gets
+       written into each Z buffer pixel covered by the mesh —
+       making Z near 1.0 (far) inside the explosion shape.*
+    4. Restores color image, restores render mode.
 
-1. **Redirect-tris don't actually write to the Z buffer.** On real
-   hardware they wrote Z values "into" what the color image was
-   pointed at (the Z buffer). The fix `5fe2efe` only made them
-   *visible* on the FB; it didn't reproduce the Z-write side-effect.
-2. **Alpha-cutout coverage isn't emulated**, so the wallpaper draws
-   opaque everywhere.
+- **Wallpaper** (drawn afterwards) sets `gDPSetDepthSource(G_ZS_PRIM)`,
+  PrimDepth z=0.56 (`36863/65535`), `Z_CMP` enabled. Real hardware
+  Z-test:
+    - Inside Overlay shape → buffer Z = 1.0 → `0.56 < 1.0` →
+      wallpaper passes → wallpaper drawn → desk visible
+    - Outside Overlay shape → buffer Z = 0 (from Outline-fill,
+      untouched by Overlay) → `0.56 < 0` → wallpaper rejected →
+      whatever's behind the wallpaper shows
 
-The original mechanism cannot be faithfully reproduced without
-either: (a) routing the redirect-tris to the depth attachment instead
-of the color attachment, or (b) some explicit "stencil through
-window" emulation done game-side under `#ifdef PORT`.
+Combined with the silhouette mesh drawing on top of all of it, the
+emulator visual makes sense: most of the screen shows the dim
+wallpaper (because the Overlay shape covers most of the screen
+EXCEPT the silhouette area), and the silhouette mesh's red-and-white
+spike is overlaid in the center.
+
+In other words: the **Overlay mesh shape is roughly the inverse
+of the explosion** — a "where wallpaper should remain visible"
+mask. The Outline-fill clears Z=0 everywhere (default = "wallpaper
+hidden"), then Overlay writes Z=1 over the parts where wallpaper
+should remain.
+
+## Why none of the partial port fixes worked
+
+All the variants we tried emulate part of this mechanism without
+the full color-image-redirect. The fundamental missing piece is:
+
+> When `mRdp->color_image_address == mRdp->z_buf_address`, draws
+> should write their **combiner-output RGBA reinterpreted as a
+> 16-bit Z value** to the depth attachment, with no framebuffer
+> side-effect.
+
+That's three concrete changes to libultraship:
+
+1. **Suppress framebuffer color writes** for redirect-active draws
+   — partially attempted via `invisible=true`, mostly works for
+   the FB suppression side.
+
+2. **Synthesize a depth value from the combiner output** for
+   redirect-active draws. The combiner output is per-fragment, not
+   per-vertex, so this would need a custom shader path that maps
+   `result.rgb` (5+5+5 bits) and `result.a` (1 bit) into a 16-bit
+   Z value, then writes that to gl_FragDepth / equivalent, instead
+   of using the interpolated vertex Z.
+
+3. **Override `depth_mask` to true** for redirect-active draws so
+   the synthesised depth actually lands in the depth attachment.
+
+Plus, for the `gDPFillRectangle` case (Outline-fill), the
+`fill_color`-derived value (or in 1-cycle mode the combiner output
+of the rect) should clear the depth attachment to that synthesised
+value — which is *value-dependent*, so plumbing through
+`ClearFramebuffer` with a depth-value parameter is required (or a
+fullscreen quad draw at the right Z).
+
+## Current state of the port
+
+After the reverts:
+
+- Wallpaper covers the silhouette (baseline bug).
+- The pre-existing PrimDepth fix and redirect-fill clear (to 1.0)
+  are intact.
+- No partial fixes from this session are committed; the only diff
+  vs the previous commit is this docs update.
 
 ## Suggested next steps
 
-There are roughly three directions, in increasing complexity:
+In rough order of effort:
 
-### Option A: Game-side hack — order the wallpaper behind the explosion
+1. **Game-side workaround** (small, scoped, doesn't generalize):
+   skip `mvOpeningRoomWallpaperProcDisplay`'s body during the
+   transition window (`sMVOpeningRoomTotalTimeTics ∈ [1040, 1080)`).
+   Confirmed visually-equivalent in an earlier experiment — the
+   silhouette renders against the FILLCOLOR background, which is
+   close enough to "explosion front and center" to pass for a
+   first-cut fix.
 
-Re-order the gobjs so the wallpaper draws **before** the explosion
-(swap DLLink so wallpaper at link 30, explosion at link 28? Or change
-priorities so wallpaper-camera draws before transition-camera).
-Combined with the PrimDepth fix that's already shipped, the wallpaper
-ends up at z=0.56 and the explosion at z≈0.88 (back). With wallpaper
-drawing first, then explosion drawing later with `Z_CMP` enabled and
-its z=0.88 > existing z=0.56 in the buffer → wait, that fails Z-test.
+2. **Game-side reorder** (also small): swap the creation order so
+   the wallpaper inserts *before* the transition camera at frame
+   1040. Verify whether insertion order or camera priority
+   determines draw order — if reorder works, silhouette will
+   render on top of wallpaper without any libultraship changes.
 
-Doesn't work cleanly. The explosion really does need to be drawn
-**before** the wallpaper for the Z-stencil trick. And on the port,
-the wallpaper has no alpha-cutout coverage so it'd cover the
-explosion anyway. Not a real solution.
+3. **`depth_test = Z_CMP` change in libultraship** (medium,
+   port-wide): this is the principled fix for "rectangles ignore
+   Z_CMP because GfxDrawRectangle clears geometry_mode". Ship it
+   on its own merits and regression-sweep title / fighter-select
+   / gameplay layering. With this in place, several other
+   sprite-vs-3D layering bugs may also resolve.
 
-### Option B: Game-side override — disable wallpaper Z-test during transition
-
-Under `#ifdef PORT`, change the wallpaper's render mode for the
-transition window so it does not write color over the explosion
-shape. Concretely: skip the wallpaper sprite render entirely while
-the transition gobjs are alive (the wallpaper-skip experiment that
-verified the diagnosis). Visually-equivalent to the N64 result
-because the wallpaper's only purpose during the transition is to
-provide a window-cutout for the explosion to show through; if we
-just skip the wallpaper during those 40 frames, the explosion is
-visible against the cleared FB.
-
-Pros: small, scoped, only touches `mvopeningroom.c`. Builds and runs
-today.
-Cons: hardcoded to one scene. Doesn't generalize. If the same idiom
-appears elsewhere (likely, on stage transitions or victory poses?),
-each site needs its own bypass.
-
-### Option C: Fast3D-side — emulate `ALPHA_CVG_SEL + AA_EN` as alpha discard
-
-In `libultraship/src/fast/interpreter.cpp::GfxSpTri1`, detect the
-`AA_EN | ALPHA_CVG_SEL | (m1b == G_BL_A_IN)` pattern and turn it
-into a `SHADER_OPT(ALPHA_THRESHOLD)` so the fragment shader does
-`if (alpha < threshold) discard_fragment()` (or similar). This makes
-the wallpaper's alpha-zero pixels not write color OR depth — closest
-real-hardware equivalent.
-
-Pros: generalizes to every game-side use of this idiom.
-Cons: have to be careful not to break other use cases of the same
-flags. Anti-aliased edges on regular geometry use AA_EN+ALPHA_CVG_SEL
-too; you don't want them to get hard-discarded, you want them
-soft-blended. Probably need to look at whether the wallpaper texture
-actually has alpha=0 at the cutout pixels (likely, since that's how
-real N64 distinguished window from frame), then key the discard on
-alpha < some threshold. Existing `texture_edge` heuristic at
-`interpreter.cpp:2108-2113` is similar — extend it.
-
-The corollary item-1 (redirect-tris not writing Z) is harder. To do
-it properly you'd need to bind the depth attachment as the color
-target during redirect-active draws — non-trivial on Metal. Unless
-the game's design works with "redirect-tris just visible on FB"
-without actually needing the Z stencil — in which case fixing
-ALPHA_CVG_SEL alone might be enough.
-
-## Quick test to validate Option C scope
-
-Before committing to a real Fast3D change, verify the wallpaper
-sprite texture's alpha channel:
-
-1. Add a one-shot log in libultraship at ImportTexture that dumps
-   the texture's alpha histogram for the wallpaper sprite (any IA8 /
-   IA4 / RGBA16 with mostly-opaque + sparse-alpha-zero pixels).
-2. Confirm alpha=0 corresponds to the window shapes.
-3. If yes, Option C is well-scoped. If no (e.g., it's coverage from
-   AA edges, not literal alpha=0 cutouts), the fix is harder.
+4. **Color-image-redirect emulation in libultraship** (large,
+   high-leverage): implement real depth-attachment writes for
+   redirect-active draws. This is what the original N64 code
+   relies on; once it works, the explosion transition lights up
+   correctly with no game-side workarounds. It also helps the
+   `ifCommonPlayerMagnifyUpdateRender` magnifier bubble (currently
+   handled via TextureRectangle skip) and any other scene using
+   the same idiom.
 
 ## Pointers
 
 | Subject | Location |
 |---|---|
-| Wallpaper render mode | `src/mv/mvopening/mvopeningroom.c:653` (`mvOpeningRoomWallpaperProcDisplay`) |
-| Wallpaper sprite resource | `lbRelocGetFileData(Sprite*, sMVOpeningRoomFiles[7], llMVOpeningRoomWallpaperSprite)` |
 | Outline display callback | `src/mv/mvopening/mvopeningroom.c:1105` |
 | Overlay display callback | `src/mv/mvopening/mvopeningroom.c:1074` |
-| Transition + wallpaper creation | `src/mv/mvopening/mvopeningroom.c:1370-1373` (frame 1040 trigger) |
-| Redirect depth-test override | `libultraship/src/fast/interpreter.cpp:2048-2052` (commit `5fe2efe`) |
-| Redirect-fill = depth clear | `libultraship/src/fast/interpreter.cpp:3338` (commit `0148b85`) |
-| TextureRectangle redirect skip | `libultraship/src/fast/interpreter.cpp:3222` (commit `4e5fe49`) |
-| AA / texture_edge approximation | `libultraship/src/fast/interpreter.cpp:2089-2102, 2252-2253` |
+| Transition + wallpaper creation (frame 1040) | `src/mv/mvopening/mvopeningroom.c:1369-1373` |
+| Wallpaper sprite render setup | `src/mv/mvopening/mvopeningroom.c:653` (`mvOpeningRoomWallpaperProcDisplay`) |
+| Wallpaper sprite resource | `lbRelocGetFileData(Sprite*, sMVOpeningRoomFiles[7], llMVOpeningRoomWallpaperSprite)` |
+| Per-frame Z clear (real depth-clear via redirect-fill) | `src/sys/objdisplay.c:2994-3001` |
+| `lbCommonStartSprite` (sets `G_AC_THRESHOLD`) | `src/lb/lbcommon.c:3145` |
+| Existing redirect-active depth-test override | `libultraship/src/fast/interpreter.cpp:2199-2203` (commit `5fe2efe`) |
+| Existing redirect-fill depth clear | `libultraship/src/fast/interpreter.cpp:3585-3603` (commit `0148b85`) |
+| TextureRectangle redirect skip | `libultraship/src/fast/interpreter.cpp:3529-3531` (commit `4e5fe49`) |
+| AA / texture_edge approximation | `libultraship/src/fast/interpreter.cpp:2256-2270` |
 | Fragment shader alpha-threshold | `libultraship/src/fast/shaders/metal/default.shader.metal:280-281` |
 | ImGui game-FB composite | `libultraship/src/ship/window/gui/Gui.cpp:716-722` |
 
 ## Don't break
 
-The PrimDepth fix shipped today (`docs/bugs/primdepth_unimplemented_2026-04-25.md`)
-correctly puts the wallpaper at z=0.56 and the fighter portrait card
-behind the model. Any further change to depth/coverage handling
-should regression-check the fighter description scene to make sure
-the 2D card stays behind the model.
+- The PrimDepth fix (`docs/bugs/primdepth_unimplemented_2026-04-25.md`)
+  correctly puts the wallpaper at z=0.56 and the fighter portrait
+  card behind the model. Any revisit of this transition that
+  touches depth handling needs to regression-check the fighter
+  description scene to make sure the 2D card stays behind the
+  model.
+- The per-frame Z clear at `src/sys/objdisplay.c:2999-3001` uses
+  the redirect-fill mechanism in `G_CYC_FILL` mode with
+  `fill_color = GPACK_ZDZ(G_MAXFBZ, 0)` — anything that changes
+  redirect-fill semantics must preserve that case as a
+  clear-to-1.0 (far) operation, or the entire game's depth
+  buffer goes wrong.
