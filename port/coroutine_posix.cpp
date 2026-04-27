@@ -21,6 +21,7 @@
 #include "port_watchdog.h"
 
 #include <ucontext.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
