@@ -4491,7 +4491,11 @@ void ftMainSetStatus(GObj *fighter_gobj, s32 status_id, f32 frame_begin, f32 ani
     if (status_id < 0) {
         port_log("SSB64: !!! ftMainSetStatus ENTRY status_id=0x%x (negative) "
                  "fighter_gobj=%p caller_ra=%p\n",
+#if defined(_MSC_VER)
+            (u32)status_id, fighter_gobj, (void *)0);
+#else
             (u32)status_id, fighter_gobj, __builtin_return_address(0));
+#endif
         port_dump_backtrace();
     }
 #endif

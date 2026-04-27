@@ -18,6 +18,7 @@
 
 #include "bridge/lbreloc_byteswap.h"
 #include "resource/RelocPointerTable.h"
+#include "resource/RelocFileTable.h"
 
 #include <ship/utils/binarytools/endianness.h>
 #include <spdlog/spdlog.h>
@@ -197,7 +198,6 @@ static void stage_audit_dump_per_file_vtx()
 	std::vector<std::pair<int, uint64_t>> v(sStageAuditVtxPerFile.begin(), sStageAuditVtxPerFile.end());
 	std::sort(v.begin(), v.end(), [](auto &a, auto &b){ return a.second > b.second; });
 	for (auto &p : v) {
-		extern const char* const gRelocFileTable[];
 		const char *path = (p.first >= 0) ? gRelocFileTable[p.first] : "(heap)";
 		port_log("[STAGE_AUDIT] vtx_per_file: file=%4d hits=%llu path=%s\n",
 		         p.first, (unsigned long long)p.second, path ? path : "(null)");
@@ -1012,7 +1012,7 @@ extern "C" void portFixupStructU32(void *base, unsigned int byte_offset, unsigne
 		static_cast<uint8_t *>(base) + byte_offset);
 	for (unsigned int i = 0; i < num_words; i++)
 	{
-		words[i] = __builtin_bswap32(words[i]);
+		words[i] = BSWAP32(words[i]);
 	}
 }
 

@@ -6,7 +6,11 @@
 #endif
 
 #ifdef PORT
+#if defined(_MSC_VER)
+__declspec(noreturn) extern void abort(void);
+#else
 extern void abort(void) __attribute__((noreturn));
+#endif
 extern void *malloc(unsigned long size);
 extern void free(void *ptr);
 #endif
