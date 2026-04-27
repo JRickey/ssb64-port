@@ -201,12 +201,12 @@ target_include_directories(ssb64_game PRIVATE
 # which MSVC merely warns about. Downgrade those here so the port can build
 # without modifying every decomp source file.
 if (NOT MSVC)
+    # Common warnings that both Clang and GCC accept.
     target_compile_options(ssb64_game PRIVATE
         -Werror=implicit-function-declaration
         -Wno-implicit-int
         -Werror=int-conversion
         -Werror=incompatible-pointer-types
-        -Werror=incompatible-library-redeclaration
         -Wno-shift-negative-value
         -Wno-parentheses-equality
         -Wno-pointer-sign
@@ -214,11 +214,20 @@ if (NOT MSVC)
         -Wno-unused-variable
         -Wno-unused-but-set-variable
         -Wno-unused-function
-        -Wno-constant-conversion
-        -Wno-tautological-constant-out-of-range-compare
-        -Werror=return-mismatch
         -Werror=return-type
     )
+    # Clang-only diagnostics. -Wincompatible-library-redeclaration is
+    # Clang-specific; -Wreturn-mismatch / -Wconstant-conversion /
+    # -Wtautological-constant-out-of-range-compare exist in modern Clang
+    # but only landed in GCC 14+ (or never).
+    if (CMAKE_C_COMPILER_ID MATCHES "Clang")
+        target_compile_options(ssb64_game PRIVATE
+            -Werror=incompatible-library-redeclaration
+            -Werror=return-mismatch
+            -Wno-constant-conversion
+            -Wno-tautological-constant-out-of-range-compare
+        )
+    endif()
 endif()
 
 ################################################################################
