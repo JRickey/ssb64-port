@@ -18,6 +18,19 @@
 #define va_start __builtin_va_start
 #define va_arg __builtin_va_arg
 #define va_end __builtin_va_end
+
+// glibc's <stdio.h> (and other headers) declare functions in terms of
+// __gnuc_va_list, expecting <stdarg.h> to typedef it. This shadow
+// header pre-empts the system <stdarg.h> via the project's include
+// path ordering, so we must provide __gnuc_va_list ourselves on
+// Linux/glibc — otherwise the first system header that uses it
+// triggers a cascade of "unknown type name '__gnuc_va_list'" errors.
+// Darwin's libc and MSVC's CRT don't reference this typedef.
+#ifndef __GNUC_VA_LIST
+#define __GNUC_VA_LIST
+typedef __builtin_va_list __gnuc_va_list;
+#endif
+
 #else
 
 typedef char* va_list;
