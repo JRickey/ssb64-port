@@ -1,8 +1,10 @@
 #include "first_run.h"
+#include "native_dialog.h"
 #include "port_log.h"
 
 #include <libultraship/libultraship.h>
 #include <fast/Fast3dWindow.h>
+#include <ship/window/FileDropMgr.h>
 #include <ship/window/gui/Gui.h>
 
 #include <SDL2/SDL.h>
@@ -277,6 +279,8 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
     }
     int frameCount = 0;
 
+    auto fdm = context->GetFileDropMgr();
+
     while (state != State::Done && state != State::Cancelled) {
         if (!window->IsRunning()) {
             state = State::Cancelled;
@@ -287,6 +291,19 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
                      frameCount);
             state = State::Cancelled;
             break;
+        }
+
+        // Drag-drop integration: if the user dropped a file on the window
+        // since last frame, paste its path into the input. SDL already
+        // routes SDL_DROPFILE events to FileDropMgr via Fast3dWindow's
+        // event handler; we just consume them here.
+        if (fdm && fdm->FileDropped()) {
+            if (const char* p = fdm->GetDroppedFile()) {
+                std::snprintf(romPath, sizeof(romPath), "%s", p);
+                statusMsg.clear();
+                port_log("first_run: drag-drop -> %s\n", p);
+            }
+            fdm->ClearDroppedFile();
         }
 
         DrawWizardFrame([&] {
@@ -312,12 +329,28 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
                 ImGui::Separator();
 
                 ImGui::Text("ROM path:");
-                ImGui::SetNextItemWidth(-1);
+                // InputText takes most of the row, Browse takes the right
+                // edge. -100 reserves room for a 90 px button + padding.
+                ImGui::SetNextItemWidth(-100);
                 ImGui::InputText("##rompath", romPath, sizeof(romPath));
+                ImGui::SameLine();
+                if (ImGui::Button("Browse...", ImVec2(90, 0))) {
+                    std::string picked = ssb64::OpenFileDialog(
+                        "Select your Super Smash Bros. ROM",
+                        {"z64", "n64", "v64"});
+                    if (!picked.empty()) {
+                        std::snprintf(romPath, sizeof(romPath), "%s",
+                                      picked.c_str());
+                        statusMsg.clear();
+                        port_log("first_run: native picker -> %s\n",
+                                 picked.c_str());
+                    }
+                }
 
-                ImGui::TextDisabled("Tip: drop a baserom.us.{z64,n64,v64}");
-                ImGui::TextDisabled("     into %s and click Extract.",
-                                    appData.c_str());
+                ImGui::TextDisabled(
+                    "Tip: drag a .z64/.n64/.v64 onto the window, or click");
+                ImGui::TextDisabled(
+                    "     Browse... and pick your ROM dump.");
                 ImGui::Spacing();
 
                 if (state == State::Extracting) {

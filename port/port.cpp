@@ -290,6 +290,12 @@ int PortInit(int argc, char* argv[]) {
 		}
 	}
 
+	// FileDropMgr must come up before the first-run wizard so SDL_DROPFILE
+	// events landing on the window during the wizard frame loop can be
+	// polled and used to fill the ROM path field.
+	if (!sContext->InitFileDropMgr()) { port_log("SSB64: InitFileDropMgr failed\n"); return 1; }
+	port_log("SSB64: FileDropMgr OK\n");
+
 	/* First-run flow:
 	 *   1. Silent shell-out: if a ROM sits at app-data / bundle / cwd we
 	 *      just extract without bothering the user.
@@ -346,7 +352,7 @@ int PortInit(int argc, char* argv[]) {
 		port_log("SSB64: Audio initialized at %d Hz\n", (int)audio.SampleRate);
 	}
 	if (!sContext->InitGfxDebugger()) { port_log("SSB64: InitGfxDebugger failed\n"); return 1; }
-	if (!sContext->InitFileDropMgr()) { port_log("SSB64: InitFileDropMgr failed\n"); return 1; }
+	// InitFileDropMgr already happened earlier — see the wizard plumbing.
 	port_log("SSB64: All subsystems initialized\n");
 
 	// Register resource factories
