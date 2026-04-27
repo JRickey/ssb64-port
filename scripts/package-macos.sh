@@ -122,6 +122,29 @@ EOF
 # Make the binaries executable (cp preserves mode, but be defensive).
 chmod +x "$APP/Contents/MacOS/$APP_NAME" "$APP/Contents/MacOS/torch"
 
+# ── 4b. Adhoc-sign the bundle as a unit ──
+# Modern Gatekeeper (Sequoia / 15.x+) flags downloaded adhoc-signed
+# bundles as "damaged" if the signature isn't deep enough to cover
+# every Mach-O inside. cp preserved each binary's linker-signature
+# individually, but the bundle as a whole isn't sealed — so the .app
+# refuses to install / launch from a quarantined DMG.
+#
+# `codesign --deep --force --sign -` walks the bundle, adhoc-signs
+# every executable and dylib, and writes a bundle-level signature
+# referencing all of them. Doesn't need an Apple Developer cert; it's
+# enough to satisfy Gatekeeper's structural check on a quarantined
+# download. For full "no warnings, no right-click-Open" we'd need a
+# real Developer ID Apple Distribution cert + notarization, but that
+# costs $99/yr and isn't tractable for an unsigned community port.
+#
+# Users who still hit "damaged" can run:
+#   xattr -dr com.apple.quarantine /Applications/SuperSmashBros64.app
+step "Adhoc-signing bundle"
+codesign --deep --force --sign - "$APP"
+codesign --verify --deep --strict "$APP" \
+    && echo "  signature verified" \
+    || fail "codesign verify failed on $APP"
+
 # ── 5. Build a drag-and-drop DMG ──
 # Standard macOS UX: user double-clicks the .dmg, sees a window with the
 # .app and a shortcut to /Applications side by side, drags one onto the
