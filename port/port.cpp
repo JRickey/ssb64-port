@@ -231,10 +231,25 @@ int PortInit(int argc, char* argv[]) {
 	sContext->GetConfig()->SetString("Window.Backend.Name", "Metal");
 #endif
 
+	/* Resolve archive locations across:
+	 *   1. App data dir (~/Library/Application Support/SuperSmashBros64 on
+	 *      mac, %APPDATA%\SuperSmashBros64 on Windows, $XDG_DATA_HOME on
+	 *      Linux) — canonical home for shipped builds.
+	 *   2. App bundle / install dir (next to the exe on Win/Linux,
+	 *      MyApp.app/Contents/Resources on mac).
+	 *   3. Current working dir — covers the dev workflow where build.sh
+	 *      copies the o2r next to the build/ssb64 binary and the project
+	 *      root is cwd.
+	 * LocateFileAcrossAppDirs returns the first hit in that order, or a
+	 * cwd-relative path if none exist (so InitResourceManager surfaces
+	 * the same "OTR not found" error path as before). */
 	std::vector<std::string> archivePaths = {
-		"ssb64.o2r",
-		"f3d.o2r"
+		Ship::Context::LocateFileAcrossAppDirs("ssb64.o2r"),
+		Ship::Context::LocateFileAcrossAppDirs("f3d.o2r"),
 	};
+	for (const auto& p : archivePaths) {
+		port_log("SSB64: archive path -> %s\n", p.c_str());
+	}
 	if (!sContext->InitResourceManager(archivePaths)) { port_log("SSB64: InitResourceManager failed\n"); return 1; }
 	port_log("SSB64: ResourceManager OK\n");
 
