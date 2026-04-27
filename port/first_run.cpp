@@ -11,12 +11,16 @@
 #include <imgui.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <functional>
+#include <future>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -289,6 +293,14 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
 
     auto fdm = context->GetFileDropMgr();
 
+    /* Background extraction is driven by a std::async future so the wizard
+     * keeps rendering while torch runs (~2-3 seconds). The future is set
+     * when the user clicks Extract; each frame we poll wait_for(0) to see
+     * if it's done. While the future is pending, the modal renders an
+     * indeterminate progress bar animated on frameCount. */
+    std::future<bool> extractFuture;
+    bool extractRunning = false;
+
     /* Register a "consume everything" drop handler for the duration of
      * the wizard.  FileDropMgr::CallHandlers fires synchronously from
      * the SDL_DROPFILE event in the SDL2 backend; if no handler claims
@@ -383,6 +395,14 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
                 if (state == State::Extracting) {
                     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f),
                                        "Extracting assets — please wait...");
+                    // Indeterminate progress bar. Torch doesn't emit
+                    // progress callbacks, so we animate a marquee-style
+                    // fraction that loops every ~2 s. ImGui doesn't
+                    // ship a marquee helper; pass a fraction in [0,1]
+                    // and an empty overlay string with a sliding
+                    // SetNextItemWidth to fake it.
+                    const float t = (frameCount % 120) / 120.0f;
+                    ImGui::ProgressBar(t, ImVec2(-1, 0), "Running torch...");
                 } else if (!statusMsg.empty()) {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                                        "%s", statusMsg.c_str());
@@ -398,7 +418,9 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
                         statusMsg = "ROM not found at that path.";
                     } else {
                         // Stage the ROM into appData so FindBaseRom picks
-                        // it up, then re-run extraction.
+                        // it up, then run extraction on a background
+                        // thread so the wizard can keep rendering frames
+                        // (and the progress bar animates).
                         fs::create_directories(appData);
                         const std::string staged =
                             appData + "/baserom.us." +
@@ -414,6 +436,17 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
                         } else {
                             state = State::Extracting;
                             statusMsg.clear();
+                            // Capture target_o2r_path by value — the
+                            // future may outlive any reference into
+                            // RunFirstRunWizard's scope on shutdown.
+                            std::string target = target_o2r_path;
+                            extractFuture = std::async(
+                                std::launch::async,
+                                [target]() {
+                                    return ExtractAssetsIfNeeded(
+                                        target, /*silent=*/true);
+                                });
+                            extractRunning = true;
                         }
                     }
                 }
@@ -429,18 +462,29 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
             }
         });
 
-        // Drive extraction synchronously after the frame that flipped to
-        // Extracting has rendered (so the user sees the "please wait..."
-        // text). One extra frame's latency is fine; extraction takes ~2s.
-        if (state == State::Extracting) {
-            DrawWizardFrame([] {});  // give the user a frame of feedback
-            if (ExtractAssetsIfNeeded(target_o2r_path, /*silent=*/true)) {
-                state = State::Done;
-            } else {
-                state = State::WaitingForRom;
-                statusMsg = "Extraction failed — see logs/torch-extract.log.";
+        // Poll the background extraction. wait_for(0) returns ready
+        // immediately if the thread finished since last frame.
+        if (extractRunning && extractFuture.valid()) {
+            auto status =
+                extractFuture.wait_for(std::chrono::milliseconds(0));
+            if (status == std::future_status::ready) {
+                bool ok = extractFuture.get();
+                extractRunning = false;
+                if (ok) {
+                    state = State::Done;
+                } else {
+                    state = State::WaitingForRom;
+                    statusMsg =
+                        "Extraction failed — see logs/torch-extract.log.";
+                }
             }
         }
+    }
+    // If we're exiting with a future still in flight (cancel during
+    // extraction), block on it so the thread doesn't outlive the
+    // future's stored state.
+    if (extractFuture.valid()) {
+        extractFuture.wait();
     }
 
     if (fdm) fdm->UnregisterDropHandler(consumer);
