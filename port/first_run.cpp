@@ -251,6 +251,13 @@ void DrawWizardFrame(const std::function<void()>& drawContents) {
     window->HandleEvents();
 
     gui->StartDraw();
+    // Mirror DrawAndRunGraphicsCommands: StartFrame populates
+    // mGfxCurrentWindowDimensions from the actual window before
+    // RunGuiOnly hands them to UpdateFramebufferParameters. Skipping it
+    // worked on Metal (it tolerates 0×0 framebuffer params) but on
+    // D3D11/OpenGL the backbuffer is created with zeroed dimensions and
+    // the wizard renders as a black screen.
+    window->StartFrame();
     drawContents();
     window->RunGuiOnly();
     gui->EndDraw();
