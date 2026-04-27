@@ -3,6 +3,7 @@
 #include "gameloop.h"
 
 #include <libultraship/libultraship.h>
+#include <SDL2/SDL.h>
 #include <libultraship/controller/controldeck/ControlDeck.h>
 #include <fast/Fast3dWindow.h>
 #include <ship/resource/File.h>
@@ -268,6 +269,10 @@ int PortInit(int argc, char* argv[]) {
 		// would still partially work for the wizard, which is enough.
 		const std::string f3d = Ship::Context::LocateFileAcrossAppDirs("f3d.o2r");
 		port_log("SSB64: bootstrap archive (shaders) -> %s\n", f3d.c_str());
+		port_log("SSB64: AppBundlePath    = %s\n",
+		         Ship::Context::GetAppBundlePath().c_str());
+		port_log("SSB64: AppDirectoryPath = %s\n",
+		         Ship::Context::GetAppDirectoryPath().c_str());
 		std::vector<std::string> bootstrapPaths = {f3d};
 		if (!sContext->InitResourceManager(bootstrapPaths, {}, 0,
 		                                   /*allowEmptyPaths=*/true)) {
@@ -392,7 +397,27 @@ int PortIsRunning(void) {
 } // extern "C"
 
 int main(int argc, char* argv[]) {
-	port_log_init("ssb64.log");
+	/* Use an absolute path for ssb64.log so it lands in a predictable
+	 * place regardless of how the binary was launched (Finder / open /
+	 * shell from any cwd). SDL_GetPrefPath returns the OS app-data dir
+	 * (~/Library/Application Support/ssb64/, %APPDATA%\ssb64\,
+	 * $XDG_DATA_HOME/ssb64/) and creates it on demand — same dir
+	 * Ship::Context will later use for the user's saves and o2r.
+	 *
+	 * SDL_Init isn't needed for SDL_GetPrefPath on macOS / Linux, but
+	 * SDL2 docs note it's preferred to call after SDL_Init on Windows
+	 * for codepage handling. Doing it pre-Init is fine for our use:
+	 * the path is ASCII and the file we open is ASCII-only. */
+	{
+		std::string logPath;
+		if (char* p = SDL_GetPrefPath(NULL, "ssb64")) {
+			logPath = std::string(p) + "ssb64.log";
+			SDL_free(p);
+		} else {
+			logPath = "ssb64.log";  // last-resort cwd fallback
+		}
+		port_log_init(logPath.c_str());
+	}
 
 #ifdef _WIN32
 	SetUnhandledExceptionFilter(portWindowsCrashFilter);

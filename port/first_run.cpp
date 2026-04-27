@@ -64,7 +64,10 @@ std::string FindTorchBinary() {
         app + "/torch",
         app + "/torch.exe",
 #ifdef __APPLE__
-        app + "/../Resources/torch",
+        // macOS bundle: GetAppBundlePath returns .app/Contents/Resources;
+        // the sidecar torch binary lives in .app/Contents/MacOS alongside
+        // the main executable per Apple convention.
+        app + "/../MacOS/torch",
 #endif
         // dev: when ssb64 binary lives in <build>/, sibling dir holds torch
         app + "/TorchExternal/src/TorchExternal-build/torch",
@@ -86,10 +89,7 @@ std::string FindTorchBinary() {
 std::string FindTorchConfigDir() {
     const std::string app = Ship::Context::GetAppBundlePath();
     std::vector<std::string> candidates = {
-#ifdef __APPLE__
-        app + "/../Resources",      // shipped: ssb64.app/Contents/Resources/config.yml
-#endif
-        app,                        // shipped Win/Linux: next to exe
+        app,                        // shipped: macOS Resources, Win/Linux exe-dir
         app + "/..",                // dev: build/ssb64 → project root
         ".",                        // last-ditch cwd
     };
