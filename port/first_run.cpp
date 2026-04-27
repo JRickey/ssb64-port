@@ -268,8 +268,23 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
     State state = State::WaitingForRom;
     std::string statusMsg;
 
+    // Test hook: SSB64_WIZARD_AUTOCANCEL=N cancels after the Nth frame.
+    // Lets CI / manual smoke tests exercise the cancel exit path without
+    // having to drive the ImGui modal interactively.
+    int autoCancelFrame = -1;
+    if (const char* env = std::getenv("SSB64_WIZARD_AUTOCANCEL")) {
+        autoCancelFrame = std::atoi(env);
+    }
+    int frameCount = 0;
+
     while (state != State::Done && state != State::Cancelled) {
         if (!window->IsRunning()) {
+            state = State::Cancelled;
+            break;
+        }
+        if (autoCancelFrame >= 0 && frameCount++ >= autoCancelFrame) {
+            port_log("first_run: SSB64_WIZARD_AUTOCANCEL fired at frame %d\n",
+                     frameCount);
             state = State::Cancelled;
             break;
         }

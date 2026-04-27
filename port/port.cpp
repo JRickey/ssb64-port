@@ -250,8 +250,16 @@ int PortInit(int argc, char* argv[]) {
 
 	// ControlDeck MUST be initialized before Window — the DXGI window proc
 	// calls ControllerUnblockGameInput on WM_SETFOCUS during window creation.
-	auto controlDeck = std::make_shared<LUS::ControlDeck>();
-	if (!sContext->InitControlDeck(controlDeck)) { port_log("SSB64: InitControlDeck failed\n"); return 1; }
+	//
+	// Scoped so the local shared_ptr drops its ref inside the block: sContext
+	// retains a copy via InitControlDeck, so when PortShutdown later calls
+	// sContext.reset() it's the sole owner. Otherwise PortInit's locals
+	// outlive sContext and their destructors run after spdlog::shutdown,
+	// crashing in SPDLOG_DEBUG calls inside libultraship destructors.
+	{
+		auto controlDeck = std::make_shared<LUS::ControlDeck>();
+		if (!sContext->InitControlDeck(controlDeck)) { port_log("SSB64: InitControlDeck failed\n"); return 1; }
+	}
 	port_log("SSB64: ControlDeck OK\n");
 
 	{
@@ -269,14 +277,17 @@ int PortInit(int argc, char* argv[]) {
 		port_log("SSB64: bootstrap ResourceManager OK\n");
 	}
 
-	auto window = std::make_shared<Fast::Fast3dWindow>();
-	if (!sContext->InitWindow(window)) { port_log("SSB64: InitWindow failed\n"); return 1; }
-	port_log("SSB64: Window OK\n");
+	// See controlDeck note above re: scoping.
+	{
+		auto window = std::make_shared<Fast::Fast3dWindow>();
+		if (!sContext->InitWindow(window)) { port_log("SSB64: InitWindow failed\n"); return 1; }
+		port_log("SSB64: Window OK\n");
 
-	// Top-of-screen menu bar (File / View / Help). Toggle with F1.
-	if (auto gui = window->GetGui()) {
-		gui->SetMenuBar(std::make_shared<ssb64::MenuBar>());
-		port_log("SSB64: MenuBar attached\n");
+		// Top-of-screen menu bar (File / View / Help). Toggle with F1.
+		if (auto gui = window->GetGui()) {
+			gui->SetMenuBar(std::make_shared<ssb64::MenuBar>());
+			port_log("SSB64: MenuBar attached\n");
+		}
 	}
 
 	/* First-run flow:
@@ -297,6 +308,13 @@ int PortInit(int argc, char* argv[]) {
 		        Ship::Context::LocateFileAcrossAppDirs("ssb64.o2r"))) {
 			if (!ssb64::RunFirstRunWizard(targetO2r)) {
 				port_log("SSB64: first-run wizard cancelled — exiting\n");
+				// PortShutdown drops audio bridge refs + resets sContext
+				// before main returns. Without it, IResource destructors
+				// run during static teardown after spdlog has already
+				// closed, raising "mutex lock failed: Invalid argument"
+				// from the Fast3dWindow destructor's SPDLOG_DEBUG and
+				// terminating with SIGABRT.
+				PortShutdown();
 				return 1;
 			}
 		}
