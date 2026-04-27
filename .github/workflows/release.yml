@@ -1,0 +1,119 @@
+name: Release
+
+# Triggered by:
+#   - Pushing a tag matching v* (e.g. v1.0.0, v0.1-test)
+#   - Manual dispatch from the GitHub UI for smoke-testing
+#
+# Three platform jobs build with NON_PORTABLE=ON via the corresponding
+# scripts/package-*.sh|.ps1 helper, then a final `release` job stitches
+# the artifacts into a GitHub Release attached to the tag.
+#
+# The build is ROM-independent end-to-end: ssb64.o2r is NEVER produced
+# by CI. Users extract it from their own ROM via the ImGui first-run
+# wizard at launch.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:    # manual trigger; no Release is created
+
+permissions:
+  contents: write       # softprops/action-gh-release needs this on the
+                        # final job to attach assets and create the
+                        # Release. Read-only on every other step.
+
+jobs:
+  build-macos:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install build deps
+        run: |
+          brew install cmake ninja sdl2 zip
+      - name: Package macOS .app
+        run: bash scripts/package-macos.sh
+      - name: Zip the .app for upload
+        # GitHub artifacts strip executable bits and recurse into .app
+        # bundles unpredictably. Wrapping in a zip preserves Unix modes
+        # and the bundle hierarchy.
+        run: |
+          cd dist
+          zip -ry SuperSmashBros64-macos.zip SuperSmashBros64.app
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperSmashBros64-macos
+          path: dist/SuperSmashBros64-macos.zip
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build zip \
+            libsdl2-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            imagemagick
+          # appimagetool isn't packaged on apt; fetch the upstream AppImage.
+          wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
+            -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+      - name: Package Linux AppImage
+        run: bash scripts/package-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperSmashBros64-linux
+          path: dist/SuperSmashBros64-x86_64.AppImage
+          if-no-files-found: error
+
+  build-windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install build deps
+        # Windows runner ships with cmake / Visual Studio Build Tools
+        # already. SDL2 comes from vcpkg, which is integrated by
+        # libultraship/CMakeLists's vcpkg bootstrap.
+        run: |
+          choco install ninja -y
+        shell: pwsh
+      - name: Package Windows zip
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/package-windows.ps1
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SuperSmashBros64-windows
+          path: dist/SuperSmashBros64-windows.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-linux, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v')   # only on tag pushes
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/SuperSmashBros64-macos.zip
+            artifacts/SuperSmashBros64-x86_64.AppImage
+            artifacts/SuperSmashBros64-windows.zip
+          generate_release_notes: true
+          draft: true   # land as a draft so a human can sanity-check
+                        # before the release is visible to the public.
