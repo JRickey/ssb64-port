@@ -17,6 +17,7 @@
 #ifdef PORT
 #include <stdlib.h>
 extern void port_log(const char *fmt, ...);
+extern char *getenv(const char *name);
 #endif
 
 #include <PR/mbi.h>
@@ -922,6 +923,15 @@ sb32 syTaskmanSwitchContext(s32 arg0)
 				return 1;
 			}
 		}
+#ifdef PORT
+		extern int sPortContentionFlag;
+		sPortContentionFlag = 1;
+		if (getenv("SSB64_TRACE_SWITCH_CTX") != NULL) {
+			port_log("SSB64: SwitchContext arg0=%d ALL SLOTS FULL count=%d slots=[%d,%d,%d]\n",
+				(int)arg0, (int)gSYTaskmanTaskCount,
+				(int)D_80046638[0], (int)D_80046638[1], (int)D_80046638[2]);
+		}
+#endif
 		if (arg0 == 0)
 		{
 			osRecvMesg(&sSYTaskmanContextMesgQueue, &msg, OS_MESG_BLOCK);

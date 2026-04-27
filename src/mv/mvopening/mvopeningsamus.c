@@ -14,6 +14,9 @@ extern u32 sySchedulerGetTicCount();
 #ifdef PORT
 extern void port_coroutine_yield(void);
 extern void port_log(const char *fmt, ...);
+#ifdef PORT
+extern char *getenv(const char *name);
+#endif
 #endif
 
 // // // // // // // // // // // //
@@ -471,20 +474,18 @@ void mvOpeningSamusFuncRun(GObj *gobj)
 	sMVOpeningSamusTotalTimeTics++;
 
 #ifdef PORT
-	if (sMVOpeningSamusFighterGObj != NULL) {
-		FTStruct *fp = ftGetStruct(sMVOpeningSamusFighterGObj);
-		DObj *topn = (fp && fp->joints[nFTPartsJointTopN]) ? fp->joints[nFTPartsJointTopN]->child : NULL;
-		port_log("SSB64: mvOpeningSamusRun tic=%d status=0x%x motion=%d fgobj_anim_frame=%f topn_child_wait=%f topn_child_frame=%f topn_child_speed=%f topn_child_parent_gobj=%p\n",
-			(int)sMVOpeningSamusTotalTimeTics,
-			(unsigned)fp->status_id,
-			(int)fp->motion_id,
-			sMVOpeningSamusFighterGObj->anim_frame,
-			topn ? topn->anim_wait : -999.0F,
-			topn ? topn->anim_frame : -999.0F,
-			topn ? topn->anim_speed : -999.0F,
-			topn ? (void*)topn->parent_gobj : NULL);
-	} else {
-		port_log("SSB64: mvOpeningSamusRun tic=%d (no fighter yet)\n", (int)sMVOpeningSamusTotalTimeTics);
+	if (getenv("SSB64_TRACE_INTRO_ANIM")) {
+		if (sMVOpeningSamusFighterGObj != NULL) {
+			FTStruct *fp = ftGetStruct(sMVOpeningSamusFighterGObj);
+			port_log("SSB64: mvOpeningSamusRun tic=%d status=0x%x motion=%d hitlag=%u fgobj_anim_frame=%f\n",
+				(int)sMVOpeningSamusTotalTimeTics,
+				(unsigned)fp->status_id,
+				(int)fp->motion_id,
+				(unsigned)fp->hitlag_tics,
+				sMVOpeningSamusFighterGObj->anim_frame);
+		} else {
+			port_log("SSB64: mvOpeningSamusRun tic=%d (no fighter yet)\n", (int)sMVOpeningSamusTotalTimeTics);
+		}
 	}
 #endif
 
