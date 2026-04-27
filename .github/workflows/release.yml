@@ -31,11 +31,11 @@ jobs:
         with:
           submodules: recursive
       - name: Install build deps
-        # glew is pulled in by libultraship/cmake/dependencies/mac.cmake
-        # via find_package(GLEW). The local dev workflow inherits it from
-        # an existing brew install; CI hosts need it explicitly.
+        # glew + libzip are pulled in by libultraship's CMake. Local dev
+        # workflows inherit them from existing brew installs; CI hosts
+        # need them explicit.
         run: |
-          brew install cmake ninja sdl2 glew zip
+          brew install cmake ninja sdl2 glew libzip zip
       - name: Package macOS .app
         run: bash scripts/package-macos.sh
       - name: Zip the .app for upload
@@ -59,14 +59,19 @@ jobs:
           submodules: recursive
       - name: Install build deps
         # libzip-dev is pulled in by libultraship/src/CMakeLists.txt via
-        # find_package(libzip). libglew-dev mirrors the macOS GLEW
-        # dependency. python3 is needed for tools/creditsTextConverter.py
-        # (gets run from package-linux.sh before cmake build).
+        # find_package(libzip). On Debian/Ubuntu the package's CMake
+        # config also imports libzip::zipcmp / libzip::zipmerge /
+        # libzip::ziptool as IMPORTED targets pointing at /usr/bin/*;
+        # those binaries live in the separate libzip-tools package.
+        # Without libzip-tools, find_package fails at config time even
+        # though the headers and library are present.
+        # libglew-dev mirrors the macOS GLEW dependency. python3 is
+        # needed for tools/creditsTextConverter.py.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             cmake ninja-build zip \
-            libsdl2-dev libzip-dev libglew-dev \
+            libsdl2-dev libzip-dev libzip-tools libglew-dev \
             libgl1-mesa-dev libegl1-mesa-dev \
             libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
             python3 imagemagick
