@@ -21,7 +21,7 @@ AGENTS.md
 .claude/
 
 # Controller
-ssb64.cfg.json
+BattleShip.cfg.json
 CONTROLS.md
 
 # ROM and assets (user-provided, never committed)
