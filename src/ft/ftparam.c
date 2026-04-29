@@ -2563,7 +2563,9 @@ f32 func_ovl2_800EBB3C(Vec3f *arg0, Vec3f *arg1, Vec3f *arg2)
 void func_ovl2_800EBC0C(FTStruct *arg0, Vec3f *arg1, f32 *arg2, f32 arg3, DObj *dobj)
 {
     s32 unused1[2];
+#ifndef PORT
     DObj *attach_dobj;
+#endif
     Vec3f sp50;
     Vec3f sp44;
     Vec3f sp38;
@@ -2586,11 +2588,22 @@ void func_ovl2_800EBC0C(FTStruct *arg0, Vec3f *arg1, f32 *arg2, f32 arg3, DObj *
 
     syVectorNormCross3D(&sp50, &sp2C, &sp44);
 
+#ifdef PORT
+    {
+        FTParts *attach_parts = ftGetParts(dobj->child);
+
+        // N64 reads these through a DObj-shaped alias into FTParts; LP64 changes that alias offset.
+        sp38.x = attach_parts->unk_dobjtrans_0x10[2][0];
+        sp38.y = attach_parts->unk_dobjtrans_0x10[2][1];
+        sp38.z = attach_parts->unk_dobjtrans_0x10[2][2];
+    }
+#else
     attach_dobj = dobj->child->user_data.p;
 
     sp38.x = attach_dobj->rotate.vec.f.x;
     sp38.y = attach_dobj->rotate.vec.f.y;
     sp38.z = attach_dobj->rotate.vec.f.z;
+#endif
 
     syVectorNorm3D(&sp44);
     syVectorNorm3D(&sp38);

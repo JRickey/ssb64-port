@@ -6,10 +6,15 @@ to follow slope normals. Result: the character renders as if standing
 flat, with one foot floating above the slope and the other clipping
 into it.
 
-**Status:** Not fixed. Looks like a fighter-attach-to-ground
-rotation/translation pass not getting the slope normal correctly. This
-is in the same family as the bonus-stage / sloped-platform code paths
-that have already been touched in the port.
+**Status:** Fixed later on 2026-04-29. See
+`docs/bugs/fighter_slope_contour_lp64_alias_2026-04-29.md`.
+
+The root cause was not bad floor normals. It was a port-only LP64 alias
+bug in the fighter foot IK path: `func_ovl2_800EBC0C` read a cached
+`FTParts` transform vector through an N64-only `FTParts*`-as-`DObj*`
+layout pun. On 64-bit hosts, `DObj::rotate.vec.f` moved away from the
+intended `FTParts::unk_dobjtrans_0x10[2]` row, so the slope-contour
+solver used the wrong orientation.
 
 ## Reproduction signal
 
