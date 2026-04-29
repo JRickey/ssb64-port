@@ -3388,6 +3388,17 @@ void mnPlayers1PGameInitPlayer(s32 player)
 		sMNPlayers1PGameSlot.is_recalling = FALSE;
 		sMNPlayers1PGameSlot.is_cursor_adjusting = FALSE;
 	}
+#ifdef PORT
+	// Match the equivalent reset in mnPlayersVSInitPlayer. The decomp's 1P-game
+	// InitPlayer leaves `is_status_selected` carrying its prior-CSS value, so on
+	// re-entry the FighterProcUpdate sees `is_fighter_selected=TRUE,
+	// is_status_selected=TRUE, rotation<0.1` and skips the
+	// `scSubsysFighterSetStatus(...Win)` call — the freshly-spawned fighter never
+	// gets its selected/win pose applied and renders in the default forward-facing
+	// idle (issue #7). Reset the flag here so the status is re-applied on the
+	// first frame post-MakeFighter.
+	sMNPlayers1PGameSlot.is_status_selected = FALSE;
+#endif
 }
 
 // 0x801381D0 - Unused?

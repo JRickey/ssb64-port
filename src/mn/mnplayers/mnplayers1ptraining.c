@@ -3020,6 +3020,12 @@ void mnPlayers1PTrainingInitPlayer(s32 player)
 		sMNPlayers1PTrainingSlots[player].is_selected = TRUE;
 		sMNPlayers1PTrainingSlots[player].is_recalling = FALSE;
 	}
+#ifdef PORT
+	// Same reset that mnPlayersVSInitPlayer does — see the matching block in
+	// mnplayers1pgame.c::mnPlayers1PGameInitPlayer for the issue #7 root-cause
+	// notes.
+	sMNPlayers1PTrainingSlots[player].is_status_selected = FALSE;
+#endif
 }
 
 // 0x80137900
