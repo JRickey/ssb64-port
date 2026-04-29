@@ -3981,12 +3981,22 @@ void mpCollisionFixGroundDataLayout(MPGroundData *ground_data)
         portFixupStructU32(ground_data, lmask_off & ~3U, 1);
 
         // SYColorRGB fog_color (3 bytes) + u8 fog_alpha + SYColorRGB emblem_colors[GMCOMMON_PLAYERS_MAX]
-        // are packed bytes that pass1 BSWAP32 scrambles word-by-word. Reverse each containing u32.
+        // + s32 unused are packed bytes that pass1 BSWAP32 scrambles word-by-word. Reverse each
+        // containing u32.
+        //
+        // The `unused` slot must be included: ifCommonPlayerDamageInitInterface reads
+        // `emblem_colors[player.color]` and the VS-mode CPU path (mnplayersvs.c:4424) sets
+        // `color = GMCOMMON_PLAYERS_MAX` (= 4) for non-team CPUs, so the read indexes one past
+        // the declared array. On N64 those bytes live where the decomp labelled `unused` and
+        // hold the intended CPU-emblem color set by the level designer (gray on most stages).
+        // Without un-byteswapping `unused`, post-pass1 LE reads pull a permuted byte triple —
+        // typically (00, FF, FF) ≈ cyan — turning every CPU damage display's series icon cyan
+        // (issue #6).
         {
             unsigned int fog_off    = (unsigned int)((uintptr_t)&ground_data->fog_color - (uintptr_t)ground_data);
-            unsigned int emblem_end = (unsigned int)((uintptr_t)(&ground_data->emblem_colors[GMCOMMON_PLAYERS_MAX - 1] + 1) - (uintptr_t)ground_data);
+            unsigned int unused_end = (unsigned int)((uintptr_t)(&ground_data->unused + 1) - (uintptr_t)ground_data);
             unsigned int aligned_off = fog_off & ~3U;
-            portFixupStructU32(ground_data, aligned_off, (emblem_end - aligned_off + 3) / 4);
+            portFixupStructU32(ground_data, aligned_off, (unused_end - aligned_off + 3) / 4);
         }
     }
 #endif
