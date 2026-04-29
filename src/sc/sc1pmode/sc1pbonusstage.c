@@ -651,6 +651,12 @@ void sc1PBonusStageUpdatePlatformCount(DObj *dobj)
 {
 	s32 id = dobj->child->user_data.s & ~0x8000;
 
+#ifdef PORT
+	if (gGRCommonStruct.bonus2.platform_count == 0)
+	{
+		return;
+	}
+#endif
 	gcEjectDObj(dobj->child);
 
 	lbCommonSetupTreeDObjs
