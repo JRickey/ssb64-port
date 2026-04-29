@@ -17,6 +17,10 @@ extern void *func_800269C0_275C0(u16 id);
 extern void func_800266A0_272A0(void);
 
 #ifdef PORT
+extern void portFixupSprite(void *sprite);
+extern void portFixupBitmapArray(void *bitmaps, unsigned int count);
+extern void portFixupSpriteBitmapData(void *sprite, void *bitmaps);
+
 // SC1PTrainingModeSprites entries live in a reloc file. Pass1's blanket
 // u32 BSWAP32 scrambles the {s16 x, s16 y} pos word — on LE, pos.x reads
 // the original y and pos.y reads the original x. The sprite slot is
@@ -35,6 +39,36 @@ static inline Sprite* sc1PTrainingModeResolveTS(SC1PTrainingModeSprites *ts)
 static inline Sprite* sc1PTrainingModeResolveOpt(u32 *arr, s32 i)
 {
 	return (Sprite*)PORT_RESOLVE(arr[i]);
+}
+
+// Run the full Sprite + Bitmap-array + texel-data fixup chain on a sprite
+// resolved from display_option_sprites / menu_option_sprites. The Init*
+// pass writes to sprite->red/green/blue/attr BEFORE any SObj construction
+// happens, so the sprite is still in its post-pass1 state at that point —
+// rgba is at the wrong byte order, and {attr,zdepth} is rotated. Writing
+// `sprite->red = 0x6C` then `sprite->attr = SP_TEXSHUF | SP_TRANSPARENT`
+// without fixing the layout first lands those bytes at the offsets where
+// the *original* alpha and zdepth fields lived; the deferred fixup later
+// rotates them out, so attr ends up in zdepth and the colors come out as
+// permuted garbage. Same hazard for `sobj->sprite = *sprites[i]` copies
+// at digit-update time when sprite[i] != sprite[0] — those slots never
+// reach lbCommonMakeSObjForGObj.
+//
+// Idempotent: each underlying fixup keys on the buffer pointer in
+// sStructU16Fixups / sDeswizzle4cFixups so re-running is a no-op.
+static void sc1PTrainingModeFixupSprite(Sprite *sprite)
+{
+	if (sprite == NULL) {
+		return;
+	}
+	portFixupSprite(sprite);
+	{
+		Bitmap *bitmaps = (Bitmap*)PORT_RESOLVE(sprite->bitmap);
+		if (bitmaps != NULL) {
+			portFixupBitmapArray(bitmaps, sprite->nbitmaps);
+			portFixupSpriteBitmapData(sprite, bitmaps);
+		}
+	}
 }
 #else
 #define sc1PTrainingModeResolveTS(ts)     ((ts)->sprite)
@@ -827,6 +861,15 @@ void sc1PTrainingModeInitStatDisplayCharacterSprites(void)
 	{
 		Sprite *sprite = sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.display_option_sprites, i);
 
+#ifdef PORT
+		// Fix the Sprite + Bitmap headers + texel data BEFORE writing any
+		// scalar field. Without this the rgb/attr stores below land at the
+		// wrong byte offsets and end up in alpha/zdepth post-fixup. Also
+		// arms the texel-data fixup so `sobj->sprite = *display_option_sprites[modulo]`
+		// copies at damage/combo update time render with correct bitmaps.
+		sc1PTrainingModeFixupSprite(sprite);
+#endif
+
 		sprite->red = 0x6C;
 		sprite->green = 0xFF;
 		sprite->blue = 0x6C;
@@ -1139,7 +1182,22 @@ void sc1PTrainingModeInitMenuOptionSpriteAttrs(void)
 
 	for (i = 0; i < 31; i++)
 	{
-		sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, i)->attr = SP_TEXSHUF | SP_TRANSPARENT;
+		Sprite *sprite = sc1PTrainingModeResolveOpt(sSC1PTrainingModeMenu.menu_option_sprites, i);
+
+#ifdef PORT
+		// Fix the Sprite + Bitmap headers + texel data BEFORE the attr
+		// store. Same reason as sc1PTrainingModeInitStatDisplayCharacterSprites:
+		// writing to sprite->attr (offset 0x14) without fixup lands the value
+		// in the original zdepth byte slot, and post-fixup rotation moves it
+		// further away from attr. Also arms texel-data fixup so the later
+		// `sobj->sprite = *menu_option_sprites[option]` copies in the CP /
+		// Item / Speed / View update paths render correctly. Covers all 31
+		// entries (Item / Speed / CP / View / LeftArrow / RightArrow / Cursor),
+		// which is every slot the menu pulls from.
+		sc1PTrainingModeFixupSprite(sprite);
+#endif
+
+		sprite->attr = SP_TEXSHUF | SP_TRANSPARENT;
 	}
 }
 
