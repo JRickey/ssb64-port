@@ -48,7 +48,11 @@ asm/
 *.o
 *.credits.encoded
 *.credits.metadata
-assets/
+assets/*
+!assets/icon.png
+!assets/icon.ico
+!assets/icon.icns
+!assets/macos_dmg_banner.png
 __pycache__
 bin/
 relocAssets/
