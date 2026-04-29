@@ -5,6 +5,9 @@
 #include <sys/rdp.h>
 #include <reloc_data.h>
 
+#ifdef PORT
+extern void portFixupMObjSub(void *mobjsub);
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -822,10 +825,13 @@ void sc1PGameBossSetupBackgroundDObjs(GObj *gobj, DObjDesc *dobjdesc, MObjSub **
 
                 while (mobjsub != NULL)
                 {
+#ifdef PORT
+                    portFixupMObjSub(mobjsub);
+#endif
                     gcAddMObjForDObj(dobj, mobjsub);
 
                     mobjsubs++;
-                    
+
                     mobjsub = *mobjsubs;
                 }
             }
