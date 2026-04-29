@@ -600,12 +600,18 @@ static void tex_dump_chain(int file_id, uint32_t file_off,
 // other's work. Cleared at scene change via portResetStructFixups.
 static std::unordered_set<uintptr_t> sStructU16Fixups;
 
-// Tracks the extent (number of bytes) already fixed at each texture base
-// address.  When a LOADBLOCK requests a larger region from the same start
-// address, the delta (new_size - old_size) is fixed incrementally.  Without
-// this, N64 RGBA32 multi-row progressive loads only fix the first row and
-// leave subsequent rows in BSWAP32'd byte order (garbled colors).
+// Tracks runtime texture bases that own at least one fixed word, plus the
+// largest request size seen from that base. This preserves the old pass2/chain
+// skip behavior for exact-base matches while sTexFixupWords handles the actual
+// per-word idempotency.
 static std::unordered_map<uintptr_t, unsigned int> sTexFixupExtent;
+
+// Runtime texture/TLUT fixups can overlap even when they start at different
+// addresses. CSS gate palettes are adjacent 0x28-byte blocks, but their Sprite
+// requests a 512-byte TLUT load from each block. Track each u32 word so the
+// second overlapping load skips words fixed by the first instead of BSWAPing
+// them back to the wrong byte order.
+static std::unordered_set<uintptr_t> sTexFixupWords;
 
 // Tracks memory ranges of decoded struct arrays that runtime texture/palette
 // BSWAPs must NOT touch. Certain N64 sprite files intentionally overlap the
@@ -1022,6 +1028,7 @@ extern "C" void portResetStructFixups(void)
 {
 	sStructU16Fixups.clear();
 	sTexFixupExtent.clear();
+	sTexFixupWords.clear();
 	sProtectedStructRanges.clear();
 	sDeswizzle4cFixups.clear();
 }
@@ -1041,6 +1048,7 @@ extern "C" void portEvictStructFixupsInRange(const void *begin, size_t size)
 		}
 	};
 	evict_set(sStructU16Fixups);
+	evict_set(sTexFixupWords);
 	evict_set(sDeswizzle4cFixups);
 
 	for (auto it = sTexFixupExtent.begin(); it != sTexFixupExtent.end(); ) {
@@ -1371,8 +1379,8 @@ extern "C" int portRelocFixupTextureFromChain(void *file_base, size_t file_size,
 // Pass1 BSWAP32 reversed the byte order within each u32 word, so we apply
 // BSWAP32 again to restore the original layout.
 //
-// Idempotent via sStructU16Fixups, keyed on the texture's base address
-// (one entry per first-load).
+// Idempotent at word granularity so overlapping runtime loads from different
+// starts cannot undo each other.
 extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int num_bytes)
 {
 	if (addr == nullptr || num_bytes == 0) return;
@@ -1444,43 +1452,17 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 	num_bytes &= ~3u;
 	if (num_bytes == 0) return;
 
-	uintptr_t fixup_key = target;
-
-	// Check if this address was already fixed (by chain walk, pass2, or a
-	// previous runtime call).  If so, check whether the new request covers
-	// MORE bytes than previously fixed — N64 RGBA32 textures often issue
-	// multiple LOADBLOCKs from the same base address with increasing sizes
-	// (progressive row loads).  Only the delta needs fixing.
-	auto extent_it = sTexFixupExtent.find(fixup_key);
-	unsigned int already_fixed_bytes = 0;
-	if (extent_it != sTexFixupExtent.end()) {
-		already_fixed_bytes = extent_it->second;
-	} else if (sStructU16Fixups.count(fixup_key)) {
-		// Fixed by chain walk or pass2 (no extent tracked).
-		// Conservatively assume the full requested size was fixed.
+	// If pass2 or the chain walk already fixed this exact base and runtime has
+	// never seen it, keep the old conservative skip. Runtime-owned fixups below
+	// are tracked per word to handle overlapping TLUT/LOADBLOCK ranges.
+	if (sTexFixupExtent.find(target) == sTexFixupExtent.end() &&
+	    sStructU16Fixups.count(target)) {
 		if (tex_log_enabled()) {
 			int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
 			tex_log_emit("runtime.skip", rt_file_id,
 			             (uint32_t)target_offset, num_bytes,
 			             -1, -1, -1, addr, "already-fixed");
 		}
-		return;
-	}
-
-	if (num_bytes <= already_fixed_bytes) {
-		if (tex_log_enabled()) {
-			int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
-			tex_log_emit("runtime.skip", rt_file_id,
-			             (uint32_t)target_offset, num_bytes,
-			             -1, -1, -1, addr, "already-fixed");
-		}
-		return;
-	}
-
-	// Fix the delta: bytes from already_fixed_bytes to num_bytes.
-	unsigned int fix_start = already_fixed_bytes & ~3u;
-	if (fix_start >= num_bytes)
-	{
 		return;
 	}
 
@@ -1492,33 +1474,56 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
 		unsigned int descFileId = 0;
 		const char *descPath = nullptr;
 		int described = portRelocDescribePointer(addr, &descBase, &descSize, &descFileId, &descPath);
-		port_log("SSB64: runtimeTexFix addr=%p req=0x%x fileBase=%p fileSize=0x%zx off=0x%zx num=0x%x already=0x%x fixStart=0x%x desc=%d file=%u descBase=%p descSize=0x%zx path=%s\n",
+		port_log("SSB64: runtimeTexFix addr=%p req=0x%x fileBase=%p fileSize=0x%zx off=0x%zx num=0x%x desc=%d file=%u descBase=%p descSize=0x%zx path=%s\n",
 		         addr, num_bytes, (void*)fileBase, fileSize, target_offset, num_bytes,
-		         already_fixed_bytes, fix_start, described, descFileId, (void*)descBase,
+		         described, descFileId, (void*)descBase,
 		         descSize, descPath ? descPath : "(unknown)");
 		sRuntimeTexTraceCount++;
 	}
 
-	uint32_t *region = reinterpret_cast<uint32_t *>(target + fix_start);
-	size_t fix_bytes = num_bytes - fix_start;
-	size_t num_words = fix_bytes / 4;
+	uint32_t *region = reinterpret_cast<uint32_t *>(target);
+	size_t num_words = num_bytes / 4;
+	size_t fixed_words = 0;
+	size_t skipped_words = 0;
 	for (size_t i = 0; i < num_words; i++)
 	{
+		uintptr_t word_key = target + (uintptr_t)i * 4;
+		if (sTexFixupWords.count(word_key)) {
+			skipped_words++;
+			continue;
+		}
+		sTexFixupWords.insert(word_key);
 		region[i] = BSWAP32(region[i]);
+		fixed_words++;
 	}
 
-	sStructU16Fixups.insert(fixup_key);
-	sTexFixupExtent[fixup_key] = num_bytes;
+	if (fixed_words == 0)
+	{
+		if (tex_log_enabled()) {
+			int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
+			tex_log_emit("runtime.skip", rt_file_id,
+			             (uint32_t)target_offset, num_bytes,
+			             -1, -1, -1, addr, "already-fixed");
+		}
+		return;
+	}
+
+	sStructU16Fixups.insert(target);
+	auto extent_it = sTexFixupExtent.find(target);
+	if (extent_it == sTexFixupExtent.end() || extent_it->second < num_bytes)
+		sTexFixupExtent[target] = num_bytes;
 
 	if (tex_log_enabled()) {
 		int rt_file_id = portRelocFindFileIdAndBase(addr, nullptr);
+		char note[64];
+		std::snprintf(note, sizeof(note), "fixed=%zu skipped=%zu",
+		              fixed_words, skipped_words);
 		tex_log_emit("runtime.fix", rt_file_id,
 		             (uint32_t)target_offset, num_bytes,
-		             -1, -1, -1, reinterpret_cast<uint32_t *>(target),
-		             already_fixed_bytes > 0 ? "extend" : "loadblock/loadtile/loadtlut");
+		             -1, -1, -1, reinterpret_cast<uint32_t *>(target), note);
 	}
 
-	portStageAuditNoteRuntimeTex(num_bytes);
+	portStageAuditNoteRuntimeTex((unsigned int)(fixed_words * 4));
 }
 
 extern "C" void portRelocFixupVertexAtRuntime(const void *addr, unsigned int num_vtx)
