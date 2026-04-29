@@ -1714,6 +1714,12 @@ void sc1PStageClearInitVars(void)
 	sSC1PStageClearTimerTextGObj = NULL;
 	sSC1PStageClearTimerMultiplierGObj = NULL;
 	sSC1PStageClearTargetGObj = NULL;
+#ifdef PORT
+	sSC1PStageClearScoreTextGObj = NULL;
+	sSC1PStageClearDamageTextGObj = NULL;
+	sSC1PStageClearDamageMultiplierGObj = NULL;
+	sSC1PStageClearBonusTextGObj = NULL;
+#endif
 
 	sSC1PStageClearIsSetCommonAdvanceTic = 0;
 	sSC1PStageClearIsAdvance = FALSE;
