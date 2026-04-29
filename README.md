@@ -118,7 +118,9 @@ Drop your NTSC-U v1.0 ROM into the project root and name it exactly:
 baserom.us.z64
 ```
 
-It must be a big-endian `.z64` dump (not `.v64` / `.n64`). The build will refuse to start if the file is missing.
+It can be a big-endian `.z64` dump or `.v64` or `.n64`. The build will refuse to start if the file is missing.
+
+In a release package, you can select your ROM through the wizard after starting the application, or drag and drop it to the application. Once extracted, you don't need to provide the ROM again.
 
 ### 4. Run the build script
 
