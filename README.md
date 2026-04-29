@@ -354,3 +354,14 @@ PRs are welcome but please don't be offended if responses are slow — this is a
 - Port work: me ([JRickey](https://github.com/JRickey)), with an enormous amount of help from [Claude](https://claude.com/claude-code).
 
 This project is **not affiliated with, endorsed by, or authorized by Nintendo.** It is a personal, non-commercial research and preservation effort. Do not upload ROMs, extracted `.o2r` archives, or any other Nintendo-owned data to issues or pull requests.
+
+This project is **not affiliated with, endorsed by, or authorized by Harbour Masters** either. It uses libultraship (originated by the Harbour Masters team and now maintained at [Kenix3/libultraship](https://github.com/Kenix3/libultraship)) and Torch (the [HarbourMasters/Torch](https://github.com/HarbourMasters/Torch) asset extractor) as upstream dependencies via personal forks, but it is an independent fan effort. Issues, bugs, and support questions about this port should not be directed to the Harbour Masters team.
+
+## License
+
+Source code in this repository (everything outside `libultraship/`, `torch/`, and `src/` decomp content carrying its own attribution) is released under the [MIT License](LICENSE) — free to use, modify, and redistribute, with no warranty and no liability. See [`LICENSE`](LICENSE) for the full text.
+
+The MIT grant covers only the port-specific code (the `port/` layer, build scripts, tools, docs). It does **not** extend to:
+- Game assets, code, audio, textures, models, or any other content owned by Nintendo / HAL Laboratory — none of which is in this repository.
+- The decompilation in `src/`, which carries its own license from the [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) project.
+- The `libultraship` and `torch` submodules, which carry their own upstream licenses.
