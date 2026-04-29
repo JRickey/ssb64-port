@@ -40,7 +40,7 @@ jobs:
         run: |
           brew install cmake ninja \
             sdl2 glew libzip nlohmann-json tinyxml2 spdlog \
-            zip
+            zip create-dmg
       - name: Package macOS .app + .dmg
         run: bash scripts/package-macos.sh
       - uses: actions/upload-artifact@v4
