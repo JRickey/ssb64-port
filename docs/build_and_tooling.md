@@ -5,22 +5,13 @@
 - libultraship and Torch are git submodules
 - MSVC on Windows, Apple Clang on macOS, GCC/Clang on Linux
 - The decomp's original MIPS toolchain (IDO 7.1) is NOT used for the port
-- Build scripts:
-  - **Windows**: `build.ps1` (PowerShell) — supports `-Clean`, `-SkipExtract`, `-ExtractOnly`
-  - **macOS / Linux**: `build.sh` (bash) — supports `--clean`, `--skip-extract`, `--extract-only`, `--release`
-- Manual build: `cmake -S . -B build && cmake --build build --target ssb64`
-- macOS generator: uses Ninja if installed, otherwise Unix Makefiles (single-config, so binary is `build/ssb64`, not `build/Debug/ssb64`)
-
-## Regenerating the reloc symbol table
-`include/reloc_data.h` is **generated** (it's in `.gitignore`). It declares ~3900 `ll*` linker symbols that the decomp references as file offsets inside the compressed `relocData` ROM blob. The port serves file contents through libultraship's RelocFile resource factory keyed by `file_id`, so the scalar values don't matter at runtime, but the symbols still have to exist at compile time.
-
-Regenerate after adding new decomp sources with:
-
-```bash
-python3 tools/generate_reloc_stubs.py
-```
-
-The script scans `src/` for `ll[A-Z_][A-Za-z0-9_]*` identifiers and emits `#define <name> ((intptr_t)0)` entries. `#define` is required (not `extern intptr_t`) because the decomp uses these symbols as file-scope struct-literal initializers, which C11 rejects for non-constant expressions.
+  - **Windows**: `& 'C:\Program Files\CMake\bin\cmake' -S . -B "build/x64" -G "Visual Studio 17 2022" -T v143 -A x64`
+  - **macOS / Linux**: `cmake -S . -B build-cmake -GNinja`
+- Build with:
+  - `& 'C:\Program Files\CMake\bin\cmake.exe' --build .\build\x64`
+- Regenerate generated build inputs with:
+  - `& 'C:\Program Files\CMake\bin\cmake.exe' --build .\build\x64 --target ExtractAssetHeaders`
+- The executable target is `ssb64`, but the produced binary is `BattleShip`.
 
 ## Runtime Logs
 After running the game:

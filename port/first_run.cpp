@@ -17,34 +17,22 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <future>
 #include <string>
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace fs = std::filesystem;
 
 namespace ssb64 {
 
 namespace {
-
-// Quote a path for the shell. Wraps in double quotes and escapes embedded
-// double quotes. Sufficient for our internal-only use; not a general-purpose
-// shell-escape.
-std::string ShellQuote(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 2);
-    out += '"';
-    for (char c : s) {
-        if (c == '"' || c == '\\' || c == '$' || c == '`') {
-            out += '\\';
-        }
-        out += c;
-    }
-    out += '"';
-    return out;
-}
 
 // Search candidates in order; return the first that exists.
 std::string FindExisting(const std::vector<std::string>& candidates) {
@@ -56,52 +44,192 @@ std::string FindExisting(const std::vector<std::string>& candidates) {
     return {};
 }
 
-// Locate the torch binary. Tries (in priority order):
-//   1. Next to ssb64 binary (shipped layout — Win/Linux: same dir; macOS:
-//      Contents/MacOS/torch).
-//   2. macOS Resources dir (Contents/Resources/torch).
-//   3. Dev build location (build/TorchExternal/src/TorchExternal-build/torch).
-//   4. PATH lookup via the bare name (last-resort).
-std::string FindTorchBinary() {
-    const std::string app = Ship::Context::GetAppBundlePath();
-    std::vector<std::string> candidates = {
-        app + "/torch",
-        app + "/torch.exe",
-#ifdef __APPLE__
-        // macOS bundle: GetAppBundlePath returns .app/Contents/Resources;
-        // the sidecar torch binary lives in .app/Contents/MacOS alongside
-        // the main executable per Apple convention.
-        app + "/../MacOS/torch",
-#endif
-        // dev: when ssb64 binary lives in <build>/, sibling dir holds torch
-        app + "/TorchExternal/src/TorchExternal-build/torch",
-        app + "/TorchExternal/src/TorchExternal-build/Release/torch.exe",
-        app + "/TorchExternal/src/TorchExternal-build/Debug/torch.exe",
-    };
-    auto hit = FindExisting(candidates);
-    if (!hit.empty()) return hit;
+std::string TryOpenLogPath(const std::string& candidate) {
+    if (candidate.empty()) {
+        return {};
+    }
 
-    // Last resort: PATH lookup. Returning the bare name lets std::system rely
-    // on the caller's PATH; if torch isn't installed globally this just fails
-    // cleanly when we exec it.
-    return "torch";
+    std::error_code ec;
+    const fs::path path(candidate);
+    if (path.has_parent_path()) {
+        fs::create_directories(path.parent_path(), ec);
+    }
+
+    std::ofstream out(candidate, std::ios::app);
+    if (!out) {
+        return {};
+    }
+    return candidate;
 }
 
-// Locate the directory that contains config.yml (the torch project config —
-// enumerates all yamls/us/*.yml extraction recipes). Torch must be invoked
-// with this directory as cwd.
-std::string FindTorchConfigDir() {
-    const std::string app = Ship::Context::GetAppBundlePath();
-    std::vector<std::string> candidates = {
-        app,                        // shipped: macOS Resources, Win/Linux exe-dir
-        app + "/..",                // dev: build/ssb64 → project root
-        ".",                        // last-ditch cwd
-    };
-    for (const auto& dir : candidates) {
-        if (fs::exists(dir + "/config.yml") && fs::exists(dir + "/yamls/us")) {
-            return dir;
+std::string ResolveLogPath(const std::string& requestedLogPath, const std::string& sourceDir,
+                           const std::string& destinationDir) {
+    std::vector<std::string> candidates;
+    if (!requestedLogPath.empty()) {
+        candidates.push_back(requestedLogPath);
+    }
+    if (!destinationDir.empty()) {
+        candidates.push_back((fs::path(destinationDir) / "logs" / "asset-extract.log").string());
+    }
+    if (!sourceDir.empty()) {
+        candidates.push_back((fs::path(sourceDir) / "logs" / "asset-extract.log").string());
+    }
+    candidates.push_back((fs::current_path() / "logs" / "asset-extract.log").string());
+
+    for (const auto& candidate : candidates) {
+        auto resolved = TryOpenLogPath(candidate);
+        if (!resolved.empty()) {
+            return resolved;
         }
     }
+
+    return {};
+}
+
+void AppendLogLine(const std::string& logPath, const std::string& line) {
+    if (logPath.empty()) {
+        return;
+    }
+
+    std::ofstream out(logPath, std::ios::app);
+    if (!out) {
+        return;
+    }
+
+    out << line << '\n';
+}
+
+ExtractionResult BuildFailure(const std::string& error, const std::string& logPath) {
+    AppendLogLine(logPath, "ERROR: " + error);
+    return { false, {}, error, logPath };
+}
+
+std::string QuoteCommandArg(const std::string& arg) {
+    std::string quoted = "\"";
+    for (char c : arg) {
+        if (c == '"') {
+            quoted += "\\\"";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += "\"";
+    return quoted;
+}
+
+std::string FindTorchExecutable() {
+    std::vector<std::string> candidates;
+    for (const auto& base : {
+             Ship::Context::GetAppBundlePath(),
+             Ship::Context::GetAppDirectoryPath(),
+             std::string("."),
+             Ship::Context::GetAppBundlePath() + "/..",
+         }) {
+#ifdef _WIN32
+        candidates.push_back(base + "/torch.exe");
+#endif
+        candidates.push_back(base + "/torch");
+    }
+
+    return FindExisting(candidates);
+}
+
+bool RunTorchCommand(const std::string& commandLine, const std::string& workingDir,
+                     const std::string& logPath, std::string& error) {
+#ifdef _WIN32
+    if (logPath.empty()) {
+        error = "Could not resolve a writable extraction log path";
+        return false;
+    }
+
+    SECURITY_ATTRIBUTES sa = {};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+
+    HANDLE logFile =
+        CreateFileA(logPath.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, CREATE_ALWAYS,
+                    FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (logFile == INVALID_HANDLE_VALUE) {
+        error = "Could not open extraction log for writing";
+        return false;
+    }
+
+    SetFilePointer(logFile, 0, nullptr, FILE_END);
+
+    STARTUPINFOA si = {};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = logFile;
+    si.hStdError = logFile;
+
+    PROCESS_INFORMATION pi = {};
+    std::vector<char> mutableCmd(commandLine.begin(), commandLine.end());
+    mutableCmd.push_back('\0');
+
+    std::vector<char> mutableCwd(workingDir.begin(), workingDir.end());
+    mutableCwd.push_back('\0');
+
+    const BOOL started =
+        CreateProcessA(nullptr, mutableCmd.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                       mutableCwd.data(), &si, &pi);
+    if (!started) {
+        const DWORD code = GetLastError();
+        CloseHandle(logFile);
+        error = "Failed to launch torch (CreateProcess error " + std::to_string(code) + ")";
+        return false;
+    }
+
+    CloseHandle(pi.hThread);
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hProcess);
+    CloseHandle(logFile);
+
+    if (exitCode != 0) {
+        error = "Torch exited with code " + std::to_string(exitCode);
+        return false;
+    }
+    return true;
+#else
+    const std::string shellCommand =
+        "cd " + QuoteCommandArg(workingDir) + " && " + commandLine + " > " + QuoteCommandArg(logPath) + " 2>&1";
+    const int exitCode = std::system(shellCommand.c_str());
+    if (exitCode != 0) {
+        error = "Torch exited with code " + std::to_string(exitCode);
+        return false;
+    }
+    return true;
+#endif
+}
+
+// Locate the directory that contains config.yml (the integrated extraction
+// config plus yamls/us/*.yml recipes used by standalone Torch.
+std::string FindAssetConfigDir() {
+    std::vector<fs::path> roots = {
+        fs::path(Ship::Context::GetAppBundlePath()),
+        fs::current_path(),
+    };
+
+    for (const auto& root : roots) {
+        std::error_code ec;
+        fs::path dir = root;
+        while (!dir.empty()) {
+            if (fs::exists(dir / "config.yml") && fs::exists(dir / "yamls" / "us")) {
+                return dir.string();
+            }
+
+            const fs::path parent = dir.parent_path();
+            if (parent.empty() || parent == dir) {
+                break;
+            }
+            dir = parent;
+        }
+    }
+
     return {};
 }
 
@@ -123,9 +251,9 @@ std::string FindBaseRom() {
 
 } // namespace
 
-bool ExtractAssetsIfNeeded(const std::string& target_o2r_path, bool silent) {
+ExtractionResult ExtractAssetsIfNeeded(const std::string& target_o2r_path, bool silent) {
     if (fs::exists(target_o2r_path)) {
-        return true;
+        return { true, target_o2r_path, {}, {} };
     }
 
     port_log("first_run: %s missing — running asset extraction\n",
@@ -145,50 +273,42 @@ bool ExtractAssetsIfNeeded(const std::string& target_o2r_path, bool silent) {
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,
                                      "ROM not found", msg.c_str(), nullptr);
         }
-        return false;
+        return { false, {}, "ROM not found", {} };
     }
     port_log("first_run: using ROM %s\n", rom.c_str());
 
-    const std::string torch = FindTorchBinary();
-    port_log("first_run: torch binary -> %s\n", torch.c_str());
-
-    const std::string cfgDir = FindTorchConfigDir();
+    const std::string cfgDir = FindAssetConfigDir();
     if (cfgDir.empty()) {
-        port_log("first_run: ERROR could not locate torch config.yml + yamls/us/\n");
-        return false;
+        port_log("first_run: ERROR could not locate config.yml + yamls/us/\n");
+        return { false, {}, "Could not locate config.yml + yamls/us", {} };
     }
-    port_log("first_run: torch config dir -> %s\n", cfgDir.c_str());
+    port_log("first_run: asset config dir -> %s\n", cfgDir.c_str());
 
-    // Compose: cd "<cfgDir>" && "<torch>" o2r "<rom>"
-    // Torch reads config.yml from cwd and emits BattleShip.o2r in cwd
-    // (the `binary:` key in config.yml is just "BattleShip.o2r").
-    //
-    // Append the ssb64.log path to the child's stdio. Our parent process
-    // has spdlog and assorted file descriptors open; if the child writes
-    // to a closed/redirected stdout it can be killed by SIGPIPE (status
-    // 141). Routing both streams to ssb64.log keeps the extraction trace
-    // diagnosable and isolates us from stdio inheritance quirks.
-    const std::string logPath = Ship::Context::GetPathRelativeToAppDirectory(
-        "logs/torch-extract.log");
-    fs::create_directories(fs::path(logPath).parent_path());
-    std::string cmd;
-#ifdef _WIN32
-    cmd = "cmd /C \"cd /D " + ShellQuote(cfgDir) + " && " +
-          ShellQuote(torch) + " o2r " + ShellQuote(rom) +
-          " > " + ShellQuote(logPath) + " 2>&1\"";
-#else
-    cmd = "cd " + ShellQuote(cfgDir) + " && " +
-          ShellQuote(torch) + " o2r " + ShellQuote(rom) +
-          " > " + ShellQuote(logPath) + " 2>&1";
-#endif
-    port_log("first_run: > %s\n", cmd.c_str());
+    const std::string torchExe = FindTorchExecutable();
+    if (torchExe.empty()) {
+        port_log("first_run: ERROR could not locate torch executable\n");
+        return { false, {}, "Could not locate torch executable", {} };
+    }
+    port_log("first_run: torch executable -> %s\n", torchExe.c_str());
 
-    int rc = std::system(cmd.c_str());
-    if (rc != 0) {
-        port_log("first_run: ERROR torch exited with %d\n", rc);
+    const std::string preferredLogPath = Ship::Context::GetPathRelativeToAppDirectory(
+        "logs/asset-extract.log");
+    const std::string logPath = ResolveLogPath(preferredLogPath, cfgDir, cfgDir);
+    if (!logPath.empty()) {
+        std::ofstream truncate(logPath, std::ios::trunc);
+    }
+
+    const std::string commandLine = QuoteCommandArg(torchExe) + " o2r " + QuoteCommandArg(rom) +
+                                    " -s " + QuoteCommandArg(cfgDir) + " -d " + QuoteCommandArg(cfgDir);
+    AppendLogLine(logPath, "Command: " + commandLine);
+
+    std::string commandError;
+    if (!RunTorchCommand(commandLine, cfgDir, logPath, commandError)) {
+        port_log("first_run: ERROR extractor failed: %s\n", commandError.c_str());
         const std::string msg =
-            "Torch failed to extract assets from your ROM.\n\n"
-            "Check the extraction log for details:\n  " + logPath +
+            "BattleShip failed to extract assets from your ROM.\n\n"
+            "Error:\n  " + commandError +
+            "\n\nCheck the extraction log for details:\n  " + logPath +
             "\n\nThe most common cause is a non-NTSC-U-v1.0 ROM. Verify your "
             "dump's SHA-1 matches a supported hash printed in that log.";
         if (!silent) {
@@ -196,14 +316,14 @@ bool ExtractAssetsIfNeeded(const std::string& target_o2r_path, bool silent) {
                                      "Asset extraction failed", msg.c_str(),
                                      nullptr);
         }
-        return false;
+        return BuildFailure(commandError, logPath);
     }
 
     const std::string emitted = cfgDir + "/BattleShip.o2r";
     if (!fs::exists(emitted)) {
-        port_log("first_run: ERROR torch reported success but %s is missing\n",
+        port_log("first_run: ERROR extractor reported success but %s is missing\n",
                  emitted.c_str());
-        return false;
+        return { false, {}, "Torch reported success but BattleShip.o2r is missing", logPath };
     }
 
     // Move (or copy + remove if move-across-filesystems fails) into the
@@ -220,14 +340,14 @@ bool ExtractAssetsIfNeeded(const std::string& target_o2r_path, bool silent) {
             port_log("first_run: ERROR failed to install %s -> %s: %s\n",
                      emitted.c_str(), target_o2r_path.c_str(),
                      ec.message().c_str());
-            return false;
+            return { false, {}, "Failed to install BattleShip.o2r: " + ec.message(), logPath };
         }
         fs::remove(emitted, ec);
     }
 
     port_log("first_run: extracted BattleShip.o2r -> %s\n",
              target_o2r_path.c_str());
-    return true;
+    return { true, target_o2r_path, {}, logPath };
 }
 
 namespace {
@@ -301,11 +421,11 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
     auto fdm = context->GetFileDropMgr();
 
     /* Background extraction is driven by a std::async future so the wizard
-     * keeps rendering while torch runs (~2-3 seconds). The future is set
+     * keeps rendering while extraction runs. The future is set
      * when the user clicks Extract; each frame we poll wait_for(0) to see
      * if it's done. While the future is pending, the modal renders an
      * indeterminate progress bar animated on frameCount. */
-    std::future<bool> extractFuture;
+    std::future<ExtractionResult> extractFuture;
     bool extractRunning = false;
 
     /* Register a "consume everything" drop handler for the duration of
@@ -402,14 +522,14 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
                 if (state == State::Extracting) {
                     ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.2f, 1.0f),
                                        "Extracting assets — please wait...");
-                    // Indeterminate progress bar. Torch doesn't emit
+                    // Indeterminate progress bar. Extraction does not emit
                     // progress callbacks, so we animate a marquee-style
                     // fraction that loops every ~2 s. ImGui doesn't
                     // ship a marquee helper; pass a fraction in [0,1]
                     // and an empty overlay string with a sliding
                     // SetNextItemWidth to fake it.
                     const float t = (frameCount % 120) / 120.0f;
-                    ImGui::ProgressBar(t, ImVec2(-1, 0), "Running torch...");
+                    ImGui::ProgressBar(t, ImVec2(-1, 0), "Extracting BattleShip.o2r...");
                 } else if (!statusMsg.empty()) {
                     ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f),
                                        "%s", statusMsg.c_str());
@@ -475,14 +595,19 @@ bool RunFirstRunWizard(const std::string& target_o2r_path) {
             auto status =
                 extractFuture.wait_for(std::chrono::milliseconds(0));
             if (status == std::future_status::ready) {
-                bool ok = extractFuture.get();
+                auto result = extractFuture.get();
                 extractRunning = false;
-                if (ok) {
+                if (result.success) {
                     state = State::Done;
                 } else {
                     state = State::WaitingForRom;
-                    statusMsg =
-                        "Extraction failed — see logs/torch-extract.log.";
+                    statusMsg = "Extraction failed";
+                    if (!result.error.empty()) {
+                        statusMsg += ": " + result.error;
+                    }
+                    if (!result.logPath.empty()) {
+                        statusMsg += "\nLog: " + result.logPath;
+                    }
                 }
             }
         }
