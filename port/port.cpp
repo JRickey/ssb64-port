@@ -20,7 +20,7 @@
 
 #include "bridge/audio_bridge.h"
 #include "first_run.h"
-#include "gui/MenuBar.h"
+#include "gui/PortMenu.h"
 #include "renderdoc_trigger.h"
 #include "port_log.h"
 
@@ -256,8 +256,8 @@ int PortInit(int argc, char* argv[]) {
 	 *      f3d.o2r during InitWindow's first frame setup, so the
 	 *      ResourceManager has to exist by then.  f3d.o2r is shipped
 	 *      with the binary (always present, no ROM needed).
-	 *   3. Window + MenuBar
-	 *   4. First-run flow: silent shell-out, then ImGui wizard if needed.
+	 *   3. Window + Port Menu
+	 *   4. First-run flow: silent in-process extraction, then ImGui wizard if needed.
 	 *      Once BattleShip.o2r is on disk we add it via ArchiveManager.
 	 *   5. Audio / GfxDebugger / FileDropMgr / factory registration. */
 	if (!sContext->InitCrashHandler()) { port_log("SSB64: InitCrashHandler failed\n"); return 1; }
@@ -303,10 +303,10 @@ int PortInit(int argc, char* argv[]) {
 		if (!sContext->InitWindow(window)) { port_log("SSB64: InitWindow failed\n"); return 1; }
 		port_log("SSB64: Window OK\n");
 
-		// Top-of-screen menu bar (File / View / Help). Toggle with F1.
+		// Esc Menu screen, Toggle with Esc.
 		if (auto gui = window->GetGui()) {
-			gui->SetMenuBar(std::make_shared<ssb64::MenuBar>());
-			port_log("SSB64: MenuBar attached\n");
+			gui->SetMenu(std::make_shared<ssb64::PortMenu>());
+			port_log("SSB64: Port menu attached\n");
 		}
 	}
 
@@ -317,7 +317,7 @@ int PortInit(int argc, char* argv[]) {
 	port_log("SSB64: FileDropMgr OK\n");
 
 	/* First-run flow:
-	 *   1. Silent shell-out: if a ROM sits at app-data / bundle / cwd we
+	 *   1. Silent extraction: if a ROM sits at app-data / bundle / cwd we
 	 *      just extract without bothering the user.
 	 *   2. If still missing, drive an ImGui wizard modal in a pre-gameloop
 	 *      render loop until the user provides a ROM and extraction
@@ -481,20 +481,9 @@ int main(int argc, char* argv[]) {
 		PortPushFrame();
 		frame++;
 
-		// First-launch UX hint: most users won't know F1 toggles the menu
-		// bar. Show a one-shot LUS GameOverlay notification on frame 60
-		// (~1 s in) so it lands after the title screen has materialized.
-		// Persisted via cvar gFirstRunHintShown so it never repeats.
 		if (!firstRunHintShown && frame == 60) {
 			auto cv = sContext->GetConsoleVariables();
 			if (cv && cv->GetInteger("gFirstRunHintShown", 0) == 0) {
-				if (auto gui = sContext->GetWindow()->GetGui()) {
-					if (auto overlay = gui->GetGameOverlay()) {
-						overlay->TextDrawNotification(
-							8.0f, true,
-							"Press F1 to open the menu");
-					}
-				}
 				cv->SetInteger("gFirstRunHintShown", 1);
 				if (auto gui = sContext->GetWindow()->GetGui()) {
 					gui->SaveConsoleVariablesNextFrame();

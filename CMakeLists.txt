@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
 project(ssb64 LANGUAGES C CXX)
 
+include(ExternalProject)
+
 # Pulled-in BEFORE the libultraship subdirectory so its
 # find_package(tinyxml2) sees our pkg-config-fallback shim. Required
 # for Ubuntu 22.04 jammy, where libtinyxml2-dev ships no CMake config.
@@ -17,8 +19,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
-if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build." FORCE)
 endif()
 
 ################################################################################
@@ -30,6 +32,8 @@ option(NON_EQUIVALENT "Build without equivalent decomp constraints" ON)
 option(USE_AUTO_VCPKG "Use automated vcpkg for dependency management" ON)
 option(SSB64_STAGE_CYCLE_DEMO "Boot directly into attract-demo stage cycle for rendering regression testing" OFF)
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 ################################################################################
 # libultraship configuration (set before add_subdirectory)
 ################################################################################
@@ -38,14 +42,114 @@ option(SSB64_STAGE_CYCLE_DEMO "Boot directly into attract-demo stage cycle for r
 set(INCLUDE_MPQ_SUPPORT OFF CACHE BOOL "" FORCE)
 set(GBI_UCODE "F3DEX_GBI_2" CACHE STRING "" FORCE)
 
+# Build Torch as the original standalone sidecar executable.
+set(USE_STANDALONE ON CACHE BOOL "" FORCE)
+set(BUILD_STORMLIB OFF CACHE BOOL "" FORCE)
+set(BUILD_SM64 OFF CACHE BOOL "" FORCE)
+set(BUILD_MK64 OFF CACHE BOOL "" FORCE)
+set(BUILD_SF64 OFF CACHE BOOL "" FORCE)
+set(BUILD_PM64 OFF CACHE BOOL "" FORCE)
+set(BUILD_FZERO OFF CACHE BOOL "" FORCE)
+set(BUILD_MARIO_ARTIST OFF CACHE BOOL "" FORCE)
+set(BUILD_NAUDIO ON CACHE BOOL "" FORCE)
+set(BUILD_SSB64 ON CACHE BOOL "" FORCE)
+
 ################################################################################
 # Subdirectories: libultraship
 ################################################################################
 
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 
-# Note: Torch is built as a standalone tool via ExternalProject (see bottom of file).
-# It is NOT added as a subdirectory since it builds as an executable, not a library.
+ExternalProject_Add(TorchExternal
+    PREFIX TorchExternal
+    SOURCE_DIR ${CMAKE_SOURCE_DIR}/torch
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/torch-install
+        -DUSE_STANDALONE=ON
+        -DBUILD_STORMLIB=OFF
+        -DBUILD_SM64=OFF
+        -DBUILD_MK64=OFF
+        -DBUILD_SF64=OFF
+        -DBUILD_PM64=OFF
+        -DBUILD_FZERO=OFF
+        -DBUILD_MARIO_ARTIST=OFF
+        -DBUILD_NAUDIO=ON
+        -DBUILD_SSB64=ON
+)
+
+ExternalProject_Get_Property(TorchExternal install_dir)
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/$<CONFIGURATION>/torch.exe)
+    set(TORCH_SIDECAR_NAME torch.exe)
+else()
+    set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/torch)
+    set(TORCH_SIDECAR_NAME torch)
+endif()
+
+set(SSB64_RELOC_YAML_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_animations.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_bonus.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_effects.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_extern_data.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_fighters_common.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_fighters_main.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_interface.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_items.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_menus.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_misc_named.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_movies.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_scene.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_stages.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_submotions.yml
+    ${CMAKE_CURRENT_SOURCE_DIR}/yamls/us/reloc_transitions.yml
+)
+
+set(SSB64_CREDITS_GENERATED_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/staff.credits.encoded
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/staff.credits.metadata
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/titles.credits.encoded
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/titles.credits.metadata
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/info.credits.encoded
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/info.credits.metadata
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/companies.credits.encoded
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/credits/companies.credits.metadata
+)
+
+add_custom_target(RegenerateRelocYamls
+    BYPRODUCTS ${SSB64_RELOC_YAML_FILES}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_yamls.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Regenerating reloc YAML configs"
+)
+
+add_custom_target(GenerateRelocArtifacts
+    BYPRODUCTS
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/reloc_data.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/port/resource/RelocFileTable.cpp
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_reloc_stubs.py
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_reloc_table.py
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    COMMENT "Generating reloc headers and RelocFileTable.cpp"
+)
+
+add_custom_target(GenerateCreditsAssets
+    BYPRODUCTS ${SSB64_CREDITS_GENERATED_FILES}
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/creditsTextConverter.py staff.credits.us.txt
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/creditsTextConverter.py titles.credits.us.txt
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/creditsTextConverter.py -paragraphFont info.credits.us.txt
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/creditsTextConverter.py -paragraphFont companies.credits.us.txt
+    WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/src/credits
+    COMMENT "Encoding credits text assets"
+)
+
+add_custom_target(PrepareBuildInputs
+    DEPENDS GenerateRelocArtifacts GenerateCreditsAssets
+)
+
+add_custom_target(ExtractAssetHeaders
+    DEPENDS PrepareBuildInputs
+    COMMENT "BattleShip asset/header generation is driven by PrepareBuildInputs"
+)
 
 ################################################################################
 # Collect game sources
@@ -246,6 +350,15 @@ add_executable(${PROJECT_NAME} ${SSB64_SRC_PORT} ${SSB64_DEBUG_TOOLS} $<TARGET_O
 # but the produced executable is `BattleShip` / `BattleShip.exe`.
 set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "BattleShip")
 
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    set_target_properties(ssb64_game PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>"
+    )
+endif()
+
 ################################################################################
 # Compile definitions
 ################################################################################
@@ -266,7 +379,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Link libultraship and Torch
 ################################################################################
 
-add_dependencies(${PROJECT_NAME} libultraship)
+add_dependencies(${PROJECT_NAME} libultraship TorchExternal)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
 
 ################################################################################
@@ -294,27 +407,46 @@ configure_file(
     COPYONLY
 )
 
-################################################################################
-# Torch asset extraction target
-################################################################################
-
-# Build Torch as a standalone tool for asset extraction
-include(ExternalProject)
-ExternalProject_Add(TorchExternal
-    PREFIX TorchExternal
-    SOURCE_DIR ${CMAKE_SOURCE_DIR}/torch
-    CMAKE_ARGS
-        -DCMAKE_BUILD_TYPE=Release
-        -DUSE_STANDALONE=ON
-        -DBUILD_SSB64=ON
-        -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}/torch-install
+add_custom_target(GenerateF3DO2R
+    BYPRODUCTS ${CMAKE_SOURCE_DIR}/f3d.o2r
+    COMMAND ${CMAKE_COMMAND} -E rm -f ${CMAKE_SOURCE_DIR}/f3d.o2r
+    COMMAND ${CMAKE_COMMAND} -E tar cf ${CMAKE_SOURCE_DIR}/f3d.o2r --format=zip shaders
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/libultraship/src/fast
+    COMMENT "Packaging Fast3D shaders into f3d.o2r"
 )
 
-if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(TORCH_EXECUTABLE ${CMAKE_BINARY_DIR}/torch-install/bin/torch.exe)
-else()
-    set(TORCH_EXECUTABLE ${CMAKE_BINARY_DIR}/torch-install/bin/torch)
-endif()
+add_dependencies(${PROJECT_NAME} GenerateF3DO2R)
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets/custom/fonts
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/yamls/us
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/f3d.o2r
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/f3d.o2r
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/gamecontrollerdb.txt
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/gamecontrollerdb.txt
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/assets/custom/fonts/Montserrat-Regular.ttf
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets/custom/fonts/Montserrat-Regular.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/assets/custom/fonts/Inconsolata-Regular.ttf
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/assets/custom/fonts/Inconsolata-Regular.ttf
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/config.yml
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/config.yml
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${CMAKE_SOURCE_DIR}/yamls/us
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/yamls/us
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${TORCH_EXECUTABLE}
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/${TORCH_SIDECAR_NAME}
+)
+
+################################################################################
+# Asset extraction targets
+################################################################################
 
 # Accept .z64 (big-endian), .n64 (little-endian), or .v64 (byteswapped).
 # Torch's Cartridge::Normalize converts non-z64 byte orders in-memory.
@@ -330,15 +462,22 @@ if(NOT SSB64_BASEROM)
 endif()
 
 add_custom_target(ExtractAssets
-    DEPENDS TorchExternal
-    COMMAND ${TORCH_EXECUTABLE} o2r ${SSB64_BASEROM}
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS TorchExternal PrepareBuildInputs GenerateF3DO2R
+    COMMAND ${TORCH_EXECUTABLE} o2r ${SSB64_BASEROM} -s ${CMAKE_SOURCE_DIR} -d ${CMAKE_SOURCE_DIR}
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/BattleShip.o2r
+        $<TARGET_FILE_DIR:${PROJECT_NAME}>/BattleShip.o2r
     COMMENT "Extracting assets from ${SSB64_BASEROM} into O2R archive"
 )
 
+add_custom_target(GenerateBattleShipO2R
+    DEPENDS ExtractAssets
+    COMMENT "Generating BattleShip.o2r"
+)
+
 add_custom_target(GeneratePortO2R
-    DEPENDS TorchExternal
-    COMMAND ${TORCH_EXECUTABLE} pack assets ssb64.o2r o2r
-    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS TorchExternal PrepareBuildInputs
+    COMMAND ${TORCH_EXECUTABLE} pack ${CMAKE_SOURCE_DIR}/assets ${CMAKE_SOURCE_DIR}/ssb64.o2r o2r
     COMMENT "Packing port-specific assets into ssb64.o2r"
 )

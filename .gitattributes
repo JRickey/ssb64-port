@@ -1,0 +1,19 @@
+# Generated YAMLs are written by tools/generate_yamls.py with explicit LF
+# line endings. Without this attribute, a Windows checkout with
+# core.autocrlf=true would convert them to CRLF on checkout and then show a
+# spurious "modified" diff on every regen. Force LF so the working tree
+# matches what generate_yamls.py writes on every platform.
+yamls/**/*.yml text eol=lf
+
+# Same logic for the other gitignored-but-actually-tracked codegen output.
+include/reloc_data.h text eol=lf
+port/resource/RelocFileTable.cpp text eol=lf
+
+# Python tooling: keep LF on all platforms so committed sources don't drift.
+*.py text eol=lf
+
+# Shell scripts must remain LF on Windows or bash refuses to parse them.
+*.sh text eol=lf
+
+# PowerShell tolerates either, but pinning LF keeps the repo consistent.
+*.ps1 text eol=lf
