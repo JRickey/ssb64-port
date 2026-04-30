@@ -937,6 +937,10 @@ void mnPlayers1PGameMakeGate(s32 player)
 
 	gobj = gcMakeGObjSPAfter(0, NULL, 22, GOBJ_PRIORITY_DEFAULT);
 	sMNPlayers1PGameSlot.name_emblem_gobj = gobj;
+#ifdef PORT
+	sMNPlayers1PGameSlot.name_emblem_fkind = nFTKindNull;
+	sMNPlayers1PGameSlot.record_update_fkind = nFTKindNull;
+#endif
 	gcAddGObjDisplay(gobj, lbCommonDrawSObjAttr, 28, GOBJ_PRIORITY_DEFAULT, ~0);
 
 	mnPlayers1PGameUpdateNameAndEmblem(player);
@@ -1774,6 +1778,9 @@ void mnPlayers1PGameMakeFighter(GObj *fighter_gobj, s32 player, s32 fkind, s32 c
 		desc.shade = 0;
 		desc.figatree_heap = sMNPlayers1PGameFigatreeHeap;
 		desc.player = player;
+#ifdef PORT
+		desc.is_skip_shadow_setup = TRUE;
+#endif
 		sMNPlayers1PGameSlot.player = fighter_gobj = ftManagerMakeFighter(&desc);
 
 		gcAddGObjProcess(fighter_gobj, mnPlayers1PGameFighterProcUpdate, nGCProcessKindFunc, 1);
@@ -2008,18 +2015,53 @@ void mnPlayers1PGameUpdateFighter(s32 player)
 {
 	s32 is_skip_fighter = FALSE;
 
+#ifdef PORT
+	s32 costume;
+	sb32 fkind_changed = FALSE;
+#endif
 	if ((sMNPlayers1PGameSlot.fkind == nFTKindNull) && (sMNPlayers1PGameSlot.is_selected == FALSE))
 	{
 		sMNPlayers1PGameSlot.player->flags = GOBJ_FLAG_HIDDEN;
 		mnPlayers1PGameMakeStock(sMNPlayers1PGameStockValue, sMNPlayers1PGameSlot.fkind);
 		mnPlayers1PGameMakeFighterRecord();
+#ifdef PORT
+		sMNPlayers1PGameSlot.fighter_update_fkind = nFTKindNull;
+		sMNPlayers1PGameSlot.record_update_fkind = nFTKindNull;
+#endif
 		is_skip_fighter = TRUE;
 	}
 	if (is_skip_fighter == FALSE)
 	{
+#ifdef PORT
+		costume = mnPlayers1PGameGetFreeCostume(sMNPlayers1PGameSlot.fkind, 0);
+
+		if (
+			(sMNPlayers1PGameSlot.player != NULL) &&
+			(ftGetStruct(sMNPlayers1PGameSlot.player)->fkind == sMNPlayers1PGameSlot.fkind))
+		{
+			if (sMNPlayers1PGameSlot.costume != costume)
+			{
+				sMNPlayers1PGameSlot.costume = costume;
+				ftParamInitAllParts(sMNPlayers1PGameSlot.player, costume, 0);
+			}
+		}
+		else
+		{
+			mnPlayers1PGameMakeFighter(sMNPlayers1PGameSlot.player, player, sMNPlayers1PGameSlot.fkind, costume);
+			fkind_changed = TRUE;
+		}
+
+		if ((fkind_changed != FALSE) || (sMNPlayers1PGameSlot.fighter_update_fkind != sMNPlayers1PGameSlot.fkind))
+		{
+			sMNPlayers1PGameSlot.fighter_update_fkind = sMNPlayers1PGameSlot.fkind;
+			sMNPlayers1PGameSlot.record_update_fkind = sMNPlayers1PGameSlot.fkind;
+#endif			
 		mnPlayers1PGameMakeFighter(sMNPlayers1PGameSlot.player, player, sMNPlayers1PGameSlot.fkind, mnPlayers1PGameGetFreeCostume(sMNPlayers1PGameSlot.fkind, 0));
 		mnPlayers1PGameMakeStock(sMNPlayers1PGameStockValue, sMNPlayers1PGameSlot.fkind);
 		mnPlayers1PGameMakeFighterRecord();
+#ifdef PORT
+		}
+#endif
 		sMNPlayers1PGameSlot.player->flags = GOBJ_FLAG_NONE;
 		sMNPlayers1PGameSlot.is_status_selected = FALSE;
 	}
@@ -2041,7 +2083,15 @@ void mnPlayers1PGameUpdateNameAndEmblem(s32 player)
 	else
 	{
 		sMNPlayers1PGameSlot.name_emblem_gobj->flags = GOBJ_FLAG_NONE;
+#ifdef PORT
+		if (sMNPlayers1PGameSlot.name_emblem_fkind != sMNPlayers1PGameSlot.fkind)
+		{
+			sMNPlayers1PGameSlot.name_emblem_fkind = sMNPlayers1PGameSlot.fkind;
 		mnPlayers1PGameMakeNameAndEmblem(sMNPlayers1PGameSlot.name_emblem_gobj, player, sMNPlayers1PGameSlot.fkind);
+		}
+#else
+		mnPlayers1PGameMakeNameAndEmblem(sMNPlayers1PGameSlot.name_emblem_gobj, player, sMNPlayers1PGameSlot.fkind);
+#endif
 	}
 }
 
@@ -2842,7 +2892,16 @@ void mnPlayers1PGamePuckProcUpdate(GObj *gobj)
 		mnPlayers1PGameUpdateFighter(player);
 		mnPlayers1PGameUpdateNameAndEmblem(player);
 	}
+
+#ifdef PORT
+	if ((fkind != sMNPlayers1PGameSlot.record_update_fkind) && (fkind != nFTKindNull))
+	{
+		sMNPlayers1PGameSlot.record_update_fkind = fkind;
+		mnPlayers1PGameMakeFighterRecord();
+	}
+#else
 	mnPlayers1PGameMakeFighterRecord();
+#endif
 }
 
 // 0x80137268

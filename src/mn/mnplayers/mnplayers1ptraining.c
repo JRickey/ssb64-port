@@ -784,6 +784,9 @@ void mnPlayers1PTrainingMakeGate(s32 player)
 
 	gobj = gcMakeGObjSPAfter(0, NULL, 22, GOBJ_PRIORITY_DEFAULT);
 	sMNPlayers1PTrainingSlots[player].name_emblem_gobj = gobj;
+#ifdef PORT
+	sMNPlayers1PTrainingSlots[player].name_emblem_fkind = nFTKindNull;
+#endif
 	gcAddGObjDisplay(gobj, lbCommonDrawSObjAttr, 28, GOBJ_PRIORITY_DEFAULT, ~0);
 
 	mnPlayers1PTrainingUpdateNameAndEmblem(player);
@@ -1141,6 +1144,9 @@ void mnPlayers1PTrainingMakeFighter(GObj *fighter_gobj, s32 player, s32 fkind, s
 		desc.shade = 0;
 		desc.figatree_heap = sMNPlayers1PTrainingSlots[player].figatree_heap;
 		desc.player = player;
+#ifdef PORT
+		desc.is_skip_shadow_setup = TRUE;
+#endif
 		fighter_gobj = ftManagerMakeFighter(&desc);
 
 		sMNPlayers1PTrainingSlots[player].player = fighter_gobj;
@@ -1310,7 +1316,10 @@ sb32 mnPlayers1PTrainingCheckPuckInRange(GObj *gobj, s32 cursor_player, s32 play
 void mnPlayers1PTrainingUpdateFighter(s32 player)
 {
 	sb32 is_skip_fighter = FALSE;
-
+	
+#ifdef PORT
+	s32 costume;
+#endif
 	if (sMNPlayers1PTrainingSlots[player].player != NULL)
 	{
 		if ((sMNPlayers1PTrainingSlots[player].fkind == nFTKindNull) && (sMNPlayers1PTrainingSlots[player].is_selected == FALSE))
@@ -1321,6 +1330,29 @@ void mnPlayers1PTrainingUpdateFighter(s32 player)
 	}
 	if (is_skip_fighter == FALSE)
 	{
+	#ifdef PORT
+		costume = mnPlayers1PTrainingGetFreeCostume(sMNPlayers1PTrainingSlots[player].fkind, player);
+
+		if (
+			(sMNPlayers1PTrainingSlots[player].player != NULL) &&
+			(ftGetStruct(sMNPlayers1PTrainingSlots[player].player)->fkind == sMNPlayers1PTrainingSlots[player].fkind))
+		{
+			if (sMNPlayers1PTrainingSlots[player].costume != costume)
+			{
+				sMNPlayers1PTrainingSlots[player].costume = costume;
+				ftParamInitAllParts(sMNPlayers1PTrainingSlots[player].player, costume, 0);
+			}
+			sMNPlayers1PTrainingSlots[player].player->flags = GOBJ_FLAG_NONE;
+		}
+		else
+		{
+			mnPlayers1PTrainingMakeFighter(
+			sMNPlayers1PTrainingSlots[player].player,
+			player,
+			sMNPlayers1PTrainingSlots[player].fkind,
+				costume);
+		}
+	#else
 		mnPlayers1PTrainingMakeFighter
 		(
 			sMNPlayers1PTrainingSlots[player].player,
@@ -1328,6 +1360,7 @@ void mnPlayers1PTrainingUpdateFighter(s32 player)
 			sMNPlayers1PTrainingSlots[player].fkind,
 			mnPlayers1PTrainingGetFreeCostume(sMNPlayers1PTrainingSlots[player].fkind, player)
 		);
+	#endif
 		sMNPlayers1PTrainingSlots[player].is_status_selected = FALSE;
 	}
 }
@@ -1353,7 +1386,15 @@ void mnPlayers1PTrainingUpdateNameAndEmblem(s32 player)
 	else
 	{
 		sMNPlayers1PTrainingSlots[player].name_emblem_gobj->flags = GOBJ_FLAG_NONE;
+#ifdef PORT
+		if (sMNPlayers1PTrainingSlots[player].name_emblem_fkind != sMNPlayers1PTrainingSlots[player].fkind)
+		{
+			sMNPlayers1PTrainingSlots[player].name_emblem_fkind = sMNPlayers1PTrainingSlots[player].fkind;
+			mnPlayers1PTrainingMakeNameAndEmblem(sMNPlayers1PTrainingSlots[player].name_emblem_gobj, player, sMNPlayers1PTrainingSlots[player].fkind);
+		}
+#else
 		mnPlayers1PTrainingMakeNameAndEmblem(sMNPlayers1PTrainingSlots[player].name_emblem_gobj, player, sMNPlayers1PTrainingSlots[player].fkind);
+#endif
 	}
 }
 
@@ -2744,6 +2785,7 @@ void mnPlayers1PTrainingSpotlightProcUpdate(GObj *gobj)
 
 		DObjGetStruct(gobj)->scale.vec.f.x = sizes[sMNPlayers1PTrainingSlots[player].fkind];
 		DObjGetStruct(gobj)->scale.vec.f.y = sizes[sMNPlayers1PTrainingSlots[player].fkind];
+#TODO is this a decompilation error?
 		DObjGetStruct(gobj)->scale.vec.f.y = sizes[sMNPlayers1PTrainingSlots[player].fkind];
 	}
 	else gobj->flags = GOBJ_FLAG_HIDDEN;
