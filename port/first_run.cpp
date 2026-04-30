@@ -124,6 +124,12 @@ std::string FindTorchExecutable() {
     std::vector<std::string> candidates;
     for (const auto& base : {
              RealAppBundlePath(),
+             // macOS .app: RealAppBundlePath returns Contents/Resources
+             // (where assets live); the sidecar torch ships in
+             // Contents/MacOS alongside the main binary. On non-bundle
+             // layouts this candidate either doesn't exist or aliases
+             // the previous one — FindExisting skips harmlessly.
+             RealAppBundlePath() + "/../MacOS",
              Ship::Context::GetAppDirectoryPath(),
              std::string("."),
              RealAppBundlePath() + "/..",
@@ -134,7 +140,22 @@ std::string FindTorchExecutable() {
         candidates.push_back(base + "/torch");
     }
 
-    return FindExisting(candidates);
+    const std::string found = FindExisting(candidates);
+    if (found.empty()) {
+        return {};
+    }
+
+    // Absolute-ize: RunTorchCommand on POSIX runs `cd workingDir &&
+    // <torch> ...`, so a relative torch path (e.g. "./torch" from
+    // candidate base=".") resolves against the new cwd after cd and
+    // sh aborts with exit 127 (32512 from std::system) before torch
+    // runs.
+    std::error_code ec;
+    fs::path absolute = fs::absolute(fs::path(found), ec);
+    if (ec || absolute.empty()) {
+        return found;
+    }
+    return absolute.string();
 }
 
 bool RunTorchCommand(const std::string& commandLine, const std::string& workingDir,

@@ -95,6 +95,16 @@ cp "$ROOT/config.yml" "$APP/Contents/Resources/config.yml"
 cp "$ROOT/yamls/us/"*.yml "$APP/Contents/Resources/yamls/us/"
 cp "$ROOT/assets/icon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
+# Bundle the ESC menu fonts. Menu.cpp::FindMenuAssetPath walks up from
+# RealAppBundlePath() (= Contents/Resources inside an .app on macOS)
+# checking each parent for assets/custom/fonts/<name> — so placing the
+# TTFs at Contents/Resources/assets/custom/fonts/ matches first
+# iteration. Without this the menu silently falls back to ImGui's
+# default font.
+mkdir -p "$APP/Contents/Resources/assets/custom/fonts"
+cp "$ROOT/assets/custom/fonts/Montserrat-Regular.ttf"  "$APP/Contents/Resources/assets/custom/fonts/"
+cp "$ROOT/assets/custom/fonts/Inconsolata-Regular.ttf" "$APP/Contents/Resources/assets/custom/fonts/"
+
 # ── 4. Info.plist ──
 # Minimal but sufficient: bundle ID, version, executable name, high-DPI flag.
 # CFBundleIdentifier picks the same reverse-DNS the user's app-data dir
