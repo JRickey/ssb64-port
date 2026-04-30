@@ -6,12 +6,16 @@ namespace ssb64 {
 
 // Resolve the directory containing this process's executable.
 //
-// Ship::Context::GetAppBundlePath() on Linux + NON_PORTABLE returns the
-// literal CMAKE_INSTALL_PREFIX (default /usr/local), which is wrong for
-// AppImages (binary actually lives at /tmp/.mount_XYZ/usr/bin/) and for
-// any non-prefix install. This wrapper uses /proc/self/exe on Linux to
-// get the real directory and falls back to the upstream API only if
-// the readlink fails. On non-Linux platforms it just delegates.
+// Ship::Context::GetAppBundlePath() on Linux/Windows + NON_PORTABLE
+// returns the literal CMAKE_INSTALL_PREFIX, which is wrong for any
+// distribution that doesn't install to that prefix (AppImage, Windows
+// portable zip, dev cmake builds). This wrapper queries the OS for the
+// actual binary location:
+//   Linux   — readlink /proc/self/exe → parent dir
+//   Windows — GetModuleFileNameW(NULL) → parent dir
+//   macOS   — NSBundle resourcePath via Ship::Context (already correct
+//             for both .app bundles and ad-hoc binaries)
+// Falls back to Ship::Context::GetAppBundlePath() if the OS query fails.
 std::string RealAppBundlePath();
 
 } // namespace ssb64

@@ -105,6 +105,16 @@ Copy-Item (Join-Path $Root "yamls\us\*.yml") (Join-Path $StageDir "yamls\us")
 # without this file. Keep it bundled for future installer work.
 Copy-Item (Join-Path $Root "assets\icon.ico") (Join-Path $StageDir "$AppName.ico")
 
+# Bundle the ESC menu fonts. Menu.cpp::FindMenuAssetPath walks up from
+# RealAppBundlePath() and from current_path(); placing the TTFs at
+# <staging>\assets\custom\fonts\ next to the .exe matches the first
+# iteration of the walker rooted at the .exe's directory. Without this
+# the menu falls back to ImGui's default font silently.
+$FontsDir = Join-Path $StageDir "assets\custom\fonts"
+New-Item -ItemType Directory -Path $FontsDir -Force | Out-Null
+Copy-Item (Join-Path $Root "assets\custom\fonts\Montserrat-Regular.ttf")  $FontsDir
+Copy-Item (Join-Path $Root "assets\custom\fonts\Inconsolata-Regular.ttf") $FontsDir
+
 # Bundle DLLs that landed next to BattleShip.exe (vcpkg drops SDL2.dll, etc.).
 $ExeBuildDir = Split-Path $GameExe -Parent
 Get-ChildItem -Path $ExeBuildDir -Filter "*.dll" | ForEach-Object {

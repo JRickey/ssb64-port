@@ -95,6 +95,16 @@ cp "$ROOT/gamecontrollerdb.txt" "$APPDIR/usr/share/$APP_NAME/gamecontrollerdb.tx
 cp "$ROOT/config.yml" "$APPDIR/usr/share/$APP_NAME/config.yml"
 cp "$ROOT/yamls/us/"*.yml "$APPDIR/usr/share/$APP_NAME/yamls/us/"
 
+# Bundle the ESC menu fonts. Menu.cpp::FindMenuAssetPath walks up from
+# RealAppBundlePath() (= /proc/self/exe parent = AppDir/usr/bin inside
+# the AppImage) and from current_path() (= AppDir/usr/share/BattleShip
+# after AppRun's cd). Fonts placed under the cwd-rooted walker hit on
+# the first iteration. Without this the menu falls back to ImGui's
+# default font silently.
+mkdir -p "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts"
+cp "$ROOT/assets/custom/fonts/Montserrat-Regular.ttf"  "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts/"
+cp "$ROOT/assets/custom/fonts/Inconsolata-Regular.ttf" "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts/"
+
 # ── 5. .desktop + icon (AppRun written after linuxdeploy) ──
 # linuxdeploy reads .desktop + icon from the AppDir, so they have to
 # exist before we invoke it. AppRun is written *after* linuxdeploy
