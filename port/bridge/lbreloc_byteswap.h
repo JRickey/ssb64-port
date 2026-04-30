@@ -157,6 +157,15 @@ void portDeswizzleDecodedSprite4c(void *sprite_v, void *bitmaps_v);
 void portFixupMObjSub(void *mobjsub);
 
 /**
+ * Fix byte order for an FTTexturePartContainer (8 bytes) after blanket u32 swap.
+ *
+ * The container stores two 3-byte u8-only texture part records plus padding;
+ * bswap32 restores the byte order that C field reads expect.
+ * Idempotent: tracked to prevent double-fixup.
+ */
+void portFixupFTTexturePartContainer(void *container);
+
+/**
  * Fix byte order for an FTAttributes struct (0x348 bytes) after blanket u32 swap.
  *
  * rotate16 for u16 pair words (dead_fgm_ids, sfx, throw scales)
