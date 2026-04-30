@@ -54,33 +54,32 @@ jobs:
           if-no-files-found: error
 
   build-linux:
-    # ubuntu-22.04 jammy doesn't package the libzip CLI tools (zipcmp /
-    # zipmerge / ziptool), but libzip-dev's CMake config imports them as
-    # IMPORTED targets at find_package() time, so configure fails before
-    # we even get to compile. ubuntu-24.04 noble has libzip-tools and is
-    # what we'd ship against anyway. Trade-off: AppImages built on noble
-    # (glibc 2.39) won't run on distros older than ~Debian 13. If we
-    # need wider compat later, switch back to jammy + vendor libzip via
-    # FetchContent in libultraship.
-    runs-on: ubuntu-24.04
+    # Build on jammy (glibc 2.35) so the AppImage runs everywhere we
+    # care about: Steam Deck (Holo, glibc 2.38), Debian 12 (2.36),
+    # Fedora 38+ (2.37+), Ubuntu 22.04+. The AppImage links against
+    # the build host's glibc — it's on linuxdeploy's excludelist, not
+    # bundled — so jammy's 2.35 sets the floor. Noble (2.39) is too
+    # new; it cuts off Steam Deck.
+    #
+    # jammy's libtinyxml2-dev ships only pkg-config metadata; the
+    # cmake/Findtinyxml2.cmake shim falls back to pkg-config and
+    # builds an IMPORTED target by hand so libultraship's
+    # find_package(tinyxml2) resolves cleanly.
+    #
+    # libzip-dev on jammy AND noble exports its CMake config with
+    # zipcmp / zipmerge / ziptool as IMPORTED EXECUTABLE targets, but
+    # neither distro packages those binaries. CMake's existence check
+    # fires at find_package() time even though we never invoke the
+    # tools — stub them with `touch + chmod +x` to bypass the check.
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Install build deps
         # libultraship find_package set: libzip, nlohmann_json, tinyxml2,
-        # spdlog, SDL2, GLEW.
-        #
-        # libzip CLI tools workaround: libzip-dev's installed CMake
-        # config (libzip-targets.cmake) imports libzip::zipcmp /
-        # libzip::zipmerge / libzip::ziptool as IMPORTED EXECUTABLE
-        # targets pointing at /usr/bin/{zipcmp,zipmerge,ziptool}. Ubuntu
-        # (jammy AND noble) doesn't ship those binaries in any package.
-        # CMake checks IMPORTED_LOCATION exists at find_package time and
-        # errors out — even though we don't actually need the tools at
-        # build or runtime (libultraship only links against libzip.so).
-        # Stub them in with `touch + chmod +x` so the existence check
-        # passes; nothing ever invokes them.
+        # spdlog, SDL2, GLEW. See header comment on the runner for the
+        # libzip CLI stub workaround.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -89,25 +88,36 @@ jobs:
             nlohmann-json3-dev libtinyxml2-dev libspdlog-dev \
             libgl1-mesa-dev libegl1-mesa-dev \
             libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
-            python3 imagemagick
+            python3 imagemagick file
           sudo touch /usr/bin/zipcmp /usr/bin/zipmerge /usr/bin/ziptool
           sudo chmod +x /usr/bin/zipcmp /usr/bin/zipmerge /usr/bin/ziptool
       - name: Use clang as the C/C++ compiler
-        # The codebase has been built on macOS Clang and validated there;
-        # the decomp-style shadow headers and PORT macro plumbing trip
-        # GCC's -Wint-conversion / -Wimplicit-function-declaration on
-        # va_args paths in src/sys/debug.c that Clang accepts. Switch
-        # Linux CI to Clang to match macOS toolchain. The runtime is
-        # unchanged (still libstdc++ / glibc) so AppImage compat is the
-        # same as a GCC-built binary.
+        # Match the macOS-validated Clang toolchain. GCC trips on
+        # decomp-style shadow headers (-Wint-conversion /
+        # -Wimplicit-function-declaration on va_args paths in
+        # src/sys/debug.c) that Clang accepts. Runtime is unchanged.
         run: |
           echo "CC=clang"   >> $GITHUB_ENV
           echo "CXX=clang++" >> $GITHUB_ENV
-          # appimagetool isn't packaged on apt; fetch the upstream AppImage.
+      - name: Install AppImage tooling
+        # appimagetool packs an AppDir into a runnable AppImage.
+        # linuxdeploy walks the binary's NEEDED .so list, copies the
+        # actual library files into AppDir/usr/lib/ (excluding glibc /
+        # libGL / other system-driver libs per its built-in
+        # excludelist), and patches RPATH. Without this, the AppImage
+        # links dynamically against whatever .so versions happen to be
+        # on the user's distro and fails on anything but the build host.
+        run: |
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage \
             -O /usr/local/bin/appimagetool
-          chmod +x /usr/local/bin/appimagetool
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage \
+            -O /usr/local/bin/linuxdeploy
+          chmod +x /usr/local/bin/appimagetool /usr/local/bin/linuxdeploy
       - name: Package Linux AppImage
+        # APPIMAGE_EXTRACT_AND_RUN=1 lets linuxdeploy / appimagetool
+        # run without libfuse2 (some runner images ship without it).
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: bash scripts/package-linux.sh
       - uses: actions/upload-artifact@v4
         with:

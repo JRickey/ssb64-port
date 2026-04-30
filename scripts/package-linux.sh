@@ -20,11 +20,18 @@
 # BattleShip.o2r is NOT bundled — extracted on first launch via the ImGui
 # wizard from the user's ROM into the app-data dir.
 #
-# Requires: appimagetool in PATH. linuxdeploy is optional but useful.
-#   appimagetool: https://github.com/AppImage/AppImageKit/releases
+# Requires:
+#   appimagetool — packs the AppDir into a runnable AppImage.
+#     https://github.com/AppImage/appimagetool/releases
+#   linuxdeploy  — walks the binary's NEEDED .so list and copies the
+#     actual library files into AppDir/usr/lib/ so the AppImage runs
+#     on distros that don't have the build host's exact .so versions.
+#     https://github.com/linuxdeploy/linuxdeploy/releases
 #
-# If appimagetool isn't available, the script still produces the
-# AppDir tree under dist/ so you can package it later.
+# If linuxdeploy isn't in PATH the script warns and skips library
+# bundling — the resulting AppImage will only run on systems whose
+# .so versions match the build host. If appimagetool isn't available,
+# the script still produces the AppDir under dist/ for manual packing.
 
 set -euo pipefail
 
@@ -88,18 +95,12 @@ cp "$ROOT/gamecontrollerdb.txt" "$APPDIR/usr/share/$APP_NAME/gamecontrollerdb.tx
 cp "$ROOT/config.yml" "$APPDIR/usr/share/$APP_NAME/config.yml"
 cp "$ROOT/yamls/us/"*.yml "$APPDIR/usr/share/$APP_NAME/yamls/us/"
 
-# ── 5. AppRun + .desktop + icon ──
-# AppRun is what the AppImage calls when launched. Switch cwd to the
-# data dir so torch can find config.yml + yamls/, then exec the binary.
-cat > "$APPDIR/AppRun" <<EOF
-#!/bin/sh
-HERE="\$(dirname "\$(readlink -f "\${0}")")"
-export PATH="\$HERE/usr/bin:\$PATH"
-cd "\$HERE/usr/share/$APP_NAME" || exit 1
-exec "\$HERE/usr/bin/$APP_NAME" "\$@"
-EOF
-chmod +x "$APPDIR/AppRun"
-
+# ── 5. .desktop + icon (AppRun written after linuxdeploy) ──
+# linuxdeploy reads .desktop + icon from the AppDir, so they have to
+# exist before we invoke it. AppRun is written *after* linuxdeploy
+# runs because linuxdeploy will overwrite whatever AppRun is there
+# with its own wrapper; we want our cd-to-data-dir + LD_LIBRARY_PATH
+# version to be the final one.
 cat > "$APPDIR/$APP_NAME.desktop" <<EOF
 [Desktop Entry]
 Type=Application
@@ -143,7 +144,47 @@ else
 fi
 cp "$ICON_SRC" "$ICON_HI512"
 
-# ── 6. Pack into AppImage if appimagetool is available ──
+# ── 6. Bundle .so dependencies via linuxdeploy ──
+# linuxdeploy populates AppDir/usr/lib/ with the binary's NEEDED libs
+# (minus glibc / libGL / other system-driver libs on its excludelist).
+# Without this, the AppImage links dynamically against whatever .so
+# versions happen to be on the user's distro and fails on anything
+# but the exact build host's distro+version.
+if command -v linuxdeploy >/dev/null 2>&1; then
+    step "Bundling shared libraries via linuxdeploy"
+    linuxdeploy \
+        --appdir "$APPDIR" \
+        --executable "$APPDIR/usr/bin/$APP_NAME" \
+        --executable "$APPDIR/usr/bin/torch" \
+        --desktop-file "$APPDIR/$APP_NAME.desktop" \
+        --icon-file "$APPDIR/$APP_NAME.png"
+else
+    printf '\n\033[33m! linuxdeploy not in PATH — skipping .so bundling.\033[0m\n'
+    printf '   The AppImage will only run on systems with matching .so versions.\n'
+    printf '   Install from https://github.com/linuxdeploy/linuxdeploy/releases\n'
+fi
+
+# ── 7. AppRun ──
+# Linuxdeploy makes AppRun a *symlink* to usr/bin/BattleShip and
+# expects users to embed their AppRun-equivalent logic (env, cwd) in
+# the binary's launch path. Our binary doesn't do that, and torch
+# needs cwd=usr/share/BattleShip to find config.yml + yamls/. Replace
+# the symlink (rm first — `cat >` follows symlinks and would clobber
+# the game binary at usr/bin/BattleShip) with a shell script that
+# sets LD_LIBRARY_PATH for the bundled libs, cd's into the data dir,
+# then execs the binary.
+rm -f "$APPDIR/AppRun"
+cat > "$APPDIR/AppRun" <<EOF
+#!/bin/sh
+HERE="\$(dirname "\$(readlink -f "\${0}")")"
+export PATH="\$HERE/usr/bin:\$PATH"
+export LD_LIBRARY_PATH="\$HERE/usr/lib\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+cd "\$HERE/usr/share/$APP_NAME" || exit 1
+exec "\$HERE/usr/bin/$APP_NAME" "\$@"
+EOF
+chmod +x "$APPDIR/AppRun"
+
+# ── 8. Pack into AppImage if appimagetool is available ──
 if command -v appimagetool >/dev/null 2>&1; then
     step "Packing AppImage"
     rm -f "$APPIMAGE"

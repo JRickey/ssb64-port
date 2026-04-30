@@ -88,10 +88,24 @@ std::string OpenFileDialog(const std::string& title,
     return RunAndCaptureFirstLine(cmd);
 
 #elif defined(__linux__) || defined(__unix__)
+    // Inside an AppImage, our AppRun sets LD_LIBRARY_PATH to the
+    // bundled $APPDIR/usr/lib so the game's own .so deps resolve
+    // against versions matching the build host. That same path
+    // poisons system tools like zenity / kdialog which load the
+    // distro's libssl/libcrypto/libcurl/etc. — the bundled
+    // libcrypto.so.3 from the build host is older than the system
+    // libssl.so.3 expects, so the dialog dies with `version
+    // OPENSSL_3.X.0 not found` before it can show a window. Strip
+    // LD_LIBRARY_PATH (and LD_PRELOAD, for symmetry) on the spawned
+    // dialog process so it only sees the system loader path.
+    constexpr const char* env_strip =
+        "env -u LD_LIBRARY_PATH -u LD_PRELOAD ";
+
     // zenity first.
     {
-        std::string cmd = "zenity --file-selection --title=" +
-                          ShellSingleQuote(title);
+        std::string cmd = env_strip;
+        cmd += "zenity --file-selection --title=" +
+               ShellSingleQuote(title);
         if (!extensions.empty()) {
             std::string filter = "--file-filter=";
             for (size_t i = 0; i < extensions.size(); ++i) {
@@ -105,7 +119,8 @@ std::string OpenFileDialog(const std::string& title,
     }
     // Fall back to kdialog if zenity isn't installed or returned empty.
     {
-        std::string cmd = "kdialog --getopenfilename ~ ";
+        std::string cmd = env_strip;
+        cmd += "kdialog --getopenfilename ~ ";
         if (!extensions.empty()) {
             std::string filter;
             for (size_t i = 0; i < extensions.size(); ++i) {
