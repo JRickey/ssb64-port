@@ -377,6 +377,27 @@ void* ftManagerAllocFigatreeHeapKind(s32 fkind)
     return syTaskmanMalloc(data->file_anim_size, 0x10);
 }
 
+#ifdef PORT
+void ftManagerEjectShadowByPlayer(GObj *gobj, uintptr_t player)
+{
+    FTShadow *fs;
+
+    if (gobj->id != nGCCommonKindShadow)
+    {
+        return;
+    }
+    if (gobj->user_data.p == NULL)
+    {
+        return;
+    }
+    fs = gobj->user_data.p;
+
+    if (fs->player == (s32)player)
+    {
+        gcEjectGObj(gobj);
+    }
+}
+#endif
 // 0x800D78E8
 void ftManagerDestroyFighter(GObj *fighter_gobj)
 {
@@ -400,6 +421,12 @@ void ftManagerDestroyFighter(GObj *fighter_gobj)
             ftManagerSetPrevPartsAlloc(parts);
         }
     }
+    
+#ifdef PORT
+    // Fighter shadows are separate GObjs and can accumulate if not explicitly removed.
+    gcFuncGObjAll(ftManagerEjectShadowByPlayer, fp->player);
+#endif
+
     ftManagerSetPrevStructAlloc(fp);
     gcEjectGObj(fighter_gobj);
 }
