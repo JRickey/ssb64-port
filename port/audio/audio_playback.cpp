@@ -166,9 +166,21 @@ static const int16_t* applyOutputFilter(const int16_t* input, int sampleCount)
     static double sZ2[2] = { 0.0, 0.0 };
     static bool sLogged = false;
 
-    constexpr double b0 = 0.8118317459078658;
-    constexpr double b1 = 1.6236634918157316;
-    constexpr double b2 = 0.8118317459078658;
+    /* fc = 14.5 kHz at fs = 32 kHz lands at 0.91·Nyquist, where the bilinear
+     * transform warps the analog Butterworth response: the discrete biquad
+     * step response peaks at ~1.15 instead of the 1.043 the analog design
+     * implies.  For input near int16 max (loud SFX like DK growl), that 15%
+     * overshoot drives the output past int16 → clampS16FromDouble flat-tops
+     * → square-wave harmonics → audible "garbled noise."
+     *
+     * Mitigation: pre-attenuate the numerator so the filter's actual peak
+     * step response stays within int16 even on int16-max input.  Costs ~1.4
+     * dB of overall loudness on the filtered path, which is fine for an
+     * anti-imaging filter. */
+    constexpr double kHeadroom = 0.85;
+    constexpr double b0 = 0.8118317459078658 * kHeadroom;
+    constexpr double b1 = 1.6236634918157316 * kHeadroom;
+    constexpr double b2 = 0.8118317459078658 * kHeadroom;
     constexpr double a1 = 1.5879371063123660;
     constexpr double a2 = 0.6593898773190974;
 
