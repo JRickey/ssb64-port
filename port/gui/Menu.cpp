@@ -1,6 +1,7 @@
 #include "Menu.h"
 #include "UIWidgets.hpp"
 #include "Compat.h"
+#include "../app_paths.h"
 #include <ship/Context.h>
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
@@ -24,8 +25,11 @@ std::unordered_map<std::string, ImFont*> gMenuFonts;
 bool gMenuFontsLoaded = false;
 
 std::string FindMenuAssetPath(const std::string& relativePath) {
+    // Use ssb64::RealAppBundlePath so AppImage / non-prefix-install layouts
+    // resolve via /proc/self/exe instead of the literal CMAKE_INSTALL_PREFIX
+    // that Ship::Context::GetAppBundlePath() returns under NON_PORTABLE.
     std::vector<std::filesystem::path> roots = {
-        std::filesystem::path(Context::GetAppBundlePath()),
+        std::filesystem::path(ssb64::RealAppBundlePath()),
         std::filesystem::current_path(),
     };
 

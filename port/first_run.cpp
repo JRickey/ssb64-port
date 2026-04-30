@@ -1,4 +1,5 @@
 #include "first_run.h"
+#include "app_paths.h"
 #include "native_dialog.h"
 #include "port_log.h"
 
@@ -40,25 +41,6 @@ std::string FindExisting(const std::vector<std::string>& candidates) {
     return {};
 }
 
-// Resolve the directory containing this process's executable.
-//
-// Ship::Context::GetAppBundlePath() on Linux + NON_PORTABLE returns
-// the literal CMAKE_INSTALL_PREFIX (default /usr/local), which is
-// wrong for AppImages (binary actually lives at
-// /tmp/.mount_XYZ/usr/bin/) and for any non-prefix install. Use
-// /proc/self/exe to get the real directory and fall back to the
-// upstream API only if the readlink fails.
-std::string RealAppBundlePath() {
-#if defined(__linux__)
-    std::error_code ec;
-    fs::path exe = fs::read_symlink("/proc/self/exe", ec);
-    if (!ec && !exe.empty()) {
-        return exe.parent_path().string();
-    }
-#endif
-    return Ship::Context::GetAppBundlePath();
-}
-
 std::string TryOpenLogPath(const fs::path& candidate) {
     if (candidate.empty()) {
         return {};
@@ -74,7 +56,18 @@ std::string TryOpenLogPath(const fs::path& candidate) {
         return {};
     }
 
-    return candidate.string();
+    // Always return an absolute path. RunTorchCommand on POSIX runs the
+    // shell with `cd workingDir && torch … > logPath 2>&1`; a relative
+    // logPath then resolves against the new cwd (workingDir/torch-work)
+    // and the redirect target's parent doesn't exist there, so sh aborts
+    // with exit 1 before torch runs. GetPathRelativeToAppDirectory()
+    // returns "./logs/…" on macOS in portable mode, which is what
+    // tripped this.
+    fs::path absolute = fs::absolute(candidate, ec);
+    if (ec || absolute.empty()) {
+        return candidate.string();
+    }
+    return absolute.string();
 }
 
 void AppendLogLine(const std::string& logPath, const std::string& line) {
