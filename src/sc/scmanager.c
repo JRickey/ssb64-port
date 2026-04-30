@@ -896,6 +896,13 @@ void scManagerRunLoop(sb32 arg)
 			gSCManagerSceneData.scene_prev = n;
 			port_log("SSB64: SSB64_START_SCENE override → scene=%d\n", n);
 		}
+		const char *stage_env = getenv("SSB64_SPGAME_STAGE");
+		if (stage_env != NULL)
+		{
+			int s = atoi(stage_env);
+			gSCManagerSceneData.spgame_stage = s;
+			port_log("SSB64: SSB64_SPGAME_STAGE override → spgame_stage=%d (13=Boss/MasterHand)\n", s);
+		}
 	}
 	port_log("SSB64: scManagerRunLoop — controllers=%d scene=%d\n",
 	         (int)gSYControllerConnectedNum, (int)gSCManagerSceneData.scene_curr);

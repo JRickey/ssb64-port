@@ -785,7 +785,17 @@ void SC1PGameBossWallpaper3ProcUpdate1(GObj *gobj)
 void sc1PGameBossSetupBackgroundDObjs(GObj *gobj, DObjDesc *dobjdesc, MObjSub ***p_mobjsubs, u8 transform_kind)
 {
     s32 i, id;
-    MObjSub **mobjsubs, *mobjsub;
+#ifdef PORT
+    /* On LP64 the file-loaded MObjSub*** array is two nested arrays of 4-byte
+     * tokens, but MObjSub** / MObjSub* are 8 bytes. Walk both levels as u32*
+     * with PORT_RESOLVE so strides stay 4-byte. Same family as the
+     * sc1pbonusstage anim_joints fix. */
+    u32 *p_mobjsubs_le = (u32*)p_mobjsubs;
+    u32 *mobjsubs_le;
+#else
+    MObjSub **mobjsubs;
+#endif
+    MObjSub *mobjsub;
     DObj *array_dobjs[DOBJ_ARRAY_MAX], *dobj;
 
     for (i = 0; i < ARRAY_COUNT(array_dobjs); i++)
@@ -801,7 +811,7 @@ void sc1PGameBossSetupBackgroundDObjs(GObj *gobj, DObjDesc *dobjdesc, MObjSub **
             dobj = array_dobjs[id] = gcAddChildForDObj(array_dobjs[id - 1], PORT_RESOLVE(dobjdesc->dl));
         }
         else dobj = array_dobjs[0] = gcAddDObjForGObj(gobj, PORT_RESOLVE(dobjdesc->dl));
-        
+
         id = dobjdesc->id & 0xF000;
 
         if (id != 0)
@@ -815,6 +825,27 @@ void sc1PGameBossSetupBackgroundDObjs(GObj *gobj, DObjDesc *dobjdesc, MObjSub **
         dobj->rotate.vec.f = dobjdesc->rotate;
         dobj->scale.vec.f = dobjdesc->scale;
 
+#ifdef PORT
+        if (p_mobjsubs_le != NULL)
+        {
+            mobjsubs_le = (u32*)PORT_RESOLVE(*p_mobjsubs_le);
+            if (mobjsubs_le != NULL)
+            {
+                mobjsub = (MObjSub*)PORT_RESOLVE(*mobjsubs_le);
+
+                while (mobjsub != NULL)
+                {
+                    portFixupMObjSub(mobjsub);
+                    gcAddMObjForDObj(dobj, mobjsub);
+
+                    mobjsubs_le++;
+
+                    mobjsub = (MObjSub*)PORT_RESOLVE(*mobjsubs_le);
+                }
+            }
+            p_mobjsubs_le++;
+        }
+#else
         if (p_mobjsubs != NULL)
         {
             if (*p_mobjsubs != NULL)
@@ -825,9 +856,6 @@ void sc1PGameBossSetupBackgroundDObjs(GObj *gobj, DObjDesc *dobjdesc, MObjSub **
 
                 while (mobjsub != NULL)
                 {
-#ifdef PORT
-                    portFixupMObjSub(mobjsub);
-#endif
                     gcAddMObjForDObj(dobj, mobjsub);
 
                     mobjsubs++;
@@ -837,6 +865,7 @@ void sc1PGameBossSetupBackgroundDObjs(GObj *gobj, DObjDesc *dobjdesc, MObjSub **
             }
             p_mobjsubs++;
         }
+#endif
         dobjdesc++, id = dobjdesc->id & 0xFFF;
     }
 }

@@ -6,6 +6,10 @@
 #include <sys/rdp.h>
 #include <reloc_data.h>
 #include <sys/audio.h>
+#ifdef PORT
+extern char *getenv(const char *name);
+extern int atoi(const char *str);
+#endif
 extern void *func_800269C0_275C0(u16 id);
 extern void func_80026738_27338(void *arg0);
 extern void func_800266A0_272A0(void);
@@ -3278,6 +3282,15 @@ void mnPlayers1PGameSetSceneData(void)
 	gSCManagerSceneData.player = sMNPlayers1PGameManPlayer;
 	gSCManagerBackupData.spgame_difficulty = sMNPlayers1PGameLevelValue;
 	gSCManagerSceneData.spgame_stage = 0;
+#ifdef PORT
+	{
+		const char *stage_env = getenv("SSB64_SPGAME_STAGE");
+		if (stage_env != NULL)
+		{
+			gSCManagerSceneData.spgame_stage = (u8)atoi(stage_env);
+		}
+	}
+#endif
 	gSCManagerBackupData.spgame_stock_count = sMNPlayers1PGameStockValue;
 
 	if (sMNPlayers1PGameSlot.is_fighter_selected != FALSE)
