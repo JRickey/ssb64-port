@@ -2066,6 +2066,47 @@ extern "C" void portFixupMObjSub(void *mobjsub)
 	// w[26..29]: s32 — ok
 }
 
+extern "C" void *portFixupFTTexturePartContainer(void *container)
+{
+	/* FTTexturePartContainer = `FTTexturePart textureparts[2]` where each
+	 * entry is `{u8 joint_id; u8 detail[2];}` = 3 bytes; total sizeof = 6.
+	 * After pass1 BSWAP32 the u8 fields read as the wrong byte (post-pass1
+	 * byte 0 == original byte 3, etc.).
+	 *
+	 * Earlier attempts at a fix wrote *into* the file image. That broke
+	 * for fighters whose `attr->textureparts_container` points at memory
+	 * shared with adjacent reloc tokens (the C struct claim of always-6
+	 * container bytes does NOT hold for every fighter — some have token-
+	 * shaped data at offsets 4-7 of the resolved address). Writing the
+	 * "fixed" bytes back over those tokens crashed `ftMainSetStatus`
+	 * downstream when `PORT_RESOLVE` was called on the now-mutated token.
+	 *
+	 * Non-destructive approach: return a static-storage corrected COPY of
+	 * the 6 container bytes. The original file image is never modified, so
+	 * adjacent token data is untouched and downstream `PORT_RESOLVE` calls
+	 * on those tokens still work. Caller dereferences the returned pointer
+	 * for `textureparts[0..1]` reads — that data is correct.
+	 *
+	 * The static copy is single-instance: callers must not interleave
+	 * lookups for two different containers without consuming the result of
+	 * the first. ftparam.c's three call sites each take a single snapshot
+	 * inside one function — safe. */
+	if (container == NULL)
+		return NULL;
+
+	static uint8_t sFixed[8];   /* 8 bytes for container alignment safety */
+	uint8_t *src = static_cast<uint8_t *>(container);
+	sFixed[0] = src[3];   /* bswap of word 0 (bytes 0..3) */
+	sFixed[1] = src[2];
+	sFixed[2] = src[1];
+	sFixed[3] = src[0];
+	sFixed[4] = src[7];   /* pass1 moved original byte 4 → position 7 */
+	sFixed[5] = src[6];   /* pass1 moved original byte 5 → position 6 */
+	sFixed[6] = 0;        /* trailing pad (not read by C struct) */
+	sFixed[7] = 0;
+	return sFixed;
+}
+
 extern "C" void portFixupFTAttributes(void *attr)
 {
 	if (attr == NULL)

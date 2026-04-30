@@ -157,6 +157,22 @@ void portDeswizzleDecodedSprite4c(void *sprite_v, void *bitmaps_v);
 void portFixupMObjSub(void *mobjsub);
 
 /**
+ * Return a corrected COPY of an FTTexturePartContainer's 6 u8 bytes.
+ *
+ * Pass1 BSWAP32 leaves the container's u8 fields in the wrong byte order
+ * for direct reading. This helper returns a static-storage 8-byte buffer
+ * holding the 6 corrected bytes (plus 2 zero pad). The input memory is
+ * NEVER modified — important because for some fighters the resolved
+ * `attr->textureparts_container` address aliases reloc-token-shaped data
+ * adjacent to (or instead of) a real container, and writing fixed bytes
+ * back would corrupt those tokens and crash downstream `PORT_RESOLVE`s.
+ *
+ * Caller dereferences the returned pointer for `textureparts[i]` reads.
+ * Single-buffer: do not interleave lookups for two different containers.
+ */
+void *portFixupFTTexturePartContainer(void *container);
+
+/**
  * Fix byte order for an FTAttributes struct (0x348 bytes) after blanket u32 swap.
  *
  * rotate16 for u16 pair words (dead_fgm_ids, sfx, throw scales)
