@@ -1724,6 +1724,24 @@ void sc1PStageClearInitVars(void)
 	sSC1PStageClearIsSetCommonAdvanceTic = 0;
 	sSC1PStageClearIsAdvance = FALSE;
 	sSC1PStageClearIsAllowProceedNext = 0;
+#ifdef PORT
+	/* On N64, dSC1PManager1PStageClearOverlay's BSS is re-zeroed every time
+	 * `syDmaLoadOverlay(...)` re-DMAs the overlay before a new stage-clear
+	 * scene. The PC port has overlays statically linked, so these tic-target
+	 * globals retain values from the previous result screen — e.g. after a
+	 * regular stage clear leaves CommonAdvanceTic=130/BonusShowNext=170/
+	 * BonusAdv=190, the next BTT result screen's TotalTimeTics=130 would
+	 * coincidentally match CommonAdvanceTic and prematurely fire the
+	 * bonus-stats transition on the same frame as MakeTimerTextSObjs,
+	 * ejecting the timer GObj instantly and desynchronizing the auto-
+	 * advance state machine (no timer animation; screen "won't advance on
+	 * its own"). Reset them here so each scene starts with a clean state
+	 * machine. */
+	sSC1PStageClearCommonAdvanceTic = 0;
+	sSC1PStageClearBonusShowNextTic = 0;
+	sSC1PStageClearBonusAdvanceTic = 0;
+	sSC1PStageClearBonusNum = 0;
+#endif
 
 	if ((sSC1PStageClearKind == nSC1PStageClearKindStage) || (sSC1PStageClearKind == nSC1PStageClearKindGame))
 	{
