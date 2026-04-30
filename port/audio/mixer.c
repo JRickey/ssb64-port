@@ -249,6 +249,21 @@ void aSetBufferImpl(uint8_t flags, uint16_t in, uint16_t out, uint16_t nbytes) {
 void aLoadBufferImpl(uintptr_t source_addr) {
 	if (source_addr == 0) return;
 	memcpy(BUF_U8(rspa.out), (const void*)source_addr, ROUND_UP_8(rspa.nbytes));
+	/* Mirror: if the destination DMEM addr aliases a fixed-bus int32
+	 * accumulator (wet/dry), populate that accumulator from the loaded
+	 * s16 bytes so subsequent sample_read calls on this addr see the
+	 * data. Otherwise the FX chain's "save → process → load → mix"
+	 * delay-line round-trip silently drops anything that flows through
+	 * a wet/dry-mapped DMEM address. */
+	{
+		int32_t *acc = fixed_bus_acc(rspa.out);
+		if (acc) {
+			int count = ROUND_UP_16(rspa.nbytes) / (int)sizeof(int16_t);
+			int16_t *src = BUF_S16(rspa.out);
+			int i;
+			for (i = 0; i < count; i++) acc[i] = src[i];
+		}
+	}
 }
 
 /* ================================================================== */
@@ -258,6 +273,19 @@ void aLoadBufferImpl(uintptr_t source_addr) {
 
 void aSaveBufferImpl(uintptr_t dest_addr) {
 	if (dest_addr == 0) return;
+	/* Mirror: if the source DMEM addr aliases a fixed-bus int32
+	 * accumulator (wet/dry), clamp16 each int32 sample and copy
+	 * into the s16 mirror first so memcpy actually carries the
+	 * accumulated bus data, not the stale s16 region underneath. */
+	{
+		int32_t *acc = fixed_bus_acc(rspa.in);
+		if (acc) {
+			int count = ROUND_UP_16(rspa.nbytes) / (int)sizeof(int16_t);
+			int16_t *dst = BUF_S16(rspa.in);
+			int i;
+			for (i = 0; i < count; i++) dst[i] = clamp16(acc[i]);
+		}
+	}
 	memcpy((void*)dest_addr, BUF_U8(rspa.in), ROUND_UP_8(rspa.nbytes));
 }
 
