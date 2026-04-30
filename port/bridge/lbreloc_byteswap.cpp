@@ -2066,26 +2066,6 @@ extern "C" void portFixupMObjSub(void *mobjsub)
 	// w[26..29]: s32 — ok
 }
 
-extern "C" void portFixupFTTexturePartContainer(void *container)
-{
-	if (container == NULL)
-		return;
-
-	uintptr_t key = reinterpret_cast<uintptr_t>(container);
-	if (sStructU16Fixups.count(key))
-		return;
-	sStructU16Fixups.insert(key);
-	portRegisterProtectedStructRange(container, 8);
-
-	uint32_t *w = static_cast<uint32_t *>(container);
-
-	// FTTexturePartContainer is two 3-byte entries plus two pad bytes:
-	//   [joint_id][detail_hi][detail_lo] x 2, then pad[2]
-	// All fields are u8, so undo pass1's blanket bswap32 for both words.
-	fixup_bswap32(&w[0]);
-	fixup_bswap32(&w[1]);
-}
-
 extern "C" void portFixupFTAttributes(void *attr)
 {
 	if (attr == NULL)

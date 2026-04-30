@@ -9,10 +9,6 @@ extern void func_80026738_27338(void *arg0);
 
 extern alSoundEffect* func_800269C0_275C0(u16);
 
-#ifdef PORT
-extern void portFixupFTTexturePartContainer(void *container);
-#endif
-
 // // // // // // // // // // // //
 //                               //
 //       INITIALIZED DATA        //
@@ -53,16 +49,6 @@ s32 dFTParamSkeletonColAnimIDs[/* */] =
     0x10,   // Poly Ness
     0x10    // Giant Donkey Kong
 };
-
-static FTTexturePartContainer *ftParamGetTexturePartsContainer(FTStruct *fp)
-{
-    FTTexturePartContainer *container = (FTTexturePartContainer*)PORT_RESOLVE(fp->attr->textureparts_container);
-
-#ifdef PORT
-    portFixupFTTexturePartContainer(container);
-#endif
-    return container;
-}
 
 // 0x8012B820
 f32 dFTParamStaleTable[/* */] = 
@@ -1155,13 +1141,10 @@ void ftParamInitTexturePartAll(GObj *fighter_gobj)
     FTTexturePart *texturepart;
     DObj *joint;
     MObj *mobj;
-    FTTexturePartContainer *textureparts_container;
     s32 detail;
     s32 i, j;
 
-    textureparts_container = ftParamGetTexturePartsContainer(fp);
-
-    for (i = 0, texturepart_status = &fp->texturepart_status[i], texturepart = &textureparts_container->textureparts[i]; i < ARRAY_COUNT(fp->texturepart_status); i++, texturepart_status++, texturepart++)
+    for (i = 0, texturepart_status = &fp->texturepart_status[i], texturepart = &((FTTexturePartContainer*)PORT_RESOLVE(fp->attr->textureparts_container))->textureparts[i]; i < ARRAY_COUNT(fp->texturepart_status); i++, texturepart_status++, texturepart++)
     {
         if (texturepart_status->texture_id_curr != texturepart_status->texture_id_base)
         {
@@ -1197,7 +1180,7 @@ void ftParamInitTexturePartAll(GObj *fighter_gobj)
 void ftParamSetTexturePartID(GObj *fighter_gobj, s32 texturepart_id, s32 texture_id)
 {
     FTStruct *fp = ftGetStruct(fighter_gobj);
-    FTTexturePart *texturepart = &ftParamGetTexturePartsContainer(fp)->textureparts[texturepart_id];
+    FTTexturePart *texturepart = &((FTTexturePartContainer*)PORT_RESOLVE(fp->attr->textureparts_container))->textureparts[texturepart_id];
     s32 detail = texturepart->detail[fp->detail_curr - nFTPartsDetailStart];
     DObj *joint = fp->joints[texturepart->joint_id];
 
@@ -1235,13 +1218,10 @@ void ftParamResetTexturePartAll(GObj *fighter_gobj)
     FTTexturePart *texturepart;
     DObj *joint;
     MObj *mobj;
-    FTTexturePartContainer *textureparts_container;
     s32 detail;
     s32 i, j;
 
-    textureparts_container = ftParamGetTexturePartsContainer(fp);
-
-    for (i = 0, texturepart_status = &fp->texturepart_status[i], texturepart = &textureparts_container->textureparts[i]; i < ARRAY_COUNT(fp->texturepart_status); i++, texturepart_status++, texturepart++)
+    for (i = 0, texturepart_status = &fp->texturepart_status[i], texturepart = &((FTTexturePartContainer*)PORT_RESOLVE(fp->attr->textureparts_container))->textureparts[i]; i < ARRAY_COUNT(fp->texturepart_status); i++, texturepart_status++, texturepart++)
     {
         if (texturepart_status->texture_id_curr != texturepart_status->texture_id_base)
         {
