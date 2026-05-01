@@ -193,9 +193,9 @@ static LONG WINAPI portWindowsCrashFilter(EXCEPTION_POINTERS* info)
 
 static std::shared_ptr<Ship::Context> sContext;
 
-static int PortInitImpl(int argc, char* argv[]);
-
 extern "C" {
+
+static int PortInitImpl(int argc, char* argv[]);
 
 int PortInit(int argc, char* argv[]) {
 	// Top-level catch so unhandled C++ exceptions during init land in

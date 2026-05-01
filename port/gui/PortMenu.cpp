@@ -44,6 +44,14 @@ static const std::map<int32_t, const char*> kTextureFilteringMap = {
     { Fast::FILTER_LINEAR, "Linear" },
     { Fast::FILTER_NONE, "None" },
 };
+
+// Mirrors dbObjectDisplayMode (src/sys/develop.h). 0 disables the override and
+// returns the engine's normal rendering.
+static const std::map<int32_t, const char*> kHitboxViewMap = {
+    { 0, "Off" },
+    { 1, "Filled (red cubes)" },
+    { 2, "Outline + opaque hurtboxes" },
+};
 } // namespace
 
 void PortMenu::AddSidebarEntry(std::string sectionName, std::string sidebarName, uint32_t columnCount) {
@@ -296,6 +304,20 @@ void PortMenu::AddMenuSettings() {
         .CVar(enhancements::TapJumpCVarName(3))
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
+
+    AddWidget(path, "Debug", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Hitbox View", WIDGET_CVAR_COMBOBOX)
+        .CVar(enhancements::HitboxViewCVarName())
+        .RaceDisable(false)
+        .Options(ComboboxOptions()
+                     .Tooltip("Replaces fighter/item/weapon rendering with the debug "
+                              "hitbox visualization the decomp ships. Filled mode "
+                              "draws red cubes for active hitboxes; Outline mode "
+                              "draws hitbox edges and shows hurtboxes as solid "
+                              "yellow/green/blue boxes (yellow=normal, green="
+                              "invincible, blue=intangible).")
+                     .ComboMap(kHitboxViewMap)
+                     .DefaultIndex(0));
 }
 
 void PortMenu::AddMenuWindows() {

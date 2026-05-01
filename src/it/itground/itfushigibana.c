@@ -87,7 +87,6 @@ void itFushigibanaCommonUpdateMonsterEvent(GObj *item_gobj)
     if (ip->multi == ev[ip->event_id].timer)
     {
 #ifdef PORT
-        portFixupStructU16(&ev[ip->event_id], 0x04, 1);
         portFixupStructU16(&ev[ip->event_id], 0x20, 1);
         ip->attack_coll.angle            = BITFIELD_SEXT10(ev[ip->event_id].angle);
 #else

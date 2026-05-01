@@ -4,6 +4,10 @@
 #include <reloc_data.h>
 extern void *func_800269C0_275C0(u16 id);
 
+#ifdef PORT
+#include <enhancements/enhancements.h>
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //       INITIALIZED DATA        //
@@ -113,6 +117,10 @@ void itPippiCommonProcDisplay(GObj *item_gobj)
 {
     ITStruct *ip = itGetStruct(item_gobj);
 
+#ifdef PORT
+    ip->display_mode = port_enhancement_hitbox_display_override(ip->display_mode);
+#endif
+
     gDPPipeSync(gSYTaskmanDLHeads[0]++);
 
     if (itDisplayCheckItemVisible(ip) != FALSE)
@@ -145,6 +153,10 @@ void itPippiCommonProcDisplay(GObj *item_gobj)
 void itPippiCommonMoveDLProcDisplay(GObj *item_gobj)
 {
     ITStruct *ip = itGetStruct(item_gobj);
+
+#ifdef PORT
+    ip->display_mode = port_enhancement_hitbox_display_override(ip->display_mode);
+#endif
 
     gDPPipeSync(gSYTaskmanDLHeads[0]++);
 

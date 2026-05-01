@@ -4,6 +4,10 @@
 #include <sys/malloc.h>
 #include <sys/matrix.h>
 
+#ifdef PORT
+#include <enhancements/enhancements.h>
+#endif
+
 extern SYMallocRegion gSYTaskmanGraphicsHeap;
 
 // // // // // // // // // // // //
@@ -190,6 +194,10 @@ void itDisplayOPAProcDisplay(GObj *item_gobj)
 {
     ITStruct *ip = itGetStruct(item_gobj);
 
+#ifdef PORT
+    ip->display_mode = port_enhancement_hitbox_display_override(ip->display_mode);
+#endif
+
     if (itDisplayCheckItemVisible(ip) != FALSE)
     {
         if ((ip->display_mode == nDBDisplayModeMaster) || (ip->is_hold))
@@ -213,6 +221,10 @@ void itDisplayOPAProcDisplay(GObj *item_gobj)
 void itDisplayXLUProcDisplay(GObj *item_gobj)
 {
     ITStruct *ip = itGetStruct(item_gobj);
+
+#ifdef PORT
+    ip->display_mode = port_enhancement_hitbox_display_override(ip->display_mode);
+#endif
 
     if (itDisplayCheckItemVisible(ip) != FALSE)
     {
@@ -259,6 +271,10 @@ void itDisplayColAnimOPA(GObj *item_gobj)
 void itDisplayColAnimOPAProcDisplay(GObj *item_gobj)
 {
     ITStruct *ip = itGetStruct(item_gobj);
+
+#ifdef PORT
+    ip->display_mode = port_enhancement_hitbox_display_override(ip->display_mode);
+#endif
 
     if (itDisplayCheckItemVisible(ip) != FALSE)
     {
@@ -315,6 +331,10 @@ void itDisplayColAnimXLU(GObj *item_gobj)
 void itDisplayColAnimXLUProcDisplay(GObj *item_gobj)
 {
     ITStruct *ip = itGetStruct(item_gobj);
+
+#ifdef PORT
+    ip->display_mode = port_enhancement_hitbox_display_override(ip->display_mode);
+#endif
 
     if (itDisplayCheckItemVisible(ip) != FALSE)
     {

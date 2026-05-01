@@ -418,6 +418,7 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Android")
 else()
     add_dependencies(${PROJECT_NAME} libultraship TorchExternal)
 endif()
+add_dependencies(ssb64_game GenerateCreditsAssets)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
 
 ################################################################################
