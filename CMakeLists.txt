@@ -174,6 +174,8 @@ file(GLOB_RECURSE SSB64_SRC_WP      "src/wp/*.c"      "src/wp/*.h")
 # Port layer (C++ glue) — excludes port/stubs/ which is compiled as part of ssb64_game
 file(GLOB_RECURSE SSB64_SRC_PORT "port/*.cpp" "port/*.c" "port/*.h")
 list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/stubs/")
+# Exclude the standalone frame-interpolation test runner — has its own main().
+list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/frame_interpolation_test_main\\.cpp$")
 
 # Debug tools (GBI trace + Acmd trace systems)
 file(GLOB SSB64_DEBUG_TOOLS
@@ -382,6 +384,34 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 add_dependencies(${PROJECT_NAME} libultraship TorchExternal)
 add_dependencies(ssb64_game GenerateCreditsAssets)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
+
+################################################################################
+# Frame-interpolation standalone test runner
+#
+# Build: cmake --build <build> --target ssb64_frame_interp_test
+# Run  : ./ssb64_frame_interp_test (no args, no env needed)
+# Exits with status 0 on PASS, 2 on any FAIL (logged to stdout).
+#
+# This target links only the recording/lerp layer + selftest + a small main
+# with stub matrix builders. It does NOT pull in the game library or
+# libultraship, so it builds in seconds and runs without ROM/assets. Perfect
+# for CI smoke tests of the recording infrastructure.
+################################################################################
+add_executable(ssb64_frame_interp_test
+    port/frame_interpolation.cpp
+    port/frame_interpolation_selftest.cpp
+    port/frame_interpolation_test_main.cpp
+)
+target_include_directories(ssb64_frame_interp_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/libultraship/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/port
+)
+target_compile_definitions(ssb64_frame_interp_test PRIVATE F3DEX_GBI_2=1)
+set_target_properties(ssb64_frame_interp_test PROPERTIES
+    EXCLUDE_FROM_ALL TRUE
+    EXCLUDE_FROM_DEFAULT_BUILD TRUE
+)
 
 ################################################################################
 # Platform-specific settings

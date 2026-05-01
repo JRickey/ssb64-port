@@ -281,6 +281,25 @@ void PortMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Options(ComboboxOptions().Tooltip("Sets the active texture filtering mode.").ComboMap(kTextureFilteringMap));
 
+    /* Frame interpolation: render N display frames per game tick by lerping
+     * the previous frame's recorded matrices toward the current. The slider
+     * value is read every frame from CVar gSettings.FrameInterpolationMult
+     * by port_submit_display_list — see port/gameloop.cpp. */
+    AddWidget(path, "Frame Interpolation Mult", WIDGET_CVAR_SLIDER_INT)
+        .CVar("gSettings.FrameInterpolationMult")
+        .RaceDisable(false)
+        .Options(IntSliderOptions()
+                     .Tooltip("Render N display frames per game tick. 1 = disabled. "
+                              "SSB64 already ticks at 60 Hz natively, so this only "
+                              "helps on 120 Hz+ monitors (mult=2 -> 120 Hz display, "
+                              "mult=4 -> 240 Hz). On a 60 Hz monitor the intermediate "
+                              "lerped frames tear and are immediately overwritten — "
+                              "no visible benefit, just tearing. Camera lerp is "
+                              "input-domain so rebuilt frames are rigid (no doubling).")
+                     .Min(1)
+                     .Max(8)
+                     .DefaultValue(1));
+
     path.sidebarName = "Gameplay";
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Gameplay", 1);
