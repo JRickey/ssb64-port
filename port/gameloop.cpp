@@ -150,6 +150,18 @@ extern "C" int port_get_display_submit_count(void)
 	return sDLSubmitCount;
 }
 
+/* On Android the SSB64 GFX coroutine cannot safely call into Fast3D's
+ * rendering pipeline: ImGui's per-frame SDL_GetDisplayUsableBounds reads
+ * SDL_HINT_DISPLAY_USABLE_BOUNDS, which on Android falls through to
+ * Java's PackageManager via Binder IPC, which fails CheckJNI when invoked
+ * from a port_coroutine fiber ("invalid JNI transition frame reference").
+ *
+ * To keep the JNI calls on a JVM-attached OS thread, we record the DL
+ * pointer here and let PortPushFrame's main-thread tail call
+ * DrawAndRunGraphicsCommands. The scheduler doesn't observe the deferral —
+ * its task-completion signaling is decoupled from the actual GPU work. */
+static Gfx *sPendingDisplayList = nullptr;
+
 extern "C" void port_submit_display_list(void *dl)
 {
 	sDLSubmitCount++;
@@ -171,24 +183,45 @@ extern "C" void port_submit_display_list(void *dl)
 		return;
 	}
 
+	/* Replace any earlier deferred DL from this frame — only the last one
+	 * matters since they all target the same framebuffer slot. In practice
+	 * SSB64 submits one DL per VI tick. */
+	sPendingDisplayList = static_cast<Gfx *>(dl);
+}
+
+/* Drain any deferred DL on the SDL_main thread. Called from PortPushFrame
+ * after port_resume_service_threads — by that point the scheduler coroutine
+ * has yielded and we own the OS thread context-switch state, so JNI calls
+ * inside DrawAndRunGraphicsCommands (ImGui ↔ SDL ↔ Java) execute on a
+ * thread the JVM tracks. */
+extern "C" void port_drain_pending_display_list(void)
+{
+	if (sPendingDisplayList == nullptr) {
+		return;
+	}
+
 	auto context = Ship::Context::GetInstance();
 	if (!context) {
-		port_log("SSB64: WARNING — no Ship::Context in display list submit!\n");
+		port_log("SSB64: WARNING — no Ship::Context in DL drain\n");
+		sPendingDisplayList = nullptr;
 		return;
 	}
 
 	auto window = std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow());
 	if (!window) {
-		port_log("SSB64: WARNING — no Fast3dWindow in display list submit!\n");
+		port_log("SSB64: WARNING — no Fast3dWindow in DL drain\n");
+		sPendingDisplayList = nullptr;
 		return;
 	}
 
-	/* Begin trace frame before Fast3D processes the display list */
+	Gfx *dl = sPendingDisplayList;
+	sPendingDisplayList = nullptr;
+
 	gbi_trace_begin_frame();
 
 	std::unordered_map<Mtx *, MtxF> mtxReplacements;
 	try {
-		window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
+		window->DrawAndRunGraphicsCommands(dl, mtxReplacements);
 	} catch (long hr) {
 		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX on DL #%d\n", hr, sDLSubmitCount);
 		gbi_trace_end_frame();
@@ -199,7 +232,6 @@ extern "C" void port_submit_display_list(void *dl)
 		return;
 	}
 
-	/* End trace frame after processing */
 	gbi_trace_end_frame();
 
 	if (sDLSubmitCount <= 60) {
@@ -385,6 +417,15 @@ void PortPushFrame(void)
 	 *   Round 3+: Display list submitted, scheduler processes GFX task, etc.
 	 * Each thread runs until it yields at osRecvMesg(BLOCK) on empty queue. */
 	port_resume_service_threads();
+
+	/* Render the staged display list now that all coroutines have yielded.
+	 * On Android this hop is load-bearing: ImGui's per-frame
+	 * SDL_GetDisplayUsableBounds Binder-IPCs into Java, and CheckJNI
+	 * rejects jobjects from a port_coroutine fiber. Running on the SDL_main
+	 * thread (here) makes the JNI roundtrip safe. On other platforms the
+	 * deferral is a no-op behavior change — same one DL per frame, same
+	 * order relative to vblank rotation. */
+	port_drain_pending_display_list();
 
 	sFrameCount++;
 

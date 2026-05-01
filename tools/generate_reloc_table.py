@@ -65,6 +65,11 @@ def generate(entries: dict[int, str], output: Path) -> None:
     lines.append("")
     lines.append('#include "RelocFileTable.h"')
     lines.append("")
+    # NULL isn't a keyword. Desktop toolchains pick it up transitively from
+    # RelocFileTable.h's preceding #pragma once / extern "C" headers, but
+    # NDK r29's stricter header set doesn't, so add the explicit include.
+    lines.append("#include <cstddef>")
+    lines.append("")
     lines.append(f"const char* const gRelocFileTable[RELOC_FILE_COUNT] = {{")
 
     for i in range(FILE_COUNT):

@@ -503,26 +503,47 @@ int main(int argc, char* argv[]) {
 	}
 
 #if defined(__ANDROID__)
-	// Hoist SDL_INIT_GAMECONTROLLER initialization onto the SDL_main
-	// thread BEFORE any coroutine starts. The N64 controller thread
-	// (Thread1) becomes a port_coroutine in our cooperative scheduler;
-	// when its osContInit calls SDL_Init(SDL_INIT_GAMECONTROLLER), SDL2
-	// on Android calls back into Java HIDDeviceManager.initialize via JNI.
-	// ART's CheckJNI tracks per-thread JNI transition frames — and our
-	// coroutine context-switch swaps SP without the JVM's knowledge, so
-	// jstring local refs (e.g. Log.v's TAG) get flagged as "invalid JNI
-	// transition frame reference" and the process aborts.
+	// === Android JNI cache warm-up ===
 	//
-	// Doing the joystick init now (real OS thread, no fiber switches in
-	// flight) gets the JNI side of SDL_hid_init out of the way. The
-	// later SDL_Init in osContInit is a no-op when the subsystem is
-	// already initialized.
+	// Our cooperative scheduler runs as port_coroutines (aarch64 fibers)
+	// stack-switched on the SDL_main thread. ART tracks JNI transition
+	// frames per OS thread via a ManagedStack list whose head lives on
+	// the native stack — when port_coroutine_swap moves SP to a different
+	// fiber, the head pointer dangles and any JNI call from the fiber
+	// aborts with "invalid JNI transition frame reference".
+	//
+	// SDL2's Android backend lazy-initializes a few caches via JNI on
+	// first use; if the first use happens from a coroutine, we crash.
+	// Force-warm them here on the real thread so subsequent reads from
+	// inside coroutines hit the in-process cache without re-entering JNI.
+
+	// 1. SDL_INIT_GAMECONTROLLER → HIDDeviceManager.initialize.
 	SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "1");
 	if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
 		port_log("SSB64: pre-init SDL_INIT_GAMECONTROLLER failed: %s\n",
 		         SDL_GetError());
-		// Non-fatal — osContInit will retry and surface the error there.
 	}
+
+	// 2. Suppress ImGui's per-frame SDL_GetDisplayUsableBounds JNI path.
+	//    ImGui_ImplSDL2_UpdateMonitors runs on the SSB64 GFX coroutine
+	//    every frame; it calls SDL_GetDisplayUsableBounds →
+	//    ParseDisplayUsableBoundsHint → SDL_GetHint(SDL_HINT_DISPLAY_USABLE_BOUNDS).
+	//    On Android SDL_GetHint falls through to SDL_getenv, which
+	//    Binder-IPCs into Java's PackageManager.getApplicationInfo —
+	//    that fails CheckJNI ("invalid JNI transition frame reference")
+	//    when called from inside a port_coroutine fiber.
+	//
+	//    Setting the hint here populates SDL2's per-program hint store;
+	//    SDL_GetHint then returns from the local cache without env
+	//    lookup, never re-entering JNI from the coroutine. The value
+	//    matches the typical full-screen mobile area; ImGui only uses
+	//    it as the upper bound for floating-window placement, which is
+	//    inert on a touch-only build (we suppress menu rendering anyway).
+	SDL_SetHint(SDL_HINT_DISPLAY_USABLE_BOUNDS, "0,0,1920,1080");
+	// Warm bHasEnvironmentVariables so any other SDL_getenv that we
+	// missed is also cached. The SDL_main thread is JVM-attached at
+	// this point, so the JNI roundtrip succeeds.
+	(void)SDL_getenv("__ssb64_jni_warmup__");
 #endif
 
 	// Wrap post-init (game boot + main loop + shutdown) in a top-level
