@@ -12,18 +12,33 @@ import android.widget.FrameLayout;
 import android.widget.TextView;
 
 /**
- * On-screen touch controls. Inflates a transparent FrameLayout above the
- * SDL surface, hosts a handful of round buttons, and forwards each
- * press/release to the native virtual SDL gamepad ({@link #setButton}).
+ * On-screen touch controls for the SSB64 port.
  *
- * Phase 6.3 ships a single A button — proves the JNI → SDL_JoystickSet*
- * → LUS pipeline works end to end. Future phases add B/Z/Start/D-pad
- * and a virtual analog stick.
+ * Layout:
+ *   - Left half of the screen hosts a floating-anchor virtual analog
+ *     stick (see {@link AnalogStickView}). Drag anywhere to move; the
+ *     stick visualizes at the touch-down point.
+ *   - Right half clusters face buttons in a fighting-game-friendly
+ *     arrangement:
+ *
+ *        [Z]    [Start]
+ *           [B]
+ *               [A]
+ *
+ *     where:
+ *       A     = jump / aerial-attack            (SDL_CONTROLLER_BUTTON_A)
+ *       B     = special                         (SDL_CONTROLLER_BUTTON_B)
+ *       Z     = shield / grab                   (SDL_CONTROLLER_BUTTON_LEFTSHOULDER)
+ *       Start = pause                           (SDL_CONTROLLER_BUTTON_START)
+ *
+ * LUS's SDLButtonToAnyMapping picks the virtual gamepad up via the
+ * Xbox-360 vendor/product signature attached on the native side
+ * (port/android_touch_overlay.cpp), so user-configured remappings via
+ * the LUS controller config menu still apply.
  */
 public final class TouchOverlay {
 
-    /** Native methods implemented in port/android_touch_overlay.cpp.
-     *  Available once libmain.so is loaded by SDLActivity. */
+    /** Native methods implemented in port/android_touch_overlay.cpp. */
     public static native void setButton(int sdlButton, boolean down);
     public static native void setAxis(int sdlAxis, int value);
 
@@ -41,35 +56,79 @@ public final class TouchOverlay {
     public static final int SDL_CONTROLLER_BUTTON_DPAD_LEFT     = 13;
     public static final int SDL_CONTROLLER_BUTTON_DPAD_RIGHT    = 14;
 
-    private TouchOverlay() { /* static factory */ }
+    private TouchOverlay() { /* static */ }
 
     /**
      * Build the overlay and addContentView() it onto the Activity. Must
-     * be called AFTER the Activity's super.onCreate so SDLActivity has
-     * already installed its surface as the root content view.
+     * be called AFTER super.onCreate so SDLActivity has already installed
+     * its surface as the root content view.
      */
     public static void install(Activity activity) {
         FrameLayout root = new FrameLayout(activity);
-        root.addView(makeButton(activity,
-                                "A",
-                                SDL_CONTROLLER_BUTTON_A,
-                                Color.argb(0xC0, 0x33, 0xCC, 0x55),
-                                Gravity.BOTTOM | Gravity.END));
+
+        // Left half: analog stick capture region. Half-screen-wide
+        // FrameLayout that hosts an AnalogStickView filling its bounds.
+        FrameLayout.LayoutParams stickLp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            Gravity.START | Gravity.FILL_VERTICAL);
+        // Constrain horizontally to half-screen by setting marginEnd to
+        // half the screen width via post — addContentView gives us
+        // MATCH_PARENT initially.
+        AnalogStickView stick = new AnalogStickView(activity);
+        stick.setLayoutParams(new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.MATCH_PARENT));
+        FrameLayout stickHost = new FrameLayout(activity);
+        stickHost.addView(stick);
+        // Half-width via post-layout: simpler than negotiating with
+        // SDLActivity's surface to know its dimensions ahead of time.
+        stickHost.post(() -> {
+            ViewGroup.LayoutParams lp = stickHost.getLayoutParams();
+            lp.width = ((ViewGroup) stickHost.getParent()).getWidth() / 2;
+            stickHost.setLayoutParams(lp);
+        });
+        root.addView(stickHost, stickLp);
+
+        // Right cluster: positioned absolutely. Bottom-right A is the
+        // primary action; B sits diagonally above-left of A; Z and Start
+        // up at the top-right corner.
+        addButton(activity, root, "A",     SDL_CONTROLLER_BUTTON_A,
+                  Color.argb(0xC0, 0x33, 0xCC, 0x55), 120,
+                  Gravity.BOTTOM | Gravity.END,    24,  24);
+        addButton(activity, root, "B",     SDL_CONTROLLER_BUTTON_B,
+                  Color.argb(0xC0, 0xCC, 0x33, 0x55), 110,
+                  Gravity.BOTTOM | Gravity.END,    176, 168);
+        addButton(activity, root, "Z",     SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
+                  Color.argb(0xC0, 0x99, 0x66, 0xCC), 90,
+                  Gravity.TOP    | Gravity.END,    24,  24);
+        addButton(activity, root, "Start", SDL_CONTROLLER_BUTTON_START,
+                  Color.argb(0xA0, 0xAA, 0xAA, 0xAA), 70,
+                  Gravity.TOP    | Gravity.END,    140, 36);
+
         activity.addContentView(root,
             new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
     }
 
-    private static View makeButton(Context ctx, String label, int sdlButton,
-                                   int fillColor, int gravity) {
-        int sizePx   = dp(ctx, 120);
-        int marginPx = dp(ctx, 24);
+    /**
+     * Build a circular touch button and attach it to {@code root} at the
+     * given gravity + dp offsets. Press/release forwards to {@link #setButton}.
+     */
+    private static void addButton(Context ctx, FrameLayout root,
+                                  String label, int sdlButton,
+                                  int fillColor, int diameterDp,
+                                  int gravity,
+                                  int marginEndDp, int marginVerticalDp) {
+        int sizePx        = dp(ctx, diameterDp);
+        int marginEndPx   = dp(ctx, marginEndDp);
+        int marginVertPx  = dp(ctx, marginVerticalDp);
 
         TextView btn = new TextView(ctx);
         btn.setText(label);
         btn.setTextColor(Color.WHITE);
-        btn.setTextSize(28f);
+        btn.setTextSize(label.length() <= 1 ? 26f : 16f);
         btn.setGravity(Gravity.CENTER);
 
         GradientDrawable bg = new GradientDrawable();
@@ -79,7 +138,11 @@ public final class TouchOverlay {
         btn.setBackground(bg);
 
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(sizePx, sizePx, gravity);
-        lp.setMargins(marginPx, marginPx, marginPx, marginPx);
+        // marginVerticalDp is interpreted relative to the gravity edge:
+        // BOTTOM → bottomMargin, TOP → topMargin.
+        if ((gravity & Gravity.BOTTOM) != 0) lp.bottomMargin = marginVertPx;
+        if ((gravity & Gravity.TOP)    != 0) lp.topMargin    = marginVertPx;
+        lp.rightMargin = marginEndPx;
         btn.setLayoutParams(lp);
 
         btn.setOnTouchListener((v, ev) -> {
@@ -97,7 +160,7 @@ public final class TouchOverlay {
                     return false;
             }
         });
-        return btn;
+        root.addView(btn);
     }
 
     private static int dp(Context ctx, int dp) {
