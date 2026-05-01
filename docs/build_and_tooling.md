@@ -5,7 +5,7 @@
 - libultraship and Torch are git submodules
 - MSVC on Windows, Apple Clang on macOS, GCC/Clang on Linux
 - The decomp's original MIPS toolchain (IDO 7.1) is NOT used for the port
-  - **Windows**: `& 'C:\Program Files\CMake\bin\cmake' -S . -B "build/x64" -G "Visual Studio 17 2022" -T v143 -A x64`
+  - **Windows**: `& 'C:\Program Files\CMake\bin\cmake' -S . -B "build/x64" -A x64` (CMake auto-picks the newest installed Visual Studio + default toolset)
   - **macOS / Linux**: `cmake -S . -B build-cmake -GNinja`
 - Build with:
   - `& 'C:\Program Files\CMake\bin\cmake.exe' --build .\build\x64`

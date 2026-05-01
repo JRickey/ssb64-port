@@ -30,15 +30,16 @@ Asset extraction requirements:
 ## Windows
 
 Requires:
-- Visual Studio 2022 with Desktop development with C++
-- MSVC v143
+- Visual Studio 2022 or newer with Desktop development with C++
 - a Windows SDK
 
 Configure:
 
 ```powershell
-& 'C:\Program Files\CMake\bin\cmake.exe' -S . -B "build/x64" -G "Visual Studio 17 2022" -T v143 -A x64
+& 'C:\Program Files\CMake\bin\cmake.exe' -S . -B "build/x64" -A x64
 ```
+
+CMake auto-detects the newest installed Visual Studio and its default toolset. If you need to pin a specific generator/toolset (e.g. on a CI runner with multiple installs), pass `-G "Visual Studio 17 2022" -T v143` explicitly.
 
 Build:
 
