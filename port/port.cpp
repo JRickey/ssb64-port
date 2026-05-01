@@ -20,11 +20,15 @@
 #include <ship/resource/factory/BlobFactory.h>
 #include <ship/resource/ResourceType.h>
 
+#include "app_paths.h"
 #include "bridge/audio_bridge.h"
 #include "first_run.h"
 #include "gui/PortMenu.h"
 #include "renderdoc_trigger.h"
 #include "port_log.h"
+
+#include <filesystem>
+#include <system_error>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -110,10 +114,114 @@ static void portWriteMinidump(EXCEPTION_POINTERS* info, const char* prefix)
 	port_log("    %s minidump = %s\n", prefix, dumpPath);
 }
 
+// Decode an MSVC C++ throw (exception code 0xE06D7363) into a type-info name
+// and, if the thrown object derives from std::exception, its what() string.
+//
+// MSVC ABI on x64: ExceptionInformation[] holds:
+//   [0] magic = 0x19930520 (or 0x19930521/22)
+//   [1] pointer to thrown object
+//   [2] pointer to ThrowInfo (image-relative on x64)
+//   [3] HMODULE base for the image-relative offsets in ThrowInfo
+//
+// ThrowInfo -> CatchableTypeArray -> CatchableType[0] -> std::type_info* + offsets.
+//
+// We only decode the *primary* catchable type (CatchableType[0]). That's
+// the most-derived type the thrower used, which matches what's actually
+// thrown (not a base of it). It's enough to identify the exception in 99%
+// of cases — std::filesystem::filesystem_error, std::bad_alloc,
+// std::system_error, etc.
+struct PortMsvcThrowInfo {
+	uint32_t attributes;
+	int32_t  pmfnUnwind;            // image-relative
+	int32_t  pForwardCompat;        // image-relative
+	int32_t  pCatchableTypeArray;   // image-relative
+};
+struct PortMsvcCatchableTypeArray {
+	uint32_t nCatchableTypes;
+	int32_t  arrayOfCatchableTypes[1]; // image-relative array
+};
+struct PortMsvcCatchableType {
+	uint32_t  properties;
+	int32_t   pType;                // image-relative; std::type_info*
+	struct { int32_t mdisp, pdisp, vdisp; } thisDisplacement;
+	int32_t   sizeOrOffset;
+	int32_t   copyFunction;
+};
+
+static void portLogMsvcCxxThrow(EXCEPTION_POINTERS* info)
+{
+	const EXCEPTION_RECORD* er = info->ExceptionRecord;
+	if (er->NumberParameters < 3) {
+		port_log("    C++ throw: (no parameters)\n");
+		return;
+	}
+
+	uintptr_t imgBase = er->NumberParameters >= 4
+	                  ? (uintptr_t)er->ExceptionInformation[3]
+	                  : (uintptr_t)GetModuleHandleA(nullptr);
+	void* thrownObj = (void*)er->ExceptionInformation[1];
+	auto* throwInfo = (const PortMsvcThrowInfo*)er->ExceptionInformation[2];
+	if (!throwInfo || !imgBase) {
+		port_log("    C++ throw: thrown=%p (no ThrowInfo/imgBase)\n", thrownObj);
+		return;
+	}
+
+	auto* cta = (const PortMsvcCatchableTypeArray*)
+	            (imgBase + (uint32_t)throwInfo->pCatchableTypeArray);
+	if (!cta || cta->nCatchableTypes == 0) {
+		port_log("    C++ throw: thrown=%p (empty CatchableTypeArray)\n", thrownObj);
+		return;
+	}
+
+	auto* ct = (const PortMsvcCatchableType*)
+	           (imgBase + (uint32_t)cta->arrayOfCatchableTypes[0]);
+	const std::type_info* ti = (const std::type_info*)
+	                           (imgBase + (uint32_t)ct->pType);
+	const char* tname = ti ? ti->name() : "(null)";
+
+	// Most std exceptions live at offset 0 in the catchable layout (single
+	// inheritance, no virtual bases). For multi-inherit / virtual-base
+	// types this would need adjustments; keep it conservative and report
+	// the type name regardless. We attempt what() only when offset 0 looks
+	// safe per CatchableType properties.
+	const char* what = nullptr;
+	if (thrownObj && (ct->properties & 0x4) == 0) {
+		// Try as std::exception. Catch any access violation just in case
+		// the layout differs — vectored handlers must not throw.
+		__try {
+			const std::exception* ex = (const std::exception*)thrownObj;
+			what = ex->what();
+		} __except (EXCEPTION_EXECUTE_HANDLER) {
+			what = nullptr;
+		}
+	}
+	port_log("    C++ throw: type=\"%s\" thrown=%p%s%s\n",
+	         tname, thrownObj,
+	         what ? " what=" : "",
+	         what ? what     : "");
+}
+
 static LONG CALLBACK portWindowsVectoredHandler(EXCEPTION_POINTERS* info)
 {
 	DWORD code = info->ExceptionRecord->ExceptionCode;
-	if (code == 0xE06D7363 || code == EXCEPTION_BREAKPOINT ||
+	// Suppress noisy / non-actionable codes after capturing C++ throw
+	// details. Issue #58: a heap corruption fault was reported in the
+	// log but the *triggering* C++ exception was suppressed silently —
+	// the unwind from that throw is what hit the heap-corruption
+	// detector, so the throw site is the actual root cause we need.
+	// Decode and log it, then keep returning EXCEPTION_CONTINUE_SEARCH
+	// so SEH still gets a chance to catch it normally.
+	if (code == 0xE06D7363) {
+		static volatile LONG sCxxThrowsLogged = 0;
+		// Cap to first 8 to avoid log spam if a hot path throws.
+		if (InterlockedIncrement(&sCxxThrowsLogged) <= 8) {
+			port_log("\n*** C++ THROW (first-chance) tid=%lu ***\n",
+			         GetCurrentThreadId());
+			portLogMsvcCxxThrow(info);
+		}
+		return EXCEPTION_CONTINUE_SEARCH;
+	}
+	if (code == EXCEPTION_BREAKPOINT ||
 	    code == DBG_PRINTEXCEPTION_C || code == DBG_PRINTEXCEPTION_WIDE_C ||
 	    code == 0x406D1388) {
 		return EXCEPTION_CONTINUE_SEARCH;
@@ -192,6 +300,46 @@ static LONG WINAPI portWindowsCrashFilter(EXCEPTION_POINTERS* info)
 #endif
 
 static std::shared_ptr<Ship::Context> sContext;
+
+// Port-side replacement for Ship::Context::LocateFileAcrossAppDirs.
+//
+// LUS's version uses the throwing form of std::filesystem::exists, which
+// raises filesystem_error if the underlying GetFileAttributesExW returns
+// anything other than an ENOENT-equivalent. On Win10 19042 the
+// NON_PORTABLE app-data probe path (SDL_GetPrefPath returns a
+// backslash-terminated path, joined with a literal "/" — yielding
+// e.g. "C:\\Users\\u\\AppData\\Roaming\\BattleShip\\/f3d.o2r")
+// reportedly trips that error and the unwind from the throw fast-fails
+// the process via the heap-corruption detector before any user-level
+// catch can run (BattleShip issue #58).
+//
+// Two differences from the LUS version:
+//   1. Use the noexcept exists(p, ec) overload — false is the right
+//      answer for any failure, and probing a path should never throw.
+//   2. Probe the bundle dir via ssb64::RealAppBundlePath(), which
+//      returns the actual exe directory on Windows portable-zip
+//      distros. Ship::Context::GetAppBundlePath() under NON_PORTABLE
+//      returns the literal CMAKE_INSTALL_PREFIX ("BattleShip"), which
+//      is wrong for any user that doesn't unzip into a "BattleShip"
+//      subdir matching their cwd.
+static std::string PortLocateFile(const std::string& basename) {
+	namespace fs = std::filesystem;
+	std::error_code ec;
+
+	const fs::path appDir(Ship::Context::GetAppDirectoryPath());
+	fs::path p1 = appDir / basename;
+	if (fs::exists(p1, ec)) {
+		return p1.lexically_normal().string();
+	}
+
+	const fs::path bundleDir(ssb64::RealAppBundlePath());
+	fs::path p2 = bundleDir / basename;
+	if (fs::exists(p2, ec)) {
+		return p2.lexically_normal().string();
+	}
+
+	return "./" + basename;
+}
 
 extern "C" {
 
@@ -308,18 +456,12 @@ static int PortInitImpl(int argc, char* argv[]) {
 		// so a missing f3d.o2r logs but doesn't fatal — the Window init
 		// would still partially work for the wizard, which is enough.
 		//
-		// Each step gets its own checkpoint log so a Windows heap-corruption
-		// crash here (issue #58) tells us which Ship::Context call ate it,
-		// not just that we got past ControlDeck OK and never returned.
+		// PortLocateFile replaces Ship::Context::LocateFileAcrossAppDirs
+		// for issue #58 — see the helper's comment for why.
 		port_log("SSB64: locating f3d.o2r ...\n");
-		const std::string f3d = Ship::Context::LocateFileAcrossAppDirs("f3d.o2r");
+		const std::string f3d = PortLocateFile("f3d.o2r");
 		port_log("SSB64: bootstrap archive (shaders) -> %s\n", f3d.c_str());
-		port_log("SSB64: querying AppBundlePath ...\n");
-		const std::string appBundle = Ship::Context::GetAppBundlePath();
-		port_log("SSB64: AppBundlePath    = %s\n", appBundle.c_str());
-		port_log("SSB64: querying AppDirectoryPath ...\n");
-		const std::string appDir = Ship::Context::GetAppDirectoryPath();
-		port_log("SSB64: AppDirectoryPath = %s\n", appDir.c_str());
+
 		std::vector<std::string> bootstrapPaths = {f3d};
 		port_log("SSB64: calling InitResourceManager (bootstrap) ...\n");
 		if (!sContext->InitResourceManager(bootstrapPaths, {}, 0,
@@ -365,9 +507,11 @@ static int PortInitImpl(int argc, char* argv[]) {
 		// the wizard's status text, not a native popup that races the
 		// ImGui modal.
 		ssb64::ExtractAssetsIfNeeded(targetO2r, /*silent=*/true);
-		if (!std::filesystem::exists(targetO2r) &&
-		    !std::filesystem::exists(
-		        Ship::Context::LocateFileAcrossAppDirs("BattleShip.o2r"))) {
+		std::error_code ec;
+		// noexcept exists / PortLocateFile rather than the throwing LUS
+		// form — issue #58.
+		if (!std::filesystem::exists(targetO2r, ec) &&
+		    !std::filesystem::exists(PortLocateFile("BattleShip.o2r"), ec)) {
 			if (!ssb64::RunFirstRunWizard(targetO2r)) {
 				port_log("SSB64: first-run wizard cancelled — exiting\n");
 				// PortShutdown drops audio bridge refs + resets sContext
@@ -384,8 +528,7 @@ static int PortInitImpl(int argc, char* argv[]) {
 
 	{
 		// Add BattleShip.o2r to the running ResourceManager now that it exists.
-		const std::string ssb64o2r =
-			Ship::Context::LocateFileAcrossAppDirs("BattleShip.o2r");
+		const std::string ssb64o2r = PortLocateFile("BattleShip.o2r");
 		port_log("SSB64: adding game archive -> %s\n", ssb64o2r.c_str());
 		auto am = sContext->GetResourceManager()->GetArchiveManager();
 		if (!am->AddArchive(ssb64o2r)) {
