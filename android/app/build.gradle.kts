@@ -9,9 +9,73 @@ plugins {
     id("com.android.application")
 }
 
+// Repo root = the outer git checkout, two levels up from the agent
+// worktree's android/app/build.gradle.kts:
+//   <repo>/.claude/worktrees/<slug>/android/app/build.gradle.kts
+// Resolve relative to projectDir so it works from any worktree.
+val repoRoot = rootProject.projectDir.resolve("..").canonicalFile
+
+/** Resolve a generated asset by checking the desktop build dir first
+ *  (where new-worktree.sh symlinks main-tree outputs into build/), then
+ *  the repo root, then fail with a clear message. */
+fun findGameArtifact(name: String): java.io.File {
+    val candidates = listOf(
+        repoRoot.resolve("build").resolve(name),
+        repoRoot.resolve(name),
+    )
+    return candidates.firstOrNull { it.exists() }
+        ?: error("Missing $name — looked in:\n" +
+                 candidates.joinToString("\n") { "  $it" } +
+                 "\nRun the desktop cmake build (targets: GenerateF3DO2R, " +
+                 "GeneratePortO2R, ExtractAssets) before assembleDebug.")
+}
+
+// Stage f3d.o2r + ssb64.o2r + Torch's runtime config (config.yml + yamls/)
+// into a generated dir that AGP merges into the APK's assets/.
+//
+// BattleShip.o2r is intentionally NOT bundled — it derives from Nintendo's
+// ROM and the user supplies that themselves on first launch (Phase 4.4
+// SAF picker → libtorch_runner.so → produces BattleShip.o2r in
+// externalFilesDir).
+val stagedAssetsDir = layout.buildDirectory.dir("generated/staged_assets")
+
+val stageGameAssets = tasks.register<Copy>("stageGameAssets") {
+    description = "Stage f3d.o2r / ssb64.o2r / config.yml / yamls into APK assets/"
+    group = "android"
+    into(stagedAssetsDir)
+
+    // Resolved at task-config time so we fail before AGP even starts the
+    // merge — avoids a half-built APK with missing assets.
+    from(findGameArtifact("f3d.o2r"))
+    from(findGameArtifact("ssb64.o2r"))
+    from(repoRoot.resolve("config.yml"))
+    from(repoRoot.resolve("yamls")) {
+        into("yamls")
+    }
+
+    doFirst {
+        require(repoRoot.resolve("config.yml").exists()) {
+            "config.yml not found at $repoRoot — agent worktree should " +
+            "always have this file from git"
+        }
+    }
+}
+
+// Run the staging task before AGP's merge step.
+afterEvaluate {
+    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
+         .configureEach { dependsOn(stageGameAssets) }
+}
+
 android {
     namespace = "com.jrickey.battleship"
     compileSdk = 34
+
+    // BuildConfig.VERSION_CODE is referenced from AssetExtractor.java for
+    // re-extraction sentinel comparison. AGP 8.x disables this by default.
+    buildFeatures {
+        buildConfig = true
+    }
     // NDK install is at /opt/homebrew/share/android-ndk via brew; AGP needs
     // ndkVersion to match the actual revision (read from source.properties)
     // or it errors out. r29 = 29.0.14206865.
@@ -80,6 +144,15 @@ android {
             path = file("../../CMakeLists.txt")
             // Match the cmake_minimum_required in the root.
             version = "3.24.0+"
+        }
+    }
+
+    // Stage host-built / source files into a generated assets dir, then
+    // tell AGP to merge that dir into the APK assets/. The dir lives under
+    // app/build/ so it gets cleaned with `./gradlew clean`.
+    sourceSets {
+        getByName("main") {
+            assets.srcDirs("$buildDir/generated/staged_assets")
         }
     }
 

@@ -35,19 +35,36 @@
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:hardwareAccelerated="true">
 
+        <!--
+            BootActivity is the launcher entry point. It extracts bundled
+            APK assets (f3d.o2r, ssb64.o2r, config.yml, yamls/) into
+            externalFilesDir, then transitions to BattleShipActivity once
+            the ROM has been extracted (Phase 4.4 ROM picker, or
+            BattleShip.o2r adb-pushed during dev).
+        -->
+        <activity
+            android:name=".BootActivity"
+            android:exported="true"
+            android:screenOrientation="sensorLandscape">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            BattleShipActivity is the SDLActivity subclass that runs the
+            game itself. Reached via Intent from BootActivity once assets
+            are ready.
+        -->
         <activity
             android:name=".BattleShipActivity"
-            android:exported="true"
+            android:exported="false"
             android:alwaysRetainTaskState="true"
             android:launchMode="singleInstance"
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:preferMinimalPostProcessing="true"
             android:screenOrientation="sensorLandscape">
-
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
 
             <!-- Let SDL's HIDAPI USB controller path receive plug events. -->
             <intent-filter>
