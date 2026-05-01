@@ -338,6 +338,42 @@ typedef struct ALWhatever8009EDD0
 } ALWhatever8009EDD0;
 
 ALWhatever8009EDD0 D_8009EDD0_406D0;
+
+#ifdef PORT
+/* See docs/bugs/boss_defeat_sfx_max_typepun_2026-05-01.md.
+ *
+ * The decomp declares `extern alSoundEffect D_8009EDD0_406D0;` in
+ * sc1pgame.c, but the actual definition (above) is type
+ * ALWhatever8009EDD0.  On N64 the two struct layouts coincidentally
+ * aligned at byte offset 0x28: alSoundEffect's `sfx_max` (u16)
+ * overlaid ALWhatever8009EDD0's `fgm_ucode_count` (u16), so the boss-
+ * defeat code's `D_8009EDD0_406D0.sfx_max = 0` was an intentional
+ * type-pun for "block FGM playback while the cinematic plays".
+ *
+ * On LP64 the layouts diverge: ALPlayer grew 16 → 32 bytes and three
+ * `**` fields each grew 4 → 8 bytes, shifting fgm_ucode_count to
+ * struct offset 0x40 — but alSoundEffect's sfx_max only shifted to
+ * offset 0x38, where it now overlaps the LOW 16 BITS of
+ * `fgm_table_data` (a u8** pointer).  The boss-defeat write zeros
+ * those 16 bits, and every subsequent FGM-table lookup reads
+ * `fgm_table_data[id]` from a wild address → crash on the audio
+ * thread when the bytecode parser dereferences a NULL ucode.
+ *
+ * Accessors below preserve the original semantic ("save / zero /
+ * restore the FGM playback gate") via the field that actually carries
+ * it on every platform. */
+void portAudioSaveAndBlockFGMs(u16 *out_saved)
+{
+    *out_saved = D_8009EDD0_406D0.fgm_ucode_count;
+    D_8009EDD0_406D0.fgm_ucode_count = 0;
+}
+
+void portAudioRestoreFGMs(u16 saved)
+{
+    D_8009EDD0_406D0.fgm_ucode_count = saved;
+}
+#endif
+
 f32 randFloat1(void);
 f32 randFloat2(void);
 
@@ -4640,7 +4676,7 @@ f32 randFloat1();
 void func_80026B90_27790(ALWhatever8009EDD0_siz34 *arg0);
 
 // TODO: where does this go?
-static s32 func_800293A8_29FA8(s32 arg0) 
+static s32 func_800293A8_29FA8(s32 arg0)
 {
     ALWhatever8009EDD0_siz24* temp_a0;
     ALWhatever8009EE0C* next_node;
@@ -4654,13 +4690,13 @@ static s32 func_800293A8_29FA8(s32 arg0)
 
     this_node = D_8009EDD0_406D0.unk_alsound_0x3C;
     var_s4 = NULL;
-    
-    while (this_node != NULL) 
+
+    while (this_node != NULL)
     {
         next_node = (ALWhatever8009EE0C*)this_node->next;
         temp_s0 = (N_ALVoice *)&this_node->voice;
-        
-        if (this_node->unk2A == 0) 
+
+        if (this_node->unk2A == 0)
         {
             n_alSynStopVoice(temp_s0);
             n_alSynFreeVoice(temp_s0);
@@ -4718,21 +4754,21 @@ static s32 func_800293A8_29FA8(s32 arg0)
     }
     
     var_s0 = D_8009EDD0_406D0.unk_alsound_0x40;
-    
-    while (var_s0 != NULL) 
+
+    while (var_s0 != NULL)
     {
         func_80026B90_27790(var_s0);
         var_s0 = var_s0->next;
     }
     
     this_node = D_8009EDD0_406D0.unk_alsound_0x3C;
-    
-    while (this_node != NULL) 
+
+    while (this_node != NULL)
     {
         func_80027460_28060((ALWhatever8009EE0C_2 *)this_node);
         this_node = this_node->next;
     }
-    
+
     var_s0 = D_8009EDD0_406D0.unk_alsound_0x40;
     var_v0 = NULL;
     
@@ -5147,7 +5183,6 @@ ALWhatever8009EE0C* func_80026A6C_2766C(void *arg0)
 {
     ALWhatever8009EE0C *temp_v1;
     OSIntMask temp_a1;
-    
     temp_a1 = osSetIntMask(1);
     temp_v1 = D_8009EDD0_406D0.unk_alsound_0x34;
     
@@ -5233,7 +5268,6 @@ static ALWhatever8009EDD0_siz34* func_80026844_27444(void *id)
     ALWhatever8009EDD0_siz34* temp_s0;
     OSIntMask temp_a3;
     s32 i;
-    
     temp_a3 = osSetIntMask(1);
     temp_s0 = D_8009EDD0_406D0.unk_alsound_0x38;
 

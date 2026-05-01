@@ -2023,14 +2023,29 @@ void sc1PGameBossDefeatInterfaceProcUpdate(void)
     func_800269C0_275C0(nSYAudioVoiceBossDead);
     func_800269C0_275C0(nSYAudioFGMBossDefeatL);
 
+#ifdef PORT
+    /* alSoundEffect.sfx_max ↔ ALWhatever8009EDD0.fgm_ucode_count on N64
+     * by struct overlap; LP64 layouts diverge and the alSoundEffect view
+     * lands on fgm_table_data instead, corrupting it.  See accessors in
+     * src/libultra/n_audio/n_env.c. */
+    extern void portAudioSaveAndBlockFGMs(u16 *out_saved);
+    portAudioSaveAndBlockFGMs(&sSC1PGameBossDefeatSoundTerminateTemp);
+#else
     sSC1PGameBossDefeatSoundTerminateTemp = D_8009EDD0_406D0.sfx_max;
     D_8009EDD0_406D0.sfx_max = 0;
+#endif
 }
 
 // 0x8018F6DC
 void func_ovl65_8018F6DC(void)
 {
+#ifdef PORT
+    /* See portAudioSaveAndBlockFGMs above. */
+    extern void portAudioRestoreFGMs(u16 saved);
+    portAudioRestoreFGMs(sSC1PGameBossDefeatSoundTerminateTemp);
+#else
     D_8009EDD0_406D0.sfx_max = sSC1PGameBossDefeatSoundTerminateTemp;
+#endif
 }
 
 // 0x8018F6F0
