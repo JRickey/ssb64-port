@@ -55,10 +55,17 @@ set(GBI_UCODE "F3DEX_GBI_2" CACHE STRING "" FORCE)
 # branch and the ENABLE_OPENGL/USE_OPENGLES compile defs are set.
 if (CMAKE_SYSTEM_NAME STREQUAL "Android")
     set(USE_OPENGLES ON CACHE BOOL "" FORCE)
+    # Phase 4: build Torch as a library, NOT a standalone executable. We
+    # ship Torch into the APK and call its extraction routine via JNI from
+    # the first-run ROM picker.
+    set(USE_STANDALONE OFF CACHE BOOL "" FORCE)
 endif()
 
-# Build Torch as the original standalone sidecar executable.
-set(USE_STANDALONE ON CACHE BOOL "" FORCE)
+# Build Torch as the original standalone sidecar executable on desktop.
+# (Already overridden to OFF in the Android branch above.)
+if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
+    set(USE_STANDALONE ON CACHE BOOL "" FORCE)
+endif()
 set(BUILD_STORMLIB OFF CACHE BOOL "" FORCE)
 set(BUILD_SM64 OFF CACHE BOOL "" FORCE)
 set(BUILD_MK64 OFF CACHE BOOL "" FORCE)
@@ -75,10 +82,15 @@ set(BUILD_SSB64 ON CACHE BOOL "" FORCE)
 
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
 
-# Torch is a host build tool that runs at build time to extract assets from
-# the ROM. On Android cross-compile we can't run a target-arch torch binary,
-# so the .o2r files must be produced on a host machine and shipped in the
-# APK assets dir. Skip the ExternalProject + ExtractAssets graph here.
+# Phase 4: on Android, Torch is built in-tree as a library (USE_STANDALONE=OFF
+# was forced above). Its archive function is exposed to Java via a JNI
+# bridge so the first-run UI can extract the user's ROM on-device.
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_subdirectory(torch ${CMAKE_BINARY_DIR}/torch)
+endif()
+
+# Desktop / non-Android: Torch is built out-of-tree as a host executable
+# via ExternalProject so it can run at our build time to extract assets.
 if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     ExternalProject_Add(TorchExternal
         PREFIX TorchExternal
@@ -197,6 +209,10 @@ file(GLOB_RECURSE SSB64_SRC_PORT "port/*.cpp" "port/*.c" "port/*.h")
 list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/stubs/")
 # Test harness has its own main(); never link it into the game binary.
 list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/coroutine_test\\.cpp$")
+# Android torch bridge lives in its own libtorch_runner.so — must not be
+# pulled into libmain.so, where it would drag the static libtorch into
+# the SDL-bound game library.
+list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/android_torch_bridge\\.cpp$")
 
 # Debug tools (GBI trace + Acmd trace systems)
 file(GLOB SSB64_DEBUG_TOOLS
@@ -547,4 +563,26 @@ if (SSB64_BUILD_COROUTINE_TEST AND CMAKE_SYSTEM_NAME STREQUAL "Android")
     target_include_directories(coroutine_test PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/port
     )
+endif()
+
+################################################################################
+# Torch runner — Android-only SHARED library (libtorch_runner.so).
+#
+# Wraps the static libtorch.a with a small extern "C" entry point that the
+# first-run Activity calls via JNI to extract the user's ROM into
+# BattleShip.o2r. Lives outside libmain.so so Java can load it BEFORE
+# SDLActivity/libSDL2 are initialized — useful because the ROM picker
+# UI is a regular Activity that runs before the SDL game loop starts.
+################################################################################
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_library(torch_runner SHARED port/android_torch_bridge.cpp)
+    target_include_directories(torch_runner PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/torch/src
+    )
+    # The actual extractor + its FetchContent'd deps (yaml-cpp, tinyxml2,
+    # libgfxd, BinaryTools, N64Graphics, spdlog, GSL, ...). All are static
+    # libs from torch's CMakeLists.txt under USE_STANDALONE=OFF.
+    target_link_libraries(torch_runner PRIVATE torch)
+    # Match libmain.so's bionic linkage — c++_shared is configured in AGP.
+    set_target_properties(torch_runner PROPERTIES OUTPUT_NAME "torch_runner")
 endif()

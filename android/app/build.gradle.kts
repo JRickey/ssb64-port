@@ -39,10 +39,15 @@ android {
                     "-DUSE_AUTO_VCPKG=OFF",
                     "-DANDROID_STL=c++_shared",
                 )
-                // Build only the shared library that the Activity loads.
-                // Dependencies (libultraship.a, libSDL2.so, etc.) come along
-                // because they're transitive deps of the ssb64 target.
-                targets += "ssb64"
+                // Targets we explicitly want AGP to drive a build for.
+                //   ssb64         — libmain.so (the Activity loads this)
+                //   torch_runner  — libtorch_runner.so (first-run ROM
+                //                   extractor, loaded standalone by Java
+                //                   before SDLActivity is up)
+                // Transitive deps (libultraship.a, libSDL2.so, libtinyxml2,
+                // libtorch.a, etc.) get pulled in automatically — and only
+                // SHARED libs end up in the APK.
+                targets += listOf("ssb64", "torch_runner")
             }
         }
     }
