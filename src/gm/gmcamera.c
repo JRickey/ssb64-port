@@ -6,6 +6,9 @@
 #include <sys/rdp.h>
 #include <sys/debug.h>
 // #include <sys/taskman.h>
+#ifdef PORT
+#include <frame_interpolation.h>
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -990,6 +993,12 @@ sb32 gmCameraLookAtFuncMatrix(Mtx *mtx, CObj *cobj, Gfx **dls)
     u16 *perspnorm;
     f32 max;
     s32 unused;
+#ifdef PORT
+    /* Capture inputs at the very top of the function so the recording
+     * reflects the inputs for *this* frame's camera, regardless of which
+     * branch the high-precision rebuild takes below. */
+    f32 fi_scale = cobj->projection.persp.scale;
+#endif
 
     syMatrixAdvanceW(temp_mtx, gSYTaskmanGraphicsHeap);
 
@@ -1012,8 +1021,28 @@ sb32 gmCameraLookAtFuncMatrix(Mtx *mtx, CObj *cobj, Gfx **dls)
 
         syMatrixLookAtReflectF(&sp5C, &gGMCameraStruct.look_at, cobj->vec.eye.x, cobj->vec.eye.y, cobj->vec.eye.z, cobj->vec.at.x, cobj->vec.at.y, cobj->vec.at.z, cobj->vec.up.x, cobj->vec.up.y, cobj->vec.up.z);
         guMtxCatF(sp5C, gGCMatrixPerspF, gGMCameraMatrix);
+#ifdef PORT
+        fi_scale = 32000.0F / max;
+#endif
     }
     syMatrixF2L(&gGMCameraMatrix, mtx);
+
+#ifdef PORT
+    /* Input-domain camera record. Replaces the old element-wise F2L hook —
+     * lerping a view*proj matrix element-wise produces a non-rigid transform
+     * (visible "doubling" / warping during camera pans). The replay path
+     * rebuilds lookat_F + persp_F + catF from lerped scalar inputs, which
+     * is rigid by construction. */
+    FrameInterpolation_RecordCamera(mtx,
+        cobj->vec.eye.x, cobj->vec.eye.y, cobj->vec.eye.z,
+        cobj->vec.at.x,  cobj->vec.at.y,  cobj->vec.at.z,
+        cobj->vec.up.x,  cobj->vec.up.y,  cobj->vec.up.z,
+        cobj->projection.persp.fovy,
+        cobj->projection.persp.aspect,
+        cobj->projection.persp.near,
+        cobj->projection.persp.far,
+        fi_scale);
+#endif
 
     return 0;
 }

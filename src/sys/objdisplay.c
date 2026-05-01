@@ -8,6 +8,7 @@
 #include "libc/math.h"
 #ifdef PORT
 #include "port_log.h"
+#include <frame_interpolation.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #ifdef _MSC_VER
@@ -610,6 +611,12 @@ s32 gcPrepDObjMatrix(Gfx **dl, DObj *dobj)
     s32 kind;
 
     sp2CC = 0;
+#ifdef PORT
+    /* Frame interpolation: scope every matrix this DObj writes by its stable
+     * pointer. Lets the diff between frames N-1 and N match logically-
+     * equivalent matrices even if the underlying Mtx* slot was recycled. */
+    FrameInterpolation_RecordOpenChild(dobj, 0);
+#endif
 
     if (dobj->vec != NULL)
     {
@@ -1465,6 +1472,9 @@ s32 gcPrepDObjMatrix(Gfx **dl, DObj *dobj)
     }
     *dl = current_dl;
 
+#ifdef PORT
+    FrameInterpolation_RecordCloseChild();
+#endif
     return sp2CC;
 }
 #else

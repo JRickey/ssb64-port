@@ -273,6 +273,23 @@ void PortMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Options(ComboboxOptions().Tooltip("Sets the active texture filtering mode.").ComboMap(kTextureFilteringMap));
 
+    /* Frame interpolation: render N display frames per game tick by lerping
+     * the previous frame's recorded matrices toward the current. The slider
+     * value is read every frame from CVar gSettings.FrameInterpolationMult
+     * by port_submit_display_list — see port/gameloop.cpp. */
+    AddWidget(path, "Frame Interpolation Mult", WIDGET_CVAR_SLIDER_INT)
+        .CVar("gSettings.FrameInterpolationMult")
+        .RaceDisable(false)
+        .Options(IntSliderOptions()
+                     .Tooltip("Render N display frames per game tick. 1 = disabled. "
+                              "On a 60 Hz vsynced display this slows the game down "
+                              "(2 = half speed) — only useful on 120 Hz+ monitors or "
+                              "with vsync off. Camera lerp is input-domain so the "
+                              "rebuilt frames are rigid (no doubling).")
+                     .Min(1)
+                     .Max(8)
+                     .DefaultValue(1));
+
     path.sidebarName = "Gameplay";
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Gameplay", 1);

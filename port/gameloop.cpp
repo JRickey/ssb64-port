@@ -23,8 +23,11 @@
 #include "coroutine.h"
 #include "port.h"
 #include "port_watchdog.h"
+#include "frame_interpolation.h"
+#include "xr/xr_runtime.h"
 
 #include <libultraship/libultraship.h>
+#include <libultraship/bridge/consolevariablebridge.h>
 #include <fast/Fast3dWindow.h>
 #include <fast/interpreter.h>
 
@@ -150,6 +153,47 @@ extern "C" int port_get_display_submit_count(void)
 	return sDLSubmitCount;
 }
 
+/* Frame-interpolation multiplier — CVar (gSettings.FrameInterpolationMult),
+ * env var fallback (SSB64_INTERP_MULT), and a hard cap.
+ *
+ *   N=1: disabled, identical to historical behavior.
+ *   N=2: render twice per tick (e.g. 30→60 Hz).
+ *   N=3: render thrice.
+ *   N=4: 30→120 Hz on a 120 Hz display.
+ *
+ * Resolved every frame so the slider in Settings → Graphics → Frame
+ * Interpolation Mult takes effect immediately, no relaunch needed.
+ *
+ * KNOWN LIMITATION (slow motion): on a vsynced 60 Hz display, each call to
+ * DrawAndRunGraphicsCommands blocks for ~1/60 s on present, so calling it
+ * N times per game tick stretches each tick to N/60 s, slowing game logic
+ * to 60/N Hz. The proper fix requires a separate renderer thread or
+ * vsync-bypass on intermediate presents (libultraship lacks the API to
+ * present without a vsync block from the port side). On a 120 Hz monitor
+ * mult=2 works as intended; on a 60 Hz monitor it's a slo-mo demo only. */
+#define SSB64_INTERP_MULT_MAX 8
+#define CVAR_FRAME_INTERP_MULT "gSettings.FrameInterpolationMult"
+
+static int port_get_interp_mult(void)
+{
+	int env_default = 1;
+	if (const char *e = std::getenv("SSB64_INTERP_MULT")) {
+		int v = std::atoi(e);
+		if (v >= 1 && v <= SSB64_INTERP_MULT_MAX) env_default = v;
+	}
+	int n = CVarGetInteger(CVAR_FRAME_INTERP_MULT, env_default);
+	if (n < 1) n = 1;
+	if (n > SSB64_INTERP_MULT_MAX) n = SSB64_INTERP_MULT_MAX;
+
+	/* Log only on transitions so a stable session doesn't spam the log. */
+	static int s_last_logged = -1;
+	if (n != s_last_logged) {
+		port_log("SSB64: frame interpolation mult = %d (1 = disabled)\n", n);
+		s_last_logged = n;
+	}
+	return n;
+}
+
 extern "C" void port_submit_display_list(void *dl)
 {
 	sDLSubmitCount++;
@@ -183,27 +227,93 @@ extern "C" void port_submit_display_list(void *dl)
 		return;
 	}
 
+	/* The game just finished building this frame's display list and all
+	 * matrices it touched are now sitting in g_current. Stop recording so
+	 * the replay loop sees a stable snapshot. */
+	FrameInterpolation_StopRecord();
+
+	const int mult = port_get_interp_mult();
+
 	/* Begin trace frame before Fast3D processes the display list */
 	gbi_trace_begin_frame();
 
-	std::unordered_map<Mtx *, MtxF> mtxReplacements;
-	try {
-		window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
-	} catch (long hr) {
-		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX on DL #%d\n", hr, sDLSubmitCount);
-		gbi_trace_end_frame();
-		return;
-	} catch (...) {
-		port_log("SSB64: CAUGHT unknown exception on DL #%d\n", sDLSubmitCount);
-		gbi_trace_end_frame();
-		return;
+	/* Slow-motion fix: when mult>1, the DXGI backend throttles BOTH on the
+	 * vsync interval (each Present() blocks ~1/60s) AND on a CPU-side wait
+	 * loop targeting `mTargetFps` (default 60, gfx_dxgi.cpp:43). Together
+	 * they cap presents at 60 Hz, so doing mult presents per game tick
+	 * stretches each tick to mult/60s and slows logic to 60/mult Hz.
+	 *
+	 * Workaround:
+	 *   1. Disable vsync for intermediate presents by flipping
+	 *      gVsyncEnabled (DXGI re-reads it at SwapBuffersBegin).
+	 *   2. Bump target FPS to 60*mult so the wait loop completes faster.
+	 * Both restored before the final present so it runs with the user's
+	 * chosen vsync setting and tear-free.
+	 *
+	 * Intermediate presents will tear (no vsync), but they're transient —
+	 * the display will hit a clean vsync on the final present each tick.
+	 *
+	 * No-op when mult == 1. */
+	const bool needsTimingToggle = (mult > 1);
+	int origVsync = 1;
+	int origTargetFps = 60;
+	if (needsTimingToggle) {
+		auto cv = context->GetConsoleVariables();
+		origVsync = cv ? cv->GetInteger("gVsyncEnabled", 1) : 1;
+		origTargetFps = window->GetTargetFps();
+		window->SetTargetFps(60 * mult);
 	}
+	auto restore_timing = [&]() {
+		if (!needsTimingToggle) return;
+		auto cv = context->GetConsoleVariables();
+		if (cv) cv->SetInteger("gVsyncEnabled", origVsync);
+		window->SetTargetFps(origTargetFps);
+	};
+
+	for (int i = 1; i <= mult; i++) {
+		std::unordered_map<Mtx *, MtxF> mtxReplacements;
+		bool isIntermediate = (mult > 1 && i < mult);
+		if (isIntermediate) {
+			/* Intermediate frames: build a replacement map for lerp factor t.
+			 * t in (0, 1); the final pass (i==mult, t==1) uses an empty map
+			 * so the GBI's actual matrices flow through unchanged — this
+			 * keeps the last display frame bit-exact with the un-instrumented
+			 * path and serves as the self-test invariant. */
+			float t = static_cast<float>(i) / static_cast<float>(mult);
+			mtxReplacements = FrameInterpolation_Interpolate(t);
+		}
+
+		/* Vsync toggle: OFF on intermediate, restored on final. */
+		if (needsTimingToggle) {
+			auto cv = context->GetConsoleVariables();
+			if (cv) {
+				cv->SetInteger("gVsyncEnabled", isIntermediate ? 0 : origVsync);
+			}
+		}
+
+		try {
+			window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
+		} catch (long hr) {
+			port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX on DL #%d (interp pass %d/%d)\n",
+				hr, sDLSubmitCount, i, mult);
+			gbi_trace_end_frame();
+			restore_timing();
+			return;
+		} catch (...) {
+			port_log("SSB64: CAUGHT unknown exception on DL #%d (interp pass %d/%d)\n",
+				sDLSubmitCount, i, mult);
+			gbi_trace_end_frame();
+			restore_timing();
+			return;
+		}
+	}
+	restore_timing();
 
 	/* End trace frame after processing */
 	gbi_trace_end_frame();
 
 	if (sDLSubmitCount <= 60) {
-		port_log("SSB64: DrawAndRunGraphicsCommands returned OK\n");
+		port_log("SSB64: DrawAndRunGraphicsCommands returned OK (mult=%d)\n", mult);
 	}
 }
 
@@ -214,6 +324,18 @@ extern "C" void port_submit_display_list(void *dl)
 void PortGameInit(void)
 {
 	port_log("SSB64: PortGameInit — initializing coroutine system\n");
+
+	/* Run frame-interpolation unit tests if SSB64_FRAME_INTERP_UNITTEST is set.
+	 * Exits the process with status 2 on failure. No-op otherwise. */
+	FrameInterpolation_RunSelfTestIfRequested();
+
+	/* OpenXR session init (opt-in via SSB64_XR_ENABLE=1). When the build is
+	 * not configured with -DSSB64_ENABLE_OPENXR=ON, this logs a stub message
+	 * and returns non-zero, leaving xr_runtime_is_active() == 0 so the
+	 * per-frame hooks no-op. See port/xr/xr_runtime.h for completion notes. */
+	if (xr_runtime_init() == 0) {
+		port_log("SSB64: XR runtime active: %s\n", xr_runtime_status());
+	}
 
 	/* Convert the main thread to a fiber so it can participate in
 	 * coroutine switching. */
@@ -378,6 +500,19 @@ void PortPushFrame(void)
 	 * `(OSMesg)INTR_VRETRACE` here. */
 	osSendMesg(&gSYSchedulerTaskMesgQueue, port_make_os_mesg_int(INTR_VRETRACE), OS_MESG_NOBLOCK);
 
+	/* Begin a fresh recording for this frame's matrix builds. The current
+	 * recording becomes the "previous" snapshot for the next frame's lerp.
+	 * This MUST happen before threads run (they call syMatrix* which records
+	 * into g_current). It MUST happen after the previous frame's render
+	 * completed, otherwise we'd lose ops still being replayed.
+	 *
+	 * The corresponding StopRecord lives in port_submit_display_list, which
+	 * fires synchronously inside port_resume_service_threads below. */
+	FrameInterpolation_StartRecord();
+
+	/* OpenXR per-frame begin (no-op when XR inactive). */
+	xr_runtime_begin_frame();
+
 	/* Resume all service thread coroutines that are waiting for messages.
 	 * This runs multiple rounds to handle cascading messages:
 	 *   Round 1: Scheduler picks up VRETRACE, sends ticks to clients
@@ -390,6 +525,13 @@ void PortPushFrame(void)
 
 	/* Tell the hang watchdog a frame completed. */
 	port_watchdog_note_frame_end();
+
+	/* OpenXR per-frame end — composites the desktop framebuffer into the XR
+	 * quad-layer swapchain and submits xrEndFrame. No-op when XR inactive. */
+	xr_runtime_end_frame();
+
+	/* Frame-interpolation telemetry (env-var gated, ~60 ticks per log line). */
+	FrameInterpolation_TelemetryTick();
 
 	/* Screenshot capture: env-var driven, zero cost when disabled. */
 	port_screenshot_init_once();
@@ -414,6 +556,7 @@ void PortPushFrame(void)
 
 void PortGameShutdown(void)
 {
+	xr_runtime_shutdown();
 	port_watchdog_shutdown();
 	if (sGameCoroutine != NULL) {
 		port_coroutine_destroy(sGameCoroutine);

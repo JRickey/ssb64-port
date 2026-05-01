@@ -1,4 +1,5 @@
 #include <lb/library.h>
+#include <frame_interpolation.h>
 
 extern u16 gSYSinTable[0x800];
 
@@ -736,6 +737,7 @@ void syMatrixScaF(Mtx44f *mf, f32 x, f32 y, f32 z)
 void syMatrixSca(Mtx *m, f32 x, f32 y, f32 z)
 {
     s32 e1, e2;
+    FrameInterpolation_RecordMatrixSca(m, x, y, z);
 
     m->m[0][1] = 0;
     m->m[2][1] = 0;
@@ -818,6 +820,7 @@ void syMatrixTraF(Mtx44f *mf, f32 x, f32 y, f32 z)
 void syMatrixTra(Mtx *m, f32 x, f32 y, f32 z)
 {
     u32 e1, e2;
+    FrameInterpolation_RecordMatrixTra(m, x, y, z);
 
     m->m[0][0] = COMBINE_INTEGRAL(FTOFIX32(1.0F), FTOFIX32(0.0F));
     m->m[2][0] = COMBINE_FRACTIONAL(FTOFIX32(1.0F), FTOFIX32(0.0F));
@@ -889,6 +892,7 @@ void syMatrixRotRF(Mtx44f *mf, f32 a, f32 x, f32 y, f32 z)
 void syMatrixRotR(Mtx *m, f32 a, f32 x, f32 y, f32 z)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotR(m, a, x, y, z);
 
     syMatrixRotRF(&mf, a, x, y, z);
 
@@ -906,6 +910,7 @@ void syMatrixTraRotRF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 angle, f32 rx, f32
 void syMatrixTraRotR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 angle, f32 rx, f32 ry, f32 rz)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotR(m, tx, ty, tz, angle, rx, ry, rz);
 
     syMatrixTraRotRF(&mf, tx, ty, tz, angle, rx, ry, rz);
     syMatrixF2LFixedW(&mf, m);
@@ -923,6 +928,7 @@ void syMatrixTraRotRScaF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 angle, f32 rx, 
 void syMatrixTraRotRSca(Mtx *m, f32 tx, f32 ty, f32 tz, f32 angle, f32 rx, f32 ry, f32 rz, f32 sx, f32 sy, f32 sz)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotRSca(m, tx, ty, tz, angle, rx, ry, rz, sx, sy, sz);
 
     syMatrixTraRotRScaF(&mf, tx, ty, tz, angle, rx, ry, rz, sx, sy, sz);
     syMatrixF2LFixedW(&mf, m);
@@ -969,6 +975,7 @@ void syMatrixRotRpyR(Mtx *m, f32 r, f32 p, f32 y)
     s32 cosr, cosp, cosy;
     u16 indexr, indexp, indexy;
     u32 e1, e2;
+    FrameInterpolation_RecordMatrixRotRpyR(m, r, p, y);
 
     syGetSinCosUShort(sinr, cosr, r, indexr);
     syGetSinCosUShort(sinp, cosp, p, indexp);
@@ -1026,6 +1033,7 @@ void syMatrixTraRotRpyR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y)
     s32 cosr, cosp, cosy;
     u16 indexr, indexp, indexy;
     u32 e1, e2;
+    FrameInterpolation_RecordMatrixTraRotRpyR(m, tx, ty, tz, r, p, y);
 
     syGetSinCosUShort(sinr, cosr, r, indexr);
     syGetSinCosUShort(sinp, cosp, p, indexp);
@@ -1090,8 +1098,9 @@ void syMatrixTraRotRpyRSca(Mtx *m, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y, 
     s32 scalex, scaley, scalez;
     u16 indexr, indexp, indexy;
     u32 e1, e2;
+    FrameInterpolation_RecordMatrixTraRotRpyRSca(m, tx, ty, tz, r, p, y, sx, sy, sz);
 
-    syGetSinCosUShort(sinr, cosr, r, indexr); 
+    syGetSinCosUShort(sinr, cosr, r, indexr);
     syGetSinCosUShort(sinp, cosp, p, indexp);
     syGetSinCosUShort(siny, cosy, y, indexy);
 
@@ -1179,6 +1188,7 @@ void syMatrixRotPyrRF(Mtx44f *mf, f32 r, f32 p, f32 y)
 void syMatrixRotPyrR(Mtx *m, f32 r, f32 p, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotPyrR(m, r, p, y);
 
     syMatrixRotPyrRF(&mf, r, p, y);
     syMatrixF2LFixedW(&mf, m);
@@ -1195,6 +1205,7 @@ void syMatrixTraRotPyrRF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y
 void syMatrixTraRotPyrR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotPyrR(m, tx, ty, tz, r, p, y);
 
     syMatrixTraRotPyrRF(&mf, tx, ty, tz, r, p, y);
     syMatrixF2LFixedW(&mf, m);
@@ -1212,6 +1223,7 @@ void syMatrixTraRotPyrRScaF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f3
 void syMatrixTraRotPyrRSca(Mtx *m, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y, f32 sx, f32 sy, f32 sz)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotPyrRSca(m, tx, ty, tz, r, p, y, sx, sy, sz);
 
     syMatrixTraRotPyrRScaF(&mf, tx, ty, tz, r, p, y, sx, sy, sz);
     syMatrixF2LFixedW(&mf, m);
@@ -1248,6 +1260,7 @@ void syMatrixRotPyRF(Mtx44f *mf, f32 p, f32 y)
 void syMatrixRotPyR(Mtx *m, f32 p, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotPyR(m, p, y);
 
     syMatrixRotPyRF(&mf, p, y);
     syMatrixF2LFixedW(&mf, m);
@@ -1264,6 +1277,7 @@ void syMatrixTraRotPyRF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 p, f32 y)
 void syMatrixTraRotPyR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 p, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotPyR(m, tx, ty, tz, p, y);
 
     syMatrixTraRotPyRF(&mf, tx, ty, tz, p, y);
     syMatrixF2LFixedW(&mf, m);
@@ -1300,6 +1314,7 @@ void syMatrixRotRpRF(Mtx44f *mf, f32 r, f32 p)
 void syMatrixRotRpR(Mtx *m, f32 r, f32 p)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotRpR(m, r, p);
 
     syMatrixRotRpRF(&mf, r, p);
     syMatrixF2LFixedW(&mf, m);
@@ -1316,6 +1331,7 @@ void syMatrixTraRotRpRF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 r, f32 p)
 void syMatrixTraRotRpR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 r, f32 p)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotRpR(m, tx, ty, tz, r, p);
 
     syMatrixTraRotRpRF(&mf, tx, ty, tz, r, p);
     syMatrixF2LFixedW(&mf, m);
@@ -1356,6 +1372,7 @@ void syMatrixRotYawRF(Mtx44f *mf, f32 y)
 void syMatrixRotYawR(Mtx *m, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotYawR(m, y);
 
     syMatrixRotYawRF(&mf, y);
     syMatrixF2LFixedW(&mf, m);
@@ -1372,6 +1389,7 @@ void syMatrixTraRotYawRF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 y)
 void syMatrixTraRotYawR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotYawR(m, tx, ty, tz, y);
 
     syMatrixTraRotYawRF(&mf, tx, ty, tz, y);
     syMatrixF2LFixedW(&mf, m);
@@ -1412,6 +1430,7 @@ void syMatrixRotPitchRF(Mtx44f *mf, f32 p)
 void syMatrixRotPitchR(Mtx *m, f32 p)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotPitchR(m, p);
 
     syMatrixRotPitchRF(&mf, p);
     syMatrixF2LFixedW(&mf, m);
@@ -1428,6 +1447,7 @@ void syMatrixTraRotPitchRF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 p)
 void syMatrixTraRotPitchR(Mtx *m, f32 tx, f32 ty, f32 tz, f32 p)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotPitchR(m, tx, ty, tz, p);
 
     syMatrixTraRotPitchRF(&mf, tx, ty, tz, p);
     syMatrixF2LFixedW(&mf, m);
@@ -1441,6 +1461,7 @@ void syMatrixRotDF(Mtx44f *mf, f32 a, f32 x, f32 y, f32 z)
 void syMatrixRotD(Mtx *m, f32 a, f32 x, f32 y, f32 z)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotD(m, a, x, y, z);
 
     syMatrixRotRF(&mf, F_CLC_DTOR32(a), x, y, z);
     syMatrixF2LFixedW(&mf, m);
@@ -1454,6 +1475,7 @@ void syMatrixTraRotDF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 a, f32 rx, f32 ry,
 void syMatrixTraRotD(Mtx *m, f32 tx, f32 ty, f32 tz, f32 a, f32 rx, f32 ry, f32 rz)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotD(m, tx, ty, tz, a, rx, ry, rz);
 
     syMatrixTraRotRF(&mf, tx, ty, tz, F_CLC_DTOR32(a), rx, ry, rz);
     syMatrixF2LFixedW(&mf, m);
@@ -1467,6 +1489,7 @@ void syMatrixRotRpyDF(Mtx44f *mf, f32 r, f32 p, f32 y)
 void syMatrixRotRpyD(Mtx *m, f32 r, f32 p, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixRotRpyD(m, r, p, y);
 
     syMatrixRotRpyRF(&mf, F_CLC_DTOR32(r), F_CLC_DTOR32(p), F_CLC_DTOR32(y));
     syMatrixF2LFixedW(&mf, m);
@@ -1480,6 +1503,7 @@ void syMatrixTraRotRpyDF(Mtx44f *mf, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y
 void syMatrixTraRotRpyD(Mtx *m, f32 tx, f32 ty, f32 tz, f32 r, f32 p, f32 y)
 {
     Mtx44f mf;
+    FrameInterpolation_RecordMatrixTraRotRpyD(m, tx, ty, tz, r, p, y);
 
     syMatrixTraRotRpyRF(&mf, tx, ty, tz, F_CLC_DTOR32(r), F_CLC_DTOR32(p), F_CLC_DTOR32(y));
     syMatrixF2LFixedW(&mf, m);
