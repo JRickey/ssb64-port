@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <typeinfo>
 
 #include "resource/ResourceType.h"
 #include "resource/RelocFileFactory.h"
@@ -191,9 +193,32 @@ static LONG WINAPI portWindowsCrashFilter(EXCEPTION_POINTERS* info)
 
 static std::shared_ptr<Ship::Context> sContext;
 
+static int PortInitImpl(int argc, char* argv[]);
+
 extern "C" {
 
 int PortInit(int argc, char* argv[]) {
+	// Top-level catch so unhandled C++ exceptions during init land in
+	// ssb64.log with their type and what() instead of bubbling up as an
+	// opaque MSVC 0xE06D7363 throw that the user sees as "the app just
+	// crashed". Issue #58 reported a Win10 19042 crash with no usable
+	// signal beyond "ControlDeck OK"; the caught e.what() narrows it.
+	try {
+		return PortInitImpl(argc, argv);
+	} catch (const std::exception& e) {
+		port_log("\n*** PortInit: unhandled C++ exception ***\n"
+		         "    type: %s\n    what: %s\n",
+		         typeid(e).name(), e.what());
+		port_log_close();
+		return 1;
+	} catch (...) {
+		port_log("\n*** PortInit: unhandled non-std exception ***\n");
+		port_log_close();
+		return 1;
+	}
+}
+
+static int PortInitImpl(int argc, char* argv[]) {
 	port_log("SSB64: PortInit entered\n");
 
 	sContext = Ship::Context::CreateUninitializedInstance(
@@ -282,13 +307,21 @@ int PortInit(int argc, char* argv[]) {
 		// Bootstrap ResourceManager with f3d.o2r only. Allow empty paths
 		// so a missing f3d.o2r logs but doesn't fatal — the Window init
 		// would still partially work for the wizard, which is enough.
+		//
+		// Each step gets its own checkpoint log so a Windows heap-corruption
+		// crash here (issue #58) tells us which Ship::Context call ate it,
+		// not just that we got past ControlDeck OK and never returned.
+		port_log("SSB64: locating f3d.o2r ...\n");
 		const std::string f3d = Ship::Context::LocateFileAcrossAppDirs("f3d.o2r");
 		port_log("SSB64: bootstrap archive (shaders) -> %s\n", f3d.c_str());
-		port_log("SSB64: AppBundlePath    = %s\n",
-		         Ship::Context::GetAppBundlePath().c_str());
-		port_log("SSB64: AppDirectoryPath = %s\n",
-		         Ship::Context::GetAppDirectoryPath().c_str());
+		port_log("SSB64: querying AppBundlePath ...\n");
+		const std::string appBundle = Ship::Context::GetAppBundlePath();
+		port_log("SSB64: AppBundlePath    = %s\n", appBundle.c_str());
+		port_log("SSB64: querying AppDirectoryPath ...\n");
+		const std::string appDir = Ship::Context::GetAppDirectoryPath();
+		port_log("SSB64: AppDirectoryPath = %s\n", appDir.c_str());
 		std::vector<std::string> bootstrapPaths = {f3d};
+		port_log("SSB64: calling InitResourceManager (bootstrap) ...\n");
 		if (!sContext->InitResourceManager(bootstrapPaths, {}, 0,
 		                                   /*allowEmptyPaths=*/true)) {
 			port_log("SSB64: bootstrap InitResourceManager failed\n");
@@ -299,12 +332,15 @@ int PortInit(int argc, char* argv[]) {
 
 	// See controlDeck note above re: scoping.
 	{
+		port_log("SSB64: constructing Fast3dWindow ...\n");
 		auto window = std::make_shared<Fast::Fast3dWindow>();
+		port_log("SSB64: calling InitWindow ...\n");
 		if (!sContext->InitWindow(window)) { port_log("SSB64: InitWindow failed\n"); return 1; }
 		port_log("SSB64: Window OK\n");
 
 		// Esc Menu screen, Toggle with Esc.
 		if (auto gui = window->GetGui()) {
+			port_log("SSB64: attaching Port menu ...\n");
 			gui->SetMenu(std::make_shared<ssb64::PortMenu>());
 			port_log("SSB64: Port menu attached\n");
 		}
@@ -460,6 +496,12 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	// Wrap post-init (game boot + main loop + shutdown) in a top-level
+	// catch so uncaught C++ exceptions get logged as ssb64.log entries
+	// with type and what() before the process exits, instead of bubbling
+	// up as an opaque MSVC 0xE06D7363 throw.
+	try {
+
 	// Initialize the game boot sequence (coroutines, thread init, etc.)
 	PortGameInit();
 
@@ -511,4 +553,16 @@ int main(int argc, char* argv[]) {
 	PortShutdown();
 	portRenderDocShutdown();
 	return 0;
+
+	} catch (const std::exception& e) {
+		port_log("\n*** main: unhandled C++ exception ***\n"
+		         "    type: %s\n    what: %s\n",
+		         typeid(e).name(), e.what());
+		port_log_close();
+		return 1;
+	} catch (...) {
+		port_log("\n*** main: unhandled non-std exception ***\n");
+		port_log_close();
+		return 1;
+	}
 }
