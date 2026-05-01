@@ -161,13 +161,23 @@ OSPiHandle* syDmaSramPiInit(void)
 // 0x80002DA4
 void syDmaReadSram(uintptr_t rom_src, void *ram_dst, size_t size)
 {
+#ifdef PORT
+    extern int port_save_read(uintptr_t, void*, size_t);
+    port_save_read(rom_src, ram_dst, size);
+#else
     syDmaCopy(&sSYDmaSramPiHandle, rom_src, (uintptr_t)ram_dst, size, OS_READ);
+#endif
 }
 
 // 0x80002DE0
 void syDmaWriteSram(void *ram_src, uintptr_t rom_dst, size_t size)
 {
+#ifdef PORT
+    extern int port_save_write(uintptr_t, const void*, size_t);
+    port_save_write(rom_dst, ram_src, size);
+#else
     syDmaCopy(&sSYDmaSramPiHandle, rom_dst, (uintptr_t)ram_src, size, OS_WRITE);
+#endif
 }
 
 // 0x80002E18 - vpk0 decoder

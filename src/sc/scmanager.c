@@ -852,6 +852,11 @@ void scManagerRunLoop(sb32 arg)
 	/* Skip framebuffer clear — no physical N64 framebuffers on PC.
 	 * Fast3D handles framebuffer management. */
 	port_log("SSB64: scManagerRunLoop — past audio/FB setup\n");
+	/* SRAM is backed by a real file in the user's app-data dir
+	 * (port_save.cpp). Load it so unlocks/options persist across runs
+	 * — without this the backup struct stays at defaults forever. */
+	lbBackupIsSramValid();
+	lbBackupApplyOptions();
 #else
 	syAudioSetSettingsUpdated();
 

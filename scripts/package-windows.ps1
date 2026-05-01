@@ -130,6 +130,12 @@ Get-ChildItem -Path $ExeBuildDir -Filter "*.dll" | ForEach-Object {
     Copy-Item $_.FullName $StageDir
 }
 
+# Bundle the standalone Python save editor next to the .exe so users
+# can edit %APPDATA%\BattleShip\ssb64_save.bin from the command line
+# (binary save game format documented in the script's docstring).
+# Pure stdlib, no install needed — runs as `python save_editor.py …`.
+Copy-Item (Join-Path $Root "tools\save_editor.py") $StageDir
+
 # ── 5. Zip ──
 Write-Step "Compressing $ZipPath"
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
