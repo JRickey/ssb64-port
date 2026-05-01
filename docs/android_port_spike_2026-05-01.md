@@ -101,18 +101,46 @@ docs/android_port_spike_2026-05-01.md # this file
 
 ## Reproducer
 
-```bash
-brew install --cask android-ndk    # installs r29 to /opt/homebrew/share/android-ndk
+### Toolchain install (one-time)
 
-cmake -S .claude/worktrees/android-port \
-      -B .claude/worktrees/android-port/build-android -G Ninja \
-      -DCMAKE_TOOLCHAIN_FILE=/opt/homebrew/share/android-ndk/build/cmake/android.toolchain.cmake \
+```bash
+brew install --cask android-ndk android-commandlinetools
+brew install openjdk@17
+source scripts/android-env.sh           # JAVA_HOME, ANDROID_HOME, NDK paths
+
+yes | sdkmanager --licenses
+sdkmanager --install "platform-tools" "emulator" \
+                     "platforms;android-34" \
+                     "system-images;android-34;google_apis;arm64-v8a"
+```
+
+The arm64-v8a system image (~1.5 GB) runs natively on Apple Silicon, so the
+emulator is fast on M-series Macs. The x86_64 image would emulate via Rosetta
+and is significantly slower; don't bother with it unless targeting Intel hosts.
+
+### Build the .so
+
+```bash
+cmake -S . -B build-android -G Ninja \
+      -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
       -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 \
       -DCMAKE_BUILD_TYPE=Release -DUSE_AUTO_VCPKG=OFF
 
-cmake --build .claude/worktrees/android-port/build-android --target ssb64 -j 4
+cmake --build build-android --target ssb64 -j 4
 # → build-android/libmain.so   (67 MB, aarch64 ELF)
 ```
+
+### Boot the emulator
+
+```bash
+scripts/android-emulator.sh             # creates AVD on first run, boots it
+scripts/android-emulator.sh --shell     # boot + drop into adb shell
+scripts/android-emulator.sh --recreate  # nuke + rebuild AVD from scratch
+```
+
+The AVD is named `ssb64test`, based on a Pixel 6 device profile and the
+Android 14 (API 34) Google APIs arm64 system image. Once we have an APK,
+install with `adb install -r app.apk`.
 
 ## Prioritized roadmap to a runnable APK
 
