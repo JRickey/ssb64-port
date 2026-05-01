@@ -60,6 +60,42 @@ produce one) but also needs:
 
 None of this exists in either repo today. Estimated ~2 days of plumbing.
 
+### 3.5. Save data (mostly handled by upstream)
+
+Main landed an SRAM-backed save persistence in
+`port/port_save.{cpp,h}` (commit 87cc570). The path resolution chain is:
+
+```
+$SSB64_SAVE_PATH  >  Ship::Context::GetPathRelativeToAppDirectory  >  SDL_GetPrefPath  >  cwd
+```
+
+On Android, the middle step is already correct: LUS's
+`Context::GetAppDirectoryPath()` calls `SDL_AndroidGetExternalStoragePath()`,
+which returns `getExternalFilesDir(NULL)` =
+`/storage/emulated/0/Android/data/<pkg>/files/`. So the save lands in
+the app-private external dir without any port-side changes — once
+SDL2 is initialized through SDLActivity (Phase 3).
+
+What still needs wiring:
+
+- **Auto Backup config.** Staged at
+  `android/app/src/main/res/xml/{backup_rules,data_extraction_rules}.xml`.
+  Phase 3 manifest will reference these via
+  `android:fullBackupContent` and `android:dataExtractionRules`. Scope is
+  the save file only — `.o2r` extracted assets are excluded (large, and
+  regenerated from APK assets on first launch of a restored install).
+  Domain is `external` because LUS routes saves through external app
+  files, not internal `getFilesDir()`.
+- **User editing.** The Python `tools/save_editor.py` doesn't run on
+  Android (no Python). Workflow on Android:
+  ```bash
+  adb pull /storage/emulated/0/Android/data/com.jrickey.battleship/files/ssb64_save.bin
+  python3 tools/save_editor.py --unlock-all ssb64_save.bin
+  adb push ssb64_save.bin /storage/emulated/0/Android/data/com.jrickey.battleship/files/
+  ```
+  (Long-term, Phase 8 polish could ship in-game unlock toggles in the
+  port's debug UI.)
+
 ### 4. Asset loading (architectural — touches LUS)
 
 LUS's `Context::GetAppDirectoryPath()` calls `readlink("/proc/self/exe")`
@@ -92,10 +128,16 @@ phase.
 ## Files changed in this spike (all in `agent/android-port` worktree)
 
 ```
-CMakeLists.txt                        # Android branches: USE_OPENGLES, SHARED lib, gate Torch + post-build copy
+CMakeLists.txt                        # Android branches: USE_OPENGLES, SHARED lib, gate Torch, ASM language, coroutine test target
 port/coroutine_posix.cpp              # exclude when __ANDROID__
-port/coroutine_android.cpp            # NEW — abort-stub for spike
+port/coroutine_android.cpp            # aarch64 coroutine impl driving the asm swap
+port/coroutine_aarch64.S              # NEW — ~30-line context-switch primitive (boost::context-style)
+port/coroutine_test.cpp               # NEW — standalone harness, runs via adb shell
 port/port_watchdog.cpp                # gate <execinfo.h> on API <33
+android/app/src/main/res/xml/backup_rules.xml          # NEW — Auto Backup scope (Phase 3 manifest will reference)
+android/app/src/main/res/xml/data_extraction_rules.xml # NEW — API 31+ backup channels
+scripts/android-env.sh                # NEW — sources NDK/SDK/JDK17 into PATH
+scripts/android-emulator.sh           # NEW — creates + boots ssb64test AVD
 docs/android_port_spike_2026-05-01.md # this file
 ```
 

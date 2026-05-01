@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Data extraction rules (Android 12 / API 31+).
+
+    Required when targetSdk >= 31. Splits Auto Backup into two channels
+    that the user controls separately on modern Android:
+
+      - cloud-backup:    user-initiated cloud restore (Google Drive)
+      - device-transfer: phone-to-phone migration via Android Setup
+
+    Same scope as backup_rules.xml: save file only.
+
+    Referenced from AndroidManifest as
+    `android:dataExtractionRules="@xml/data_extraction_rules"`.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <!-- Save lives in external app dir (getExternalFilesDir) per LUS
+             routing through SDL_AndroidGetExternalStoragePath. -->
+        <include domain="external" path="ssb64_save.bin" />
+        <exclude domain="external" path="logs/" />
+        <exclude domain="external" path="cache/" />
+        <exclude domain="external" path="BattleShip.o2r" />
+        <exclude domain="external" path="f3d.o2r" />
+        <exclude domain="external" path="ssb64.o2r" />
+        <exclude domain="file" path="logs/" />
+        <exclude domain="file" path="cache/" />
+    </cloud-backup>
+    <device-transfer>
+        <!-- Save lives in external app dir (getExternalFilesDir) per LUS
+             routing through SDL_AndroidGetExternalStoragePath. -->
+        <include domain="external" path="ssb64_save.bin" />
+        <exclude domain="external" path="logs/" />
+        <exclude domain="external" path="cache/" />
+        <exclude domain="external" path="BattleShip.o2r" />
+        <exclude domain="external" path="f3d.o2r" />
+        <exclude domain="external" path="ssb64.o2r" />
+        <exclude domain="file" path="logs/" />
+        <exclude domain="file" path="cache/" />
+    </device-transfer>
+</data-extraction-rules>
