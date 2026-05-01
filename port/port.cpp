@@ -502,6 +502,29 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+#if defined(__ANDROID__)
+	// Hoist SDL_INIT_GAMECONTROLLER initialization onto the SDL_main
+	// thread BEFORE any coroutine starts. The N64 controller thread
+	// (Thread1) becomes a port_coroutine in our cooperative scheduler;
+	// when its osContInit calls SDL_Init(SDL_INIT_GAMECONTROLLER), SDL2
+	// on Android calls back into Java HIDDeviceManager.initialize via JNI.
+	// ART's CheckJNI tracks per-thread JNI transition frames — and our
+	// coroutine context-switch swaps SP without the JVM's knowledge, so
+	// jstring local refs (e.g. Log.v's TAG) get flagged as "invalid JNI
+	// transition frame reference" and the process aborts.
+	//
+	// Doing the joystick init now (real OS thread, no fiber switches in
+	// flight) gets the JNI side of SDL_hid_init out of the way. The
+	// later SDL_Init in osContInit is a no-op when the subsystem is
+	// already initialized.
+	SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "1");
+	if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
+		port_log("SSB64: pre-init SDL_INIT_GAMECONTROLLER failed: %s\n",
+		         SDL_GetError());
+		// Non-fatal — osContInit will retry and surface the error there.
+	}
+#endif
+
 	// Wrap post-init (game boot + main loop + shutdown) in a top-level
 	// catch so uncaught C++ exceptions get logged as ssb64.log entries
 	// with type and what() before the process exits, instead of bubbling
