@@ -380,6 +380,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 ################################################################################
 
 add_dependencies(${PROJECT_NAME} libultraship TorchExternal)
+add_dependencies(ssb64_game GenerateCreditsAssets)
 target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
 
 ################################################################################

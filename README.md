@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/BattleShip.svg" alt="BattleShip" width="640">
+</p>
+
 # BattleShip
 
 **BattleShip** is a PC port of **Super Smash Bros. (N64, NTSC-U v1.0)** built on top of the [VetriTheRetri/ssb-decomp-re](https://github.com/vetritheretri/ssb-decomp-re) decompilation, using [libultraship](https://github.com/Kenix3/libultraship) for PC-native rendering / audio / input and [Torch](https://github.com/HarbourMasters/Torch) for extracting assets out of the ROM at build time.
