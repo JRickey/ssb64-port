@@ -1,4 +1,10 @@
+// On desktop we own `int main` directly. On Android, SDLActivity calls into
+// the .so via dlsym("SDL_main"), so we let SDL_main.h's `#define main SDL_main`
+// rename the entry point during preprocessing — which is exactly what
+// SDL_MAIN_HANDLED would suppress.
+#if !defined(__ANDROID__)
 #define SDL_MAIN_HANDLED
+#endif
 #include "port.h"
 #include "gameloop.h"
 

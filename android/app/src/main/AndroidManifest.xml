@@ -1,35 +1,57 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    AndroidManifest.xml — Phase 2 scaffold.
+    AndroidManifest.xml — Phase 3.
 
-    Phase 3 will swap MainActivity for a SDLActivity subclass and add
-    the GLES + audio plumbing. For now, MainActivity is a no-op text
-    placeholder that confirms the APK installs and libmain.so loads.
+    Activity is now BattleShipActivity, which extends SDLActivity (vendored
+    from SDL release-2.32.10). SDLActivity loads libSDL2.so + libmain.so
+    on its dedicated thread, then dlsyms "SDL_main" out of libmain.so and
+    calls it with (argc, argv).
+
+    The configChanges list and launchMode follow SDL2's recommended
+    AndroidManifest template — without these the OS recreates the Activity
+    on every rotation/keyboard-attach, which crashes a SDL surface.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Required for OpenGL ES 3.0 surface (Phase 3 SDLActivity uses GLES3). -->
+    <!-- GLES 3.0 surface (Fast3D's GLES backend uses GLSL ES 3.00). -->
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
+
+    <!-- Soft requirements: input devices we use if present, but we don't
+         demand them in Play Store filtering. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.hardware.gamepad"     android:required="false" />
+    <uses-feature android:name="android.hardware.usb.host"    android:required="false" />
+    <uses-feature android:name="android.hardware.bluetooth"   android:required="false" />
+    <uses-feature android:name="android.hardware.type.pc"     android:required="false" />
+
+    <!-- Vibration for damage / smash hits. SDL_HapticRumble routes here. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:label="@string/app_name"
         android:hasCode="true"
-
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
-
         android:hardwareAccelerated="true">
 
         <activity
-            android:name=".MainActivity"
+            android:name=".BattleShipActivity"
             android:exported="true"
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|screenLayout|smallestScreenSize|uiMode|navigation"
+            android:alwaysRetainTaskState="true"
             android:launchMode="singleInstance"
+            android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
+            android:preferMinimalPostProcessing="true"
             android:screenOrientation="sensorLandscape">
+
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Let SDL's HIDAPI USB controller path receive plug events. -->
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
             </intent-filter>
         </activity>
     </application>
