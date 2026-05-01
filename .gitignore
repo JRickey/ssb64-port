@@ -54,6 +54,7 @@ assets/*
 !assets/icon.ico
 !assets/icon.icns
 !assets/macos_dmg_banner.png
+!assets/BattleShip.svg
 !assets/custom/
 !assets/custom/fonts/
 !assets/custom/fonts/*
