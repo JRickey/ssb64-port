@@ -852,6 +852,11 @@ void scManagerRunLoop(sb32 arg)
 	/* Skip framebuffer clear — no physical N64 framebuffers on PC.
 	 * Fast3D handles framebuffer management. */
 	port_log("SSB64: scManagerRunLoop — past audio/FB setup\n");
+	/* SRAM is backed by a real file in the user's app-data dir
+	 * (port_save.cpp). Load it so unlocks/options persist across runs
+	 * — without this the backup struct stays at defaults forever. */
+	lbBackupIsSramValid();
+	lbBackupApplyOptions();
 #else
 	syAudioSetSettingsUpdated();
 
@@ -887,22 +892,6 @@ void scManagerRunLoop(sb32 arg)
 	gSCManagerSceneData.demo_fkind[1] = nFTKindFox;
 #endif
 #ifdef PORT
-	/* Dev shortcut: define PORT_START_BOSS to boot directly into the
-	 * Master Hand fight (1P-mode boss stage as Mario, port 0).  Useful
-	 * for reproducing boss-only bugs without manually advancing through
-	 * the title / mode-select / character-select / stage-cycle chain on
-	 * every iteration.  Off by default — uncomment the #define to
-	 * enable.  Env vars below override either way. */
-/* #define PORT_START_BOSS */
-#ifdef PORT_START_BOSS
-	gSCManagerSceneData.scene_curr   = nSCKind1PGame;
-	gSCManagerSceneData.scene_prev   = nSCKind1PGame;
-	gSCManagerSceneData.spgame_stage = nSC1PGameStageBoss;
-	gSCManagerSceneData.fkind        = nFTKindMario;
-	gSCManagerSceneData.costume      = 0;
-	gSCManagerSceneData.player       = 0;
-	port_log("SSB64: PORT_START_BOSS — boot into 1PGame vs Master Hand as Mario\n");
-#endif
 	{
 		const char *env = getenv("SSB64_START_SCENE");
 		if (env != NULL)

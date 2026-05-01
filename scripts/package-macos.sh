@@ -242,6 +242,12 @@ mkdir -p "$DMG_STAGE" "$DMG_BG_DIR"
 # injected by --app-drop-link, not staged here.
 cp -R "$APP" "$DMG_STAGE/"
 
+# Bundle the standalone Python save editor next to the .app so users
+# can edit ~/Library/Application Support/BattleShip/ssb64_save.bin
+# (binary save game format documented in the script's docstring).
+# Pure stdlib, no install needed — runs as `python3 save_editor.py …`.
+cp "$ROOT/tools/save_editor.py" "$DMG_STAGE/save_editor.py"
+
 sips -Z $((DMG_BG_LONG * 2)) "$DMG_BG_SRC" --out "$DMG_BG_DIR/bg@2x.png" >/dev/null
 sips -Z $DMG_BG_LONG          "$DMG_BG_SRC" --out "$DMG_BG_DIR/bg.png"    >/dev/null
 DMG_BG_W=$(sips -g pixelWidth  "$DMG_BG_DIR/bg.png" | awk '/pixelWidth/  {print $2}')

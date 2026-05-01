@@ -223,8 +223,14 @@ if command -v appimagetool >/dev/null 2>&1; then
     appimagetool "$APPDIR" "$APPIMAGE"
     [[ -f "$APPIMAGE" ]] || fail "appimagetool did not produce $APPIMAGE"
     chmod +x "$APPIMAGE"
+    # Drop the standalone Python save editor next to the AppImage so
+    # users can edit $XDG_DATA_HOME/BattleShip/ssb64_save.bin without
+    # extracting the AppImage. Pure stdlib, runs as
+    # `python3 save_editor.py …`.
+    cp "$ROOT/tools/save_editor.py" "$DIST_DIR/save_editor.py"
     APP_KB=$(du -k "$APPIMAGE" | awk '{print $1}')
     printf '\n\033[32m✓ AppImage ready: %s (%s KB)\033[0m\n' "$APPIMAGE" "$APP_KB"
+    printf '\033[32m✓ Save editor:    %s\033[0m\n' "$DIST_DIR/save_editor.py"
 else
     APP_KB=$(du -sk "$APPDIR" | awk '{print $1}')
     printf '\n\033[33m! appimagetool not in PATH — produced AppDir only.\033[0m\n'

@@ -294,7 +294,22 @@ struct FTMotionScript
 	f32 script_wait;
 	u32 *p_script;
 	s32 script_id;
+#ifdef PORT
+	/* On IDO/N64, void* is 4 bytes, so the original `void *p_goto[1]`
+	 * + `s32 loop_count[4]` formed a contiguous 20-byte region where
+	 * p_goto[N] for N>0 cleanly aliased loop_count[N-1].  On LP64
+	 * void* is 8 bytes, so p_goto[1] (offset 32) aliases TWO loop_count
+	 * slots and the strides no longer line up: a 4-byte write to
+	 * loop_count[1] clobbers only the *upper* half of an 8-byte
+	 * return address sitting in p_goto[1], leaving p_script with
+	 * (loop_count[1] << 32) | retaddr_low — exactly the 0x3xxxxxxxx
+	 * fault we hit on Yoshi-egg-on-Giant-DK (motion 153, script_id=3).
+	 * Give p_goto its own dedicated slots so subroutine and loop state
+	 * don't share storage.  See docs/bugs/. */
+	void *p_goto[4];
+#else
 	void *p_goto[1];
+#endif
 	s32 loop_count[4];
 };
 
