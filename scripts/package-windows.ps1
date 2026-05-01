@@ -50,9 +50,18 @@ Pop-Location
 
 # ── 1. Configure + build with NON_PORTABLE=ON (Release) ──
 Write-Step "Configuring release build with NON_PORTABLE=ON"
+# CMAKE_INSTALL_PREFIX is baked into libultraship's install_config.h at
+# configure time and returned by Ship::Context::GetAppBundlePath() under
+# NON_PORTABLE. CMake's Windows default is $ENV{ProgramFiles(x86)}/<project>
+# (e.g. "C:\Program Files (x86)\ssb64") which is meaningless for a zip the
+# user extracts to an arbitrary directory. We never run `cmake --install`,
+# so the value is cosmetic — the runtime path resolution lives in
+# port/app_paths.cpp::RealAppBundlePath() (GetModuleFileNameW). Set a
+# readable label so log lines make sense.
 cmake -B $BuildDir $Root `
     -DCMAKE_BUILD_TYPE=Release `
     -DNON_PORTABLE=ON `
+    -DCMAKE_INSTALL_PREFIX=BattleShip `
     | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "cmake configure failed" }
 
