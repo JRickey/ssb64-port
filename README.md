@@ -21,7 +21,7 @@ If your dump does not match those hashes, it will not work.
 
 ### About the project
 
-This is a 100% AI-generated modern port. It took a little over 25 days, with me, Opus 4.6, Opus 4.7, and GPT 5.5 as the only contributors. As of 4/28, there are no >2 day gaps in development. At many points, agents were dispatched and worked to build and test autonomously while I did other things.
+This is a 100% AI-generated modern port — meaning the code my agents wrote on top of the existing [decomp](https://github.com/VetriTheRetri/ssb-decomp-re), [libultraship](https://github.com/Kenix3/libultraship), and [torch](https://github.com/HarbourMasters/Torch) modules (see [Credits & licensing](#credits--licensing) for full attribution of the work this port stands on). It took a little over 25 days to get to v0.1, with me, Opus 4.6, Opus 4.7, and GPT 5.5 as the only contributors. As of 4/28, there are no >2 day gaps in development. At many points, agents were dispatched and worked to build and test autonomously while I did other things.
 
 I wanted to do this project for two reasons.
 
