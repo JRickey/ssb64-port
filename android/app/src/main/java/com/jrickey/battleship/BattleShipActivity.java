@@ -1,5 +1,7 @@
 package com.jrickey.battleship;
 
+import android.os.Bundle;
+
 import org.libsdl.app.SDLActivity;
 
 /**
@@ -30,5 +32,14 @@ public class BattleShipActivity extends SDLActivity {
             "SDL2",
             "main",
         };
+    }
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        // Lay the touch overlay on top of SDL's GLES surface. Has to come
+        // after super.onCreate so SDLActivity has already installed its
+        // surface as the root content view.
+        TouchOverlay.install(this);
     }
 }
