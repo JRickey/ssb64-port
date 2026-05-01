@@ -16,6 +16,7 @@
 #include "Companion.h"
 
 #include <android/log.h>
+#include <jni.h>
 
 #include <cstdio>
 #include <cstring>
@@ -94,6 +95,48 @@ int torch_extract_o2r(const char *rom_path, const char *src_dir, const char *dst
         LOGE("torch_extract_o2r: non-std exception");
         return 2;
     }
+}
+
+/* ========================================================================= */
+/*  JNI bridge — called from Java RomImporter on a background thread        */
+/* ========================================================================= */
+
+/**
+ * Java-callable wrapper around torch_extract_o2r. All three jstrings are
+ * Java-owned UTF-16 internally; we acquire UTF-8 views with
+ * GetStringUTFChars and release them after the C call returns.
+ *
+ * Java signature:
+ *   public static native int extractO2R(String rom, String src, String dst);
+ */
+JNIEXPORT jint JNICALL
+Java_com_jrickey_battleship_RomImporter_extractO2R(
+    JNIEnv *env, jclass /*clazz*/,
+    jstring rom_jstr, jstring src_jstr, jstring dst_jstr) {
+
+    if (rom_jstr == nullptr || src_jstr == nullptr || dst_jstr == nullptr) {
+        LOGE("RomImporter.extractO2R: null jstring (rom=%p src=%p dst=%p)",
+             rom_jstr, src_jstr, dst_jstr);
+        return -10;
+    }
+
+    const char *rom = env->GetStringUTFChars(rom_jstr, nullptr);
+    const char *src = env->GetStringUTFChars(src_jstr, nullptr);
+    const char *dst = env->GetStringUTFChars(dst_jstr, nullptr);
+
+    jint result;
+    if (rom == nullptr || src == nullptr || dst == nullptr) {
+        LOGE("RomImporter.extractO2R: GetStringUTFChars failed");
+        result = -11;
+    } else {
+        result = (jint) torch_extract_o2r(rom, src, dst);
+    }
+
+    if (rom) env->ReleaseStringUTFChars(rom_jstr, rom);
+    if (src) env->ReleaseStringUTFChars(src_jstr, src);
+    if (dst) env->ReleaseStringUTFChars(dst_jstr, dst);
+
+    return result;
 }
 
 } // extern "C"

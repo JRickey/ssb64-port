@@ -157,6 +157,7 @@ android {
     }
 
     packaging {
+        // (sourceSets is configured above)
         // Keep our prebuilt SDL2's debug info in debug APKs so ndk-stack can
         // symbolicate native crashes. release APK strips by default.
         jniLibs {
@@ -173,4 +174,24 @@ android {
             )
         }
     }
+}
+
+// Force a single Kotlin stdlib version. AndroidX 1.9.3's transitive
+// kotlin-stdlib-jdk8 1.6.21 collides with AGP's bundled kotlin-stdlib
+// 1.8.22 (the older split stdlib was merged in 1.8). Pin both halves
+// to 1.8.22 so dexer doesn't see duplicate classes.
+configurations.all {
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin"
+            && requested.name.startsWith("kotlin-stdlib")) {
+            useVersion("1.9.25")
+        }
+    }
+}
+
+dependencies {
+    // BootActivity uses the AndroidX result-API (registerForActivityResult)
+    // for the SAF ROM picker. ComponentActivity is the base class that
+    // wires the result-callback machinery into the Activity lifecycle.
+    implementation("androidx.activity:activity:1.9.3")
 }

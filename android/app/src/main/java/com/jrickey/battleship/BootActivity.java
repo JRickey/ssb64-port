@@ -1,96 +1,230 @@
 package com.jrickey.battleship;
 
-import android.app.Activity;
 import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.View;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+
+import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 
 import java.io.File;
 
 /**
- * BootActivity — the launcher entry point.
+ * BootActivity — launcher entry, drives first-run setup.
  *
- * Phase 4.3 responsibilities:
+ * Stages, in order:
  *   1. Extract bundled APK assets (f3d.o2r, ssb64.o2r, config.yml, yamls/)
- *      into externalFilesDir if they're missing or stale (different
- *      versionCode than last extracted).
- *   2. Decide whether the user has supplied their ROM yet — i.e. is
- *      BattleShip.o2r present in externalFilesDir?
- *      - Yes → start BattleShipActivity (the SDL game Activity).
- *      - No  → Phase 4.4 will show a ROM picker and run libtorch_runner.so
- *              against the user's .z64. For now we render a placeholder.
+ *      into externalFilesDir if absent or stale — see {@link AssetExtractor}.
+ *   2. If BattleShip.o2r doesn't exist, prompt the user to pick a ROM
+ *      via SAF ACTION_OPEN_DOCUMENT, stream it into cacheDir, and run
+ *      libtorch_runner.so against it ({@link RomImporter}).
+ *   3. Launch BattleShipActivity (the SDLActivity subclass) once
+ *      BattleShip.o2r is in place.
  *
- * Asset extraction runs on a background thread so the UI thread stays
- * responsive (the .o2r files are tens of MB; copying them blocks for a
- * second or two on a slow device).
+ * Heavy work runs on background threads so the UI stays responsive
+ * during the multi-second extraction.
  */
-public class BootActivity extends Activity {
+public class BootActivity extends ComponentActivity {
     private static final String TAG = "ssb64.boot";
 
+    /** Phase number shown in error UIs to make state self-describing. */
+    private static final String PHASE = "Phase 4.4";
+
     private TextView mStatus;
+    private Button   mPickButton;
+
+    /** Result handler for the SAF picker. Registered before super.onCreate exits. */
+    private final ActivityResultLauncher<String[]> mPickRom
+        = registerForActivityResult(
+            new ActivityResultContracts.OpenDocument(),
+            this::onRomPicked);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        buildUi();
+        startAssetExtraction();
+    }
 
+    /**
+     * Dev/test affordance: bypass the SAF picker and run extraction against
+     * a known absolute path. Trigger with:
+     *   adb shell am start -n com.jrickey.battleship.debug/.BootActivity \
+     *                       --es ssb64.dev_rom /sdcard/Download/baserom.us.z64
+     * Only meaningful in debug builds and only for files the app already
+     * has read access to (typically /sdcard/Download after MEDIA permission
+     * — but adb-pushed files there are world-readable on emulator images).
+     */
+    private static final String EXTRA_DEV_ROM = "ssb64.dev_rom";
+
+    private void buildUi() {
         mStatus = new TextView(this);
         mStatus.setGravity(Gravity.CENTER);
-        mStatus.setPadding(64, 64, 64, 64);
+        mStatus.setPadding(64, 64, 64, 32);
         mStatus.setTextSize(18f);
         mStatus.setText("Preparing assets…");
+
+        mPickButton = new Button(this);
+        mPickButton.setText("Choose your SSB64 ROM (.z64)");
+        mPickButton.setVisibility(View.GONE);
+        mPickButton.setOnClickListener(v -> launchRomPicker());
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setGravity(Gravity.CENTER);
+        root.setPadding(32, 32, 32, 32);
         root.addView(mStatus);
+        root.addView(mPickButton);
         setContentView(root);
+    }
 
-        // Background asset extraction; post the result to the UI thread.
+    /* ===================================================================== */
+    /*  Stage 1: bundled-asset extraction                                    */
+    /* ===================================================================== */
+
+    private void startAssetExtraction() {
         new Thread(() -> {
             String err = AssetExtractor.extractIfNeeded(getApplicationContext());
-            Handler ui = new Handler(Looper.getMainLooper());
-            if (err != null) {
-                ui.post(() -> showError(err));
-                return;
-            }
-            ui.post(this::routeNext);
+            runOnUi(() -> {
+                if (err != null) {
+                    showError("Asset extraction failed:\n\n" + err);
+                    return;
+                }
+                routeAfterAssets();
+            });
         }, "ssb64-boot-extract").start();
     }
 
-    private void routeNext() {
+    private void routeAfterAssets() {
         if (AssetExtractor.haveExtractedRom(this)) {
             startGame();
             return;
         }
-        // Phase 4.4 will replace this with a SAF ROM picker that calls
-        // libtorch_runner.so to produce BattleShip.o2r. For now, surface
-        // the missing-ROM state clearly so the developer flow is unambiguous:
-        // adb push BattleShip.o2r /storage/emulated/0/Android/data/<pkg>/files/
-        File extDir = getExternalFilesDir(null);
-        String path = extDir == null ? "<external dir unavailable>" : extDir.getPath();
-        mStatus.setText(
-            "BattleShip.o2r not found.\n\n" +
-            "Phase 4.3 stops here — Phase 4.4 will add a ROM picker.\n\n" +
-            "Dev workaround:\n" +
-            "  adb push BattleShip.o2r " + path + "/\n\n" +
-            "then relaunch the app."
-        );
-        Log.i(TAG, "BattleShip.o2r missing; awaiting Phase 4.4 ROM picker");
+
+        // Dev shortcut: --es ssb64.dev_rom <abs path> → run extractor on
+        // that path instead of opening the SAF picker. Survives the
+        // assets-already-extracted fast path above; if the user wants to
+        // re-extract from a dev rom, they can wipe BattleShip.o2r first.
+        String devRom = getIntent() != null ? getIntent().getStringExtra(EXTRA_DEV_ROM) : null;
+        if (devRom != null && !devRom.isEmpty()) {
+            extractFromAbsolutePath(new File(devRom));
+            return;
+        }
+
+        showRomPicker();
     }
 
-    private void showError(String message) {
-        mStatus.setText("Asset extraction failed:\n\n" + message);
-        Log.e(TAG, message);
+    /** Common extraction worker, called from both SAF result and dev shortcut. */
+    private void extractFromAbsolutePath(File romFile) {
+        if (!romFile.canRead()) {
+            showError("Can't read ROM at " + romFile + " — check permissions.");
+            return;
+        }
+        mPickButton.setVisibility(View.GONE);
+        mStatus.setText("Extracting ROM into BattleShip.o2r — this can take a few seconds…");
+
+        new Thread(() -> {
+            File extDir = getExternalFilesDir(null);
+            int rc = RomImporter.extractO2R(
+                romFile.getAbsolutePath(),
+                extDir.getAbsolutePath(),
+                extDir.getAbsolutePath());
+
+            if (rc != 0) {
+                runOnUi(() -> showError(
+                    "ROM extraction failed (code " + rc + "). Logcat tag " +
+                    "ssb64.torch has the detailed error."));
+                return;
+            }
+            if (!AssetExtractor.haveExtractedRom(BootActivity.this)) {
+                runOnUi(() -> showError(
+                    "Torch returned success but BattleShip.o2r is not in " +
+                    extDir));
+                return;
+            }
+            runOnUi(() -> {
+                mStatus.setText("Done — launching game…");
+                startGame();
+            });
+        }, "ssb64-rom-extract").start();
     }
+
+    /* ===================================================================== */
+    /*  Stage 2: ROM picker → libtorch_runner.so → BattleShip.o2r            */
+    /* ===================================================================== */
+
+    private void showRomPicker() {
+        mStatus.setText(
+            "Welcome!\n\n" +
+            "BattleShip needs a copy of the original Super Smash Bros. (US) " +
+            "ROM to extract its assets. Provide your own dump — Nintendo's " +
+            "ROM is not distributed with the app.\n\n" +
+            "After you pick the file, the assets stay on your device and the " +
+            "ROM is discarded."
+        );
+        mPickButton.setVisibility(View.VISIBLE);
+    }
+
+    private void launchRomPicker() {
+        // application/octet-stream lets us see .z64/.n64/.v64 (none have
+        // a registered MIME type, so we accept everything and validate
+        // by header inside Torch).
+        mPickRom.launch(new String[] { "*/*" });
+    }
+
+    private void onRomPicked(Uri romUri) {
+        if (romUri == null) {
+            // User cancelled — leave the picker visible.
+            return;
+        }
+        mPickButton.setVisibility(View.GONE);
+        mStatus.setText("Staging ROM…");
+
+        new Thread(() -> {
+            File staged = RomImporter.stageRomFromUri(getApplicationContext(), romUri);
+            if (staged == null) {
+                runOnUi(() -> showError(
+                    "Couldn't read the ROM file you picked.\n\n" +
+                    "Try a different copy or use a file that's already saved " +
+                    "to your device storage."));
+                return;
+            }
+            // Hand off to the shared extraction worker. It posts to the UI
+            // thread itself, so we can safely call from this background.
+            runOnUi(() -> extractFromAbsolutePath(staged));
+        }, "ssb64-rom-stage").start();
+    }
+
+    /* ===================================================================== */
+    /*  Stage 3: hand off to the SDL game Activity                           */
+    /* ===================================================================== */
 
     private void startGame() {
         Log.i(TAG, "Assets ready, launching BattleShipActivity");
         startActivity(new Intent(this, BattleShipActivity.class));
         finish();
+    }
+
+    /* ===================================================================== */
+    /*  Helpers                                                              */
+    /* ===================================================================== */
+
+    private void showError(String message) {
+        mStatus.setText("[" + PHASE + "] " + message);
+        mPickButton.setVisibility(View.GONE);
+        Log.e(TAG, message);
+    }
+
+    private void runOnUi(Runnable r) {
+        new Handler(Looper.getMainLooper()).post(r);
     }
 }
