@@ -135,6 +135,57 @@ EOF
 # Make the binaries executable (cp preserves mode, but be defensive).
 chmod +x "$APP/Contents/MacOS/$APP_NAME" "$APP/Contents/MacOS/torch"
 
+# ── 4a. Bundle Homebrew dylib dependencies (fixes #43) ──
+# CMake links BattleShip / torch against Homebrew dylibs (SDL2, GLEW,
+# libzip, tinyxml2, spdlog, fmt, …) using their absolute install paths
+# (`/opt/homebrew/opt/<pkg>/lib/lib*.dylib`). On a developer machine the
+# .app launches fine because every load command resolves verbatim. On
+# any user's Mac without Homebrew at the same prefix and exact package
+# versions, dyld bails before main() with `Library not loaded:
+# /opt/homebrew/*/libSDL2-2.0.0.dylib`. This is the macOS analogue of
+# bundling SDL2.dll on Windows / `.so` deps via linuxdeploy on Linux —
+# the package script must walk the binaries' transitive Homebrew deps,
+# stage them into Contents/Frameworks/, rewrite each dylib's id to
+# `@rpath/lib*.dylib`, retarget the binaries' references via
+# `install_name_tool`, and add an `LC_RPATH` of `@executable_path/../Frameworks`.
+#
+# `dylibbundler` (Homebrew package) automates all of that. `-of` =
+# overwrite-files (idempotent re-runs), `-b` = bundle transitive deps,
+# `-x` = files to fix (repeatable for torch alongside BattleShip),
+# `-d` = destination directory, `-p` = install_name prefix, `-cd` =
+# create destination, `-ns` = skip dylibbundler's own adhoc codesign
+# pass since the bundle-level `codesign --deep --force` below resigns
+# everything in one shot.
+#
+# `-p @executable_path/../Frameworks/` makes the rewritten install_names
+# fully self-resolving (dyld substitutes `@executable_path` with the
+# directory of the loading executable — Contents/MacOS — so the path
+# lands at Contents/Frameworks/lib*.dylib).  Setting `-p @rpath/` would
+# require an LC_RPATH on the binary, and dylibbundler's existing-rpath
+# rewrite stomps on that path with literal `@rpath/`, producing a
+# recursive load command that dyld can't resolve.  Using the absolute
+# `@executable_path` form sidesteps that.
+step "Bundling Homebrew dylib dependencies"
+command -v dylibbundler >/dev/null \
+    || fail "dylibbundler not in PATH — install with: brew install dylibbundler"
+dylibbundler -of -b -cd -ns \
+    -x "$APP/Contents/MacOS/$APP_NAME" \
+    -x "$APP/Contents/MacOS/torch" \
+    -d "$APP/Contents/Frameworks/" \
+    -p "@executable_path/../Frameworks/"
+
+# Sanity-check: no /opt/homebrew or /usr/local references should remain in
+# the binaries' load commands. Catches the case where dylibbundler missed a
+# transitive dep (rare, but worth failing loudly here rather than letting
+# the .app ship and hit the user with a runtime "Library not loaded:").
+for bin in "$APP/Contents/MacOS/$APP_NAME" "$APP/Contents/MacOS/torch"; do
+    if otool -L "$bin" | grep -qE '(/opt/homebrew|/usr/local/Cellar)'; then
+        echo "  remaining unbundled refs in $bin:" >&2
+        otool -L "$bin" | grep -E '(/opt/homebrew|/usr/local/Cellar)' >&2
+        fail "dylibbundler left non-portable load commands in $(basename "$bin")"
+    fi
+done
+
 # ── 4b. Adhoc-sign the bundle as a unit ──
 # Modern Gatekeeper (Sequoia / 15.x+) flags downloaded adhoc-signed
 # bundles as "damaged" if the signature isn't deep enough to cover
