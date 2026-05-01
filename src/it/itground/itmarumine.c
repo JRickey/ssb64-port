@@ -110,7 +110,6 @@ void itMarumineExplodeUpdateAttackEvent(GObj *item_gobj)
 #ifdef PORT
         ip->attack_coll.angle  = BITFIELD_SEXT10(ev[ip->event_id].angle);
         ip->attack_coll.damage = ev[ip->event_id].damage;
-        portFixupStructU16(&ev[ip->event_id], 0x04, 1);
         ip->attack_coll.size   = ev[ip->event_id].size;
 #else
         ip->attack_coll.angle  = ev[ip->event_id].angle;
