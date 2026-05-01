@@ -1,0 +1,18 @@
+# Gradle / AGP build outputs
+.gradle/
+build/
+
+# AGP's out-of-tree CMake working dirs (one per ABI variant)
+.cxx/
+
+# SDK / NDK paths — machine-specific
+local.properties
+
+# IDE state
+*.iml
+.idea/
+captures/
+
+# Generated keystore for debug builds (Gradle re-creates on demand)
+*.jks
+!debug.keystore
