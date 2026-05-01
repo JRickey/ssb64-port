@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
 project(ssb64 LANGUAGES C CXX)
 
+# Android needs ASM for the aarch64 coroutine context-switch
+# (port/coroutine_aarch64.S). Enable it before any add_library/add_executable
+# call sees an .S source. ASM is preprocessed by clang on the way through.
+if (CMAKE_SYSTEM_NAME STREQUAL "Android")
+    enable_language(ASM)
+endif()
+
 include(ExternalProject)
 
 # Pulled-in BEFORE the libultraship subdirectory so its
@@ -31,6 +38,7 @@ option(NON_MATCHING "Build without matching decomp constraints" ON)
 option(NON_EQUIVALENT "Build without equivalent decomp constraints" ON)
 option(USE_AUTO_VCPKG "Use automated vcpkg for dependency management" ON)
 option(SSB64_STAGE_CYCLE_DEMO "Boot directly into attract-demo stage cycle for rendering regression testing" OFF)
+option(SSB64_BUILD_COROUTINE_TEST "Build the aarch64 coroutine standalone test binary (Android)" OFF)
 
 find_package(Python3 COMPONENTS Interpreter REQUIRED)
 
@@ -187,6 +195,8 @@ file(GLOB_RECURSE SSB64_SRC_WP      "src/wp/*.c"      "src/wp/*.h")
 # Port layer (C++ glue) — excludes port/stubs/ which is compiled as part of ssb64_game
 file(GLOB_RECURSE SSB64_SRC_PORT "port/*.cpp" "port/*.c" "port/*.h")
 list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/stubs/")
+# Test harness has its own main(); never link it into the game binary.
+list(FILTER SSB64_SRC_PORT EXCLUDE REGEX "port/coroutine_test\\.cpp$")
 
 # Debug tools (GBI trace + Acmd trace systems)
 file(GLOB SSB64_DEBUG_TOOLS
@@ -359,7 +369,12 @@ endif()
 if (CMAKE_SYSTEM_NAME STREQUAL "Android")
     # SDLActivity (Java) loads a shared library and calls SDL_main from it.
     # Output name `main` matches SDL2's default `libmain.so` lookup.
-    add_library(${PROJECT_NAME} SHARED ${SSB64_SRC_PORT} ${SSB64_DEBUG_TOOLS} $<TARGET_OBJECTS:ssb64_game>)
+    add_library(${PROJECT_NAME} SHARED
+        ${SSB64_SRC_PORT}
+        ${SSB64_DEBUG_TOOLS}
+        $<TARGET_OBJECTS:ssb64_game>
+        port/coroutine_aarch64.S
+    )
     set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "main")
 else()
     add_executable(${PROJECT_NAME} ${SSB64_SRC_PORT} ${SSB64_DEBUG_TOOLS} $<TARGET_OBJECTS:ssb64_game>)
@@ -512,5 +527,23 @@ if (NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
         DEPENDS TorchExternal PrepareBuildInputs
         COMMAND ${TORCH_EXECUTABLE} pack ${CMAKE_SOURCE_DIR}/assets ${CMAKE_SOURCE_DIR}/ssb64.o2r o2r
         COMMENT "Packing port-specific assets into ssb64.o2r"
+    )
+endif()
+
+################################################################################
+# Coroutine standalone test (Android arm64-v8a)
+#
+# Validates the asm context-switch in port/coroutine_aarch64.S without
+# pulling in the full game. Build with -DSSB64_BUILD_COROUTINE_TEST=ON,
+# then push the resulting binary to /data/local/tmp/ on a device and run.
+################################################################################
+if (SSB64_BUILD_COROUTINE_TEST AND CMAKE_SYSTEM_NAME STREQUAL "Android")
+    add_executable(coroutine_test
+        port/coroutine_test.cpp
+        port/coroutine_android.cpp
+        port/coroutine_aarch64.S
+    )
+    target_include_directories(coroutine_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/port
     )
 endif()
