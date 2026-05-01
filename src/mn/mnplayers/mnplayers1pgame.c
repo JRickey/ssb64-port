@@ -9,6 +9,10 @@
 #ifdef PORT
 extern char *getenv(const char *name);
 extern int atoi(const char *str);
+extern void port_log(const char *fmt, ...);
+/* Defined in src/sc/scmanager.c. When set, preserve spgame_stage at Boss across
+ * the end-of-character-select reset (see PORT_DEBUG_BOOT_TO_MASTER_HAND). */
+extern sb32 gPortForceSpgameStageBoss;
 #endif
 extern void *func_800269C0_275C0(u16 id);
 extern void func_80026738_27338(void *arg0);
@@ -3288,6 +3292,12 @@ void mnPlayers1PGameSetSceneData(void)
 		if (stage_env != NULL)
 		{
 			gSCManagerSceneData.spgame_stage = (u8)atoi(stage_env);
+		}
+		else if (gPortForceSpgameStageBoss)
+		{
+			gSCManagerSceneData.spgame_stage = nSC1PGameStageBoss;
+			port_log("SSB64: mnPlayers1PGameSetSceneData — forcing spgame_stage=Boss(%d) for credits debug\n",
+			         (int)nSC1PGameStageBoss);
 		}
 	}
 #endif

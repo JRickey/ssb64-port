@@ -8,6 +8,14 @@
 #include <reloc_data.h>
 extern void *func_800269C0_275C0(u16 id);
 
+#ifdef PORT
+extern void port_log(const char *fmt, ...);
+/* Throttled per-frame log helper for the scroll thread. Bumped each iteration;
+ * we emit a port_log only every Nth tick so a multi-minute roll doesn't blow
+ * the log to gigabytes. Reset to 0 in scStaffrollFuncStart. */
+static u32 sPortStaffrollScrollTicks = 0;
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //       INITIALIZED DATA        //
@@ -1056,6 +1064,15 @@ void scStaffrollMakeStaffRoleTextSObjs(GObj *text_gobj, GObj *staff_gobj)
 	hbase = 40.0F;
 
 	character_count = dSCStaffrollStaffRoleTextInfo[staff->name_id].character_count;
+#ifdef PORT
+	port_log("SSB64: MakeStaffRoleText name_id=%d char_start=%d count=%d range_end=%d info_total_chars=%d info_metadata_entries=%d\n",
+	         (int)staff->name_id,
+	         (int)dSCStaffrollStaffRoleTextInfo[staff->name_id].character_start,
+	         (int)character_count,
+	         (int)(dSCStaffrollStaffRoleTextInfo[staff->name_id].character_start + character_count),
+	         (int)ARRAY_COUNT(dSCStaffrollStaffRoleCharacters),
+	         (int)ARRAY_COUNT(dSCStaffrollStaffRoleTextInfo));
+#endif
 
 	for (i = 0, character_id = dSCStaffrollStaffRoleTextInfo[staff->name_id].character_start; i < character_count; i++, character_id++)
 	{
@@ -1172,6 +1189,15 @@ void scStaffrollMakeCompanyTextSObjs(GObj *text_gobj, GObj *staff_gobj)
 	s32 character_count;
 	SCStaffrollName *staff = staff_gobj->user_data.p;
 	s32 i;
+#ifdef PORT
+	{
+		s32 cid = dSCStaffrollCompanyIDs[staff->name_id];
+		port_log("SSB64: MakeCompanyText name_id=%d company_id=%d (Null=%d) company_metadata_entries=%d company_total_chars=%d\n",
+		         (int)staff->name_id, (int)cid, (int)nSCStaffrollCompanyNull,
+		         (int)ARRAY_COUNT(dSCStaffrollCompanyTextInfo),
+		         (int)ARRAY_COUNT(dSCStaffrollCompanyCharacters));
+	}
+#endif
 
 	if (dSCStaffrollCompanyIDs[staff->name_id] != nSCStaffrollCompanyNull)
 	{
@@ -1179,6 +1205,10 @@ void scStaffrollMakeCompanyTextSObjs(GObj *text_gobj, GObj *staff_gobj)
 
 		character_count = dSCStaffrollCompanyTextInfo[dSCStaffrollCompanyIDs[staff->name_id]].character_count;
 		character_id = dSCStaffrollCompanyTextInfo[dSCStaffrollCompanyIDs[staff->name_id]].character_start;
+#ifdef PORT
+		port_log("SSB64:   company range char_start=%d count=%d range_end=%d\n",
+		         (int)character_id, (int)character_count, (int)(character_id + character_count));
+#endif
 
 		for (i = 0; i < character_count; i++, character_id++)
 		{
@@ -1687,6 +1717,21 @@ GObj* scStaffrollMakeJobGObj(SCStaffrollJob *job)
 	GObj *gobj;
 	DObj *dobj;
 	f32 wbase;
+#ifdef PORT
+	{
+		s32 ji = (s32)(job - dSCStaffrollJobDescriptions);
+		s32 prefix_count = (job->prefix_id != -1)
+		                   ? dSCStaffrollJobTextInfo[job->prefix_id].character_count : 0;
+		s32 prefix_start = (job->prefix_id != -1)
+		                   ? dSCStaffrollJobTextInfo[job->prefix_id].character_start : -1;
+		s32 jc = dSCStaffrollJobTextInfo[job->job_id].character_count;
+		s32 js = dSCStaffrollJobTextInfo[job->job_id].character_start;
+		port_log("SSB64: MakeJobGObj job_idx=%d prefix_id=%d (start=%d count=%d) job_id=%d (start=%d count=%d) staff_count=%d title_total_chars=%d\n",
+		         (int)ji, (int)job->prefix_id, (int)prefix_start, (int)prefix_count,
+		         (int)job->job_id, (int)js, (int)jc, (int)job->staff_count,
+		         (int)ARRAY_COUNT(dSCStaffrollJobCharacters));
+	}
+#endif
 
 	wbase = 0.0F;
 
@@ -1726,6 +1771,15 @@ GObj* scStaffrollMakeNameGObjAndDObjs(void)
 	s32 i;
 
 	name_character_id = -1;
+#ifdef PORT
+	{
+		s32 cs = dSCStaffrollNameTextInfo[sSCStaffrollNameID].character_start;
+		s32 cc = dSCStaffrollNameTextInfo[sSCStaffrollNameID].character_count;
+		port_log("SSB64: MakeName name_id=%d char_start=%d count=%d range_end=%d (total_chars=%d)\n",
+		         (int)sSCStaffrollNameID, (int)cs, (int)cc, (int)(cs + cc),
+		         (int)ARRAY_COUNT(dSCStaffrollNameCharacters));
+	}
+#endif
 
 	gobj = gcMakeGObjSPAfter(1, NULL, 3, GOBJ_PRIORITY_DEFAULT);
 
@@ -1981,10 +2035,18 @@ void scStaffrollScrollThreadUpdate(GObj *gobj)
 	SCStaffrollName *name;
 	sb32 is_queued_name;    // Whether next block of rolling text is job or name
 	f32 interpolation;
+#ifdef PORT
+	s32 port_job_index = 0;
+#endif
 
 	is_queued_name = TRUE;
 	job = dSCStaffrollJobDescriptions;
 	name = scStaffrollMakeJobGObj(job)->user_data.p;
+#ifdef PORT
+	port_log("SSB64: ScrollThread enter total_names=%d first_job prefix=%d job_id=%d staff_count=%d\n",
+	         (int)ARRAY_COUNT(dSCStaffrollStaffRoleTextInfo),
+	         (int)job->prefix_id, (int)job->job_id, (int)job->staff_count);
+#endif
 
 	while (sSCStaffrollNameID < ARRAY_COUNT(dSCStaffrollStaffRoleTextInfo))
 	{
@@ -2006,6 +2068,12 @@ void scStaffrollScrollThreadUpdate(GObj *gobj)
 			else
 			{
 				job++;
+#ifdef PORT
+				port_job_index++;
+				port_log("SSB64: ScrollThread advanced to job[%d] prefix=%d job_id=%d staff_count=%d (name_id now=%d)\n",
+				         (int)port_job_index, (int)job->prefix_id, (int)job->job_id,
+				         (int)job->staff_count, (int)sSCStaffrollNameID);
+#endif
 
 				name = scStaffrollMakeJobGObj(job)->user_data.p;
 
@@ -2013,11 +2081,30 @@ void scStaffrollScrollThreadUpdate(GObj *gobj)
 			}
 		}
 		gcSleepCurrentGObjThread(1);
+#ifdef PORT
+		/* Heartbeat every ~5 seconds (300 frames at 60Hz) so we can see the
+		 * scroller is alive without flooding the log. */
+		if ((++sPortStaffrollScrollTicks % 300) == 0)
+		{
+			port_log("SSB64: ScrollThread tick=%u name_id=%d/%d job=%d interp=%.3f status=%d paused=%d\n",
+			         (unsigned)sPortStaffrollScrollTicks,
+			         (int)sSCStaffrollNameID,
+			         (int)ARRAY_COUNT(dSCStaffrollStaffRoleTextInfo),
+			         (int)port_job_index,
+			         (double)name->interpolation,
+			         (int)sSCStaffrollStatus,
+			         (int)sSCStaffrollIsPaused);
+		}
+#endif
 	}
 	name = name_gobj->user_data.p;
 	name->status = -1;
 
 	sSCStaffrollScrollGObj = NULL;
+#ifdef PORT
+	port_log("SSB64: ScrollThread exit name_id=%d total_jobs_advanced=%d (final job staff_count=%d)\n",
+	         (int)sSCStaffrollNameID, (int)port_job_index, (int)job->staff_count);
+#endif
 
 	gcEjectGObj(NULL);
 	gcSleepCurrentGObjThread(1);
@@ -2049,6 +2136,12 @@ void scStaffrollSetupFiles(void)
 
 	lbRelocInitSetup(&rl_setup);
 	lbRelocLoadFilesListed(dSCStaffrollFileIDs, sSCStaffrollFiles);
+#ifdef PORT
+	port_log("SSB64: scStaffrollSetupFiles loaded %d reloc file(s); files[0]=%p file_id=0x%x\n",
+	         (int)ARRAY_COUNT(dSCStaffrollFileIDs),
+	         sSCStaffrollFiles[0],
+	         (unsigned)dSCStaffrollFileIDs[0]);
+#endif
 }
 
 // 0x80134A70
@@ -2117,6 +2210,15 @@ void scStaffrollInitVars(void)
 	sSCStaffrollRollBeginWait = 0;
 	sSCStaffrollPlayer = gSCManagerSceneData.player;
 	sSCStaffrollRollEndWait = 60;
+#ifdef PORT
+	port_log("SSB64: scStaffrollInitVars status=%d nameInterp=%p animJoint=%p dobjDesc=%p player=%d rollSpeed=%f\n",
+	         (int)sSCStaffrollStatus,
+	         (void*)sSCStaffrollNameInterpolation,
+	         (void*)sSCStaffrollNameAnimJoint,
+	         (void*)sSCStaffrollDObjDesc,
+	         (int)sSCStaffrollPlayer,
+	         (double)sSCStaffrollRollSpeed);
+#endif
 }
 
 // 0x80134EA8
@@ -2187,6 +2289,36 @@ void scStaffrollMakeCamera(void)
 // 0x8013505C
 void scStaffrollFuncStart(void)
 {
+#ifdef PORT
+	sPortStaffrollScrollTicks = 0;
+	port_log("SSB64: scStaffrollFuncStart enter\n");
+	port_log("SSB64:   encoded array sizes (s32 entries): name=%d title=%d info=%d company=%d\n",
+	         (int)ARRAY_COUNT(dSCStaffrollNameCharacters),
+	         (int)ARRAY_COUNT(dSCStaffrollJobCharacters),
+	         (int)ARRAY_COUNT(dSCStaffrollStaffRoleCharacters),
+	         (int)ARRAY_COUNT(dSCStaffrollCompanyCharacters));
+	port_log("SSB64:   metadata entry counts:           name=%d title=%d info=%d company=%d job_descr=%d\n",
+	         (int)ARRAY_COUNT(dSCStaffrollNameTextInfo),
+	         (int)ARRAY_COUNT(dSCStaffrollJobTextInfo),
+	         (int)ARRAY_COUNT(dSCStaffrollStaffRoleTextInfo),
+	         (int)ARRAY_COUNT(dSCStaffrollCompanyTextInfo),
+	         (int)ARRAY_COUNT(dSCStaffrollJobDescriptions));
+	port_log("SSB64:   first 8 name char codes: %d %d %d %d %d %d %d %d\n",
+	         (int)dSCStaffrollNameCharacters[0], (int)dSCStaffrollNameCharacters[1],
+	         (int)dSCStaffrollNameCharacters[2], (int)dSCStaffrollNameCharacters[3],
+	         (int)dSCStaffrollNameCharacters[4], (int)dSCStaffrollNameCharacters[5],
+	         (int)dSCStaffrollNameCharacters[6], (int)dSCStaffrollNameCharacters[7]);
+	port_log("SSB64:   first 8 info char codes: %d %d %d %d %d %d %d %d\n",
+	         (int)dSCStaffrollStaffRoleCharacters[0], (int)dSCStaffrollStaffRoleCharacters[1],
+	         (int)dSCStaffrollStaffRoleCharacters[2], (int)dSCStaffrollStaffRoleCharacters[3],
+	         (int)dSCStaffrollStaffRoleCharacters[4], (int)dSCStaffrollStaffRoleCharacters[5],
+	         (int)dSCStaffrollStaffRoleCharacters[6], (int)dSCStaffrollStaffRoleCharacters[7]);
+	port_log("SSB64:   first 8 company char codes: %d %d %d %d %d %d %d %d\n",
+	         (int)dSCStaffrollCompanyCharacters[0], (int)dSCStaffrollCompanyCharacters[1],
+	         (int)dSCStaffrollCompanyCharacters[2], (int)dSCStaffrollCompanyCharacters[3],
+	         (int)dSCStaffrollCompanyCharacters[4], (int)dSCStaffrollCompanyCharacters[5],
+	         (int)dSCStaffrollCompanyCharacters[6], (int)dSCStaffrollCompanyCharacters[7]);
+#endif
 	gcMakeGObjSPAfter(0, scStaffrollFuncRun, 1, GOBJ_PRIORITY_DEFAULT);
 	gcMakeDefaultCameraGObj(12, GOBJ_PRIORITY_DEFAULT, 100, COBJ_FLAG_FILLCOLOR, GPACK_RGBA8888(0x00, 0x00, 0x00, 0xFF));
 
@@ -2200,6 +2332,9 @@ void scStaffrollFuncStart(void)
 
 	syAudioStopBGMAll();
 	syAudioPlayBGM(0, nSYAudioBGMStaffroll);
+#ifdef PORT
+	port_log("SSB64: scStaffrollFuncStart exit (BGM=Staffroll started)\n");
+#endif
 }
 
 // 0x8013A6C8
@@ -2222,6 +2357,28 @@ void scStaffrollFuncLights(Gfx **dls)
 // 0x80135118
 void scStaffrollFuncDraw(void)
 {
+#ifdef PORT
+	static s32 sPortLastDrawStatus = 0xDEADBEEF;
+	static s32 sPortLastDrawWait   = -1;
+	if (sSCStaffrollStatus != sPortLastDrawStatus)
+	{
+		port_log("SSB64: scStaffrollFuncDraw status change %d -> %d (roll_end_wait=%d)\n",
+		         (int)sPortLastDrawStatus, (int)sSCStaffrollStatus, (int)sSCStaffrollRollEndWait);
+		sPortLastDrawStatus = sSCStaffrollStatus;
+	}
+	/* Log every 10 frames once we enter the end-wait countdown so we can see the
+	 * decrement to scene transition. */
+	if (sSCStaffrollRollEndWait != sPortLastDrawWait &&
+	    (sSCStaffrollStatus == -1 || sSCStaffrollStatus == -2))
+	{
+		if ((sSCStaffrollRollEndWait % 10) == 0)
+		{
+			port_log("SSB64: scStaffrollFuncDraw end-wait countdown: %d\n",
+			         (int)sSCStaffrollRollEndWait);
+		}
+		sPortLastDrawWait = sSCStaffrollRollEndWait;
+	}
+#endif
 	gcDrawAll();
 
 	if (sSCStaffrollRollEndWait != 0)
@@ -2233,11 +2390,17 @@ void scStaffrollFuncDraw(void)
 	}
 	if (sSCStaffrollRollEndWait == 0)
 	{
+#ifdef PORT
+		port_log("SSB64: scStaffrollFuncDraw roll_end_wait reached 0 — calling syTaskmanSetLoadScene\n");
+#endif
 		syTaskmanSetLoadScene();
 	}
 	if (sSCStaffrollStatus == -1)
 	{
-#if defined(REGION_US)        
+#ifdef PORT
+		port_log("SSB64: scStaffrollFuncDraw status==-1, transitioning to next scene (RegionUS=Startup, JP=OpeningRoom)\n");
+#endif
+#if defined(REGION_US)
     	gSCManagerSceneData.scene_curr = nSCKindStartup;
 #else
     	gSCManagerSceneData.scene_curr = nSCKindOpeningRoom;
@@ -2312,6 +2475,9 @@ SYTaskmanSetup dSCStaffrollTaskmanSetup =
 // 0x801351B8
 void scStaffrollStartScene(void)
 {
+#ifdef PORT
+	port_log("SSB64: scStaffrollStartScene enter\n");
+#endif
 	/* 
 	 * This is really weird. The function will only match if fb32 is assigned a hardcoded constant value.
 	 * One would assume they did this for the default 320x230 framebuffers as well, but that is not the case.

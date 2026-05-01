@@ -4,6 +4,15 @@
 extern char *getenv(const char *name);
 extern int atoi(const char *s);
 #endif
+
+/* Port debug toggle: when set, scManagerRunLoop forces the boot scene directly
+ * to the staff roll (credits). Used to investigate issues #54 and #55 — the
+ * Master Hand fight isn't required to reproduce the credits-render bugs and
+ * shaves several minutes off each iteration.
+ *
+ * SSB64_START_SCENE env var still takes precedence. Flip to 0 to revert. */
+#define PORT_DEBUG_BOOT_TO_CREDITS 1
+
 #endif
 #include <ft/fighter.h>
 #include <wp/weapon.h>
@@ -20,6 +29,13 @@ extern int atoi(const char *s);
 #include <sys/controller.h>
 
 extern void mnVSModeStartScene();
+
+#ifdef PORT
+/* Read by mnplayers1pgame.c to preserve the forced Boss stage across the
+ * "you picked your fighter" reset. Set true when scManagerRunLoop forces the
+ * boot route via PORT_DEBUG_BOOT_TO_MASTER_HAND. */
+sb32 gPortForceSpgameStageBoss = FALSE;
+#endif
 
 // // // // // // // // // // // //
 //                               //
@@ -893,12 +909,15 @@ void scManagerRunLoop(sb32 arg)
 #endif
 #ifdef PORT
 	{
+		sb32 env_set_scene = FALSE;
+		sb32 env_set_stage = FALSE;
 		const char *env = getenv("SSB64_START_SCENE");
 		if (env != NULL)
 		{
 			int n = atoi(env);
 			gSCManagerSceneData.scene_curr = n;
 			gSCManagerSceneData.scene_prev = n;
+			env_set_scene = TRUE;
 			port_log("SSB64: SSB64_START_SCENE override → scene=%d\n", n);
 		}
 		const char *stage_env = getenv("SSB64_SPGAME_STAGE");
@@ -906,6 +925,7 @@ void scManagerRunLoop(sb32 arg)
 		{
 			int s = atoi(stage_env);
 			gSCManagerSceneData.spgame_stage = s;
+			env_set_stage = TRUE;
 			port_log("SSB64: SSB64_SPGAME_STAGE override → spgame_stage=%d (13=Boss/MasterHand)\n", s);
 		}
 		const char *fkind_env = getenv("SSB64_SPGAME_FKIND");
@@ -915,6 +935,17 @@ void scManagerRunLoop(sb32 arg)
 			gSCManagerSceneData.fkind = f;
 			port_log("SSB64: SSB64_SPGAME_FKIND override → fkind=%d\n", f);
 		}
+		(void)env_set_stage;
+#if PORT_DEBUG_BOOT_TO_CREDITS
+		/* Only kick in when the user hasn't explicitly chosen a scene. */
+		if (!env_set_scene)
+		{
+			gSCManagerSceneData.scene_curr = nSCKindStaffroll;
+			gSCManagerSceneData.scene_prev = nSCKindStaffroll;
+			port_log("SSB64: PORT_DEBUG_BOOT_TO_CREDITS active → scene=Staffroll(%d)\n",
+			         (int)nSCKindStaffroll);
+		}
+#endif
 	}
 	port_log("SSB64: scManagerRunLoop — controllers=%d scene=%d\n",
 	         (int)gSYControllerConnectedNum, (int)gSCManagerSceneData.scene_curr);
