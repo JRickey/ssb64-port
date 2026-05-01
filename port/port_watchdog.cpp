@@ -12,11 +12,21 @@
 #include <thread>
 
 #if !defined(_WIN32)
-#include <execinfo.h>
 #include <pthread.h>
 #include <signal.h>
 #include <sys/ucontext.h>
 #include <unistd.h>
+/*
+ * Bionic exposes <execinfo.h> only at API 33+. We target a lower minSdk so
+ * the symbols aren't linkable. For the Android spike, stub these out — a
+ * production build can either raise minSdk or use libunwind directly.
+ */
+#if defined(__ANDROID__) && __ANDROID_API__ < 33
+static inline int backtrace(void * /*frames*/[], int /*max*/) { return 0; }
+static inline void backtrace_symbols_fd(void *const /*frames*/[], int /*n*/, int /*fd*/) {}
+#else
+#include <execinfo.h>
+#endif
 #endif
 
 extern "C" {

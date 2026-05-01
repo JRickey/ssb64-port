@@ -5,13 +5,17 @@
  * swapcontext() provides the resume/yield mechanism.
  */
 
-#if !defined(_WIN32)
+#if !defined(_WIN32) && !defined(__ANDROID__)
 
 /*
  * macOS marks the ucontext / swapcontext routines as deprecated and hides
  * their declarations unless _XOPEN_SOURCE is defined before <ucontext.h>.
  * Define it here (not via the target's compile definitions) so the rest of
  * the port layer still sees strictly-POSIX symbols.
+ *
+ * Android's bionic libc dropped getcontext/makecontext/swapcontext entirely
+ * (they were never supported on aarch64). The Android branch lives in
+ * coroutine_android.cpp and uses a pthread-based fallback.
  */
 #if defined(__APPLE__) && !defined(_XOPEN_SOURCE)
 #define _XOPEN_SOURCE 600
@@ -173,4 +177,4 @@ int port_coroutine_in_coroutine(void)
 	return sCurrentCoroutine != NULL;
 }
 
-#endif /* !_WIN32 */
+#endif /* !_WIN32 && !__ANDROID__ */
