@@ -41,5 +41,15 @@ It does NOT extend to:
     upstream maintainers.
   * The `torch/` submodule, which is licensed independently by its upstream
     maintainers.
+  * The font assets bundled under `assets/custom/fonts/`, which are licensed
+    under the SIL Open Font License, Version 1.1:
+      - Montserrat (Copyright 2011 The Montserrat Project Authors,
+        https://github.com/JulietaUla/Montserrat) — see
+        `assets/custom/fonts/Montserrat-OFL.txt`.
+      - Inconsolata (Copyright 2006 The Inconsolata Project Authors,
+        https://github.com/googlefonts/Inconsolata) — see
+        `assets/custom/fonts/Inconsolata-OFL.txt`.
+    The full OFL text accompanies each font in its respective `*-OFL.txt`
+    file and governs use, modification, and redistribution of the font files.
 
 Refer to each submodule and external project for its own license terms.

@@ -161,7 +161,7 @@ for asset in BattleShip.o2r f3d.o2r ssb64.o2r; do
     fi
 done
 if [[ $linked_any -eq 0 ]]; then
-    printf '\033[33m  No assets symlinked. Run extraction in the main tree (e.g. %s/build.sh) before launching the worktree binary.\033[0m\n' "$ROOT" >&2
+    printf '\033[33m  No assets symlinked. Build + extract in the main tree first (cmake --build %s/build --target ExtractAssets) before launching the worktree binary.\033[0m\n' "$ROOT" >&2
 fi
 
 # ── 6. Optional: compile ──

@@ -5,6 +5,10 @@
 #include <sys/matrix.h>
 #include <sys/develop.h>
 
+#ifdef PORT
+#include <enhancements/enhancements.h>
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //       EXTERNAL VARIABLES      //
@@ -1095,6 +1099,10 @@ void ftDisplayMainProcDisplay(GObj *fighter_gobj)
 
     fp = ftGetStruct(fighter_gobj);
     attr = fp->attr;
+
+#ifdef PORT
+    fp->display_mode = port_enhancement_hitbox_display_override(fp->display_mode);
+#endif
 
     sFTDisplayMainSkyFogAlpha = 0xFF;
     sFTDisplayMainIsShadeFog = FALSE;

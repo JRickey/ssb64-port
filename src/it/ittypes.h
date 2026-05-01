@@ -128,6 +128,15 @@ struct ITAttackEvent 	// Miniature hitbox subaction event? Commonly Used by expl
 	// 2 bytes of BE ":14 pad" (plus alignment) with an explicit u16 pad.
 	// Callers use scalar reads (`ev->timer`), so promotion is safe.
 	// angle is read-as-unsigned; use BITFIELD_SEXT10() at read sites.
+	//
+	// IMPORTANT: do NOT call portFixupStructU16(&ev[i], 0x04, 1) on this
+	// struct. ROM data has size at struct offset 0x04 (high half of the BE
+	// u32 word at 0x04..0x07); after pass1 BSWAP32 those bytes physically
+	// land at offset 0x06 in LE memory, exactly where this struct's `size`
+	// field lives — so the read is already correct. Rotating the half-words
+	// at 0x04 actively breaks size by moving it back to offset 0x04 (where
+	// the struct expects pad). Bob-omb / capsule / Mr. Saturn / box etc.
+	// explosions all read size=0 if you do (see git 87c4fe8 leftover).
 	u32 : 6;
 	u32 damage : 8;
 	u32 angle : 10;
@@ -148,8 +157,13 @@ struct ITMonsterEvent	// Full-scale hitbox subaction event? Used by Venusaur and
 #else
 	// IDO packs `u8 timer` into the top byte of the same u32 storage
 	// as the bitfield. sizeof is 36 (not 40). See ITAttackEvent above
-	// for the same pattern.
+	// for the same pattern (and the same "do not portFixupStructU16
+	// on offset 0x04" warning — pass1 BSWAP32 leaves size correctly
+	// readable at struct offset 0x06).
 	// angle is read-as-unsigned; use BITFIELD_SEXT10() at read sites.
+	// Note: fgm_id at offset 0x20 IS at the low half of its u32 word, so
+	// it does need portFixupStructU16(&ev[i], 0x20, 1) at the read site
+	// (kept in itporygon.c / itfushigibana.c).
 	u32 : 6;
 	u32 damage : 8;
 	u32 angle : 10;

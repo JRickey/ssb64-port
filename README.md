@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/BattleShip.svg" alt="BattleShip" width="640">
+</p>
+
 # BattleShip
 
 **BattleShip** is a PC port of **Super Smash Bros. (N64, NTSC-U v1.0)** built on top of the [VetriTheRetri/ssb-decomp-re](https://github.com/vetritheretri/ssb-decomp-re) decompilation, using [libultraship](https://github.com/Kenix3/libultraship) for PC-native rendering / audio / input and [Torch](https://github.com/HarbourMasters/Torch) for extracting assets out of the ROM at build time.
@@ -21,7 +25,7 @@ If your dump does not match those hashes, it will not work.
 
 ### About the project
 
-This is a 100% AI-generated modern port. It took a little over 25 days, with me, Opus 4.6, Opus 4.7, and GPT 5.5 as the only contributors. As of 4/28, there are no >2 day gaps in development. At many points, agents were dispatched and worked to build and test autonomously while I did other things.
+This is a 100% AI-generated modern port — meaning the code my agents wrote on top of the existing [decomp](https://github.com/VetriTheRetri/ssb-decomp-re), [libultraship](https://github.com/Kenix3/libultraship), and [torch](https://github.com/HarbourMasters/Torch) modules (see [Credits & licensing](#credits--licensing) for full attribution of the work this port stands on). It took a little over 25 days to get to v0.1, with me, Opus 4.6, Opus 4.7, and GPT 5.5 as the only contributors. As of 4/28, there are no >2 day gaps in development. At many points, agents were dispatched and worked to build and test autonomously while I did other things.
 
 I wanted to do this project for two reasons.
 
@@ -81,98 +85,7 @@ Take it away, Claude:
 
 ## Building
 
-### Prerequisites
-
-You will need:
-
-- **Git** (with submodule support)
-- **CMake** ≥ 3.20
-- **Python 3** (used by the reloc-stub / YAML / credits generators in `tools/`)
-- **zip** (used to pack the Fast3D shader archive)
-- A **C/C++ toolchain**:
-  - macOS: Xcode Command Line Tools (`xcode-select --install`)
-  - Linux: `gcc`/`clang`, plus the usual SDL2/OpenGL dev headers that libultraship pulls in
-  - Windows: Visual Studio 2022 with the "Desktop development with C++" workload
-- A **legal NTSC-U v1.0 ROM** (see hash table above)
-
-Optional but recommended: `ninja` on macOS/Linux — the build script will use it automatically if it's on `PATH`, otherwise it falls back to Unix Makefiles.
-
-### 1. Clone the repo
-
-```bash
-git clone https://github.com/JRickey/ssb64-port.git
-cd ssb64-port
-```
-
-### 2. Initialize submodules
-
-```bash
-git submodule update --init --recursive
-```
-
-### 3. Provide the ROM
-
-Drop your NTSC-U v1.0 ROM into the project root and name it exactly:
-
-```
-baserom.us.z64
-```
-
-It can be a big-endian `.z64` dump or `.v64` or `.n64`. The build will refuse to start if the file is missing.
-
-In a release package, you can select your ROM through the wizard after starting the application, or drag and drop it to the application. Once extracted, you don't need to provide the ROM again.
-
-### 4. Run the build script
-
-**macOS / Linux:**
-
-```bash
-./build.sh
-```
-
-**Windows (PowerShell):**
-
-```powershell
-.\build.ps1
-```
-
-Common flags (both scripts):
-
-| Flag | Behavior |
-|------|----------|
-| *(none)* | Full build + asset extraction (Debug) |
-| `--release` / *(edit script for ps1)* | Release build |
-| `--skip-extract` / `-SkipExtract` | Build the executable, skip Torch asset extraction |
-| `--extract-only` / `-ExtractOnly` | Re-extract assets only (assumes Torch is already built) |
-| `--clean` / `-Clean` | Wipe `build/`, `BattleShip.o2r`, `f3d.o2r` and start over |
-
-The script will, in order:
-
-1. Initialize submodules (`libultraship`, `torch`)
-2. Regenerate `include/reloc_data.h`, the `yamls/us/reloc_*.yml` extraction configs, and `port/resource/RelocFileTable.cpp` from `tools/reloc_data_symbols.us.txt`
-3. Encode the credits text strings (`src/credits/*.credits.us.txt` → `.credits.encoded` / `.credits.metadata`)
-4. Configure CMake and build the `BattleShip` executable
-5. Build Torch as an ExternalProject and run it against your ROM to produce `BattleShip.o2r`
-6. Zip `libultraship/src/fast/shaders/` into `f3d.o2r`
-7. Copy both archives next to the executable
-
-When it finishes you'll have:
-
-```
-build/BattleShip      # the executable (BattleShip.exe on Windows)
-build/BattleShip.o2r  # game assets extracted from your ROM
-build/f3d.o2r         # Fast3D shader archive
-```
-
-### 5. Run it
-
-```bash
-./build/BattleShip
-```
-
-On first launch the game creates `BattleShip.cfg.json` next to the executable. Default keyboard controls are documented in [`CONTROLS.md`](CONTROLS.md); you can rebind them in-game via the controller settings menu, or plug in a gamepad (SDL2 controller support is on by default).
-
----
+If you want to manually compile BattleShip, please consult the [building instructions](docs/BUILDING.md).
 
 ## Architecture
 
@@ -350,6 +263,7 @@ PRs are welcome but please don't be offended if responses are slow — this is a
 - Decompilation: [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) and its contributors.
 - Runtime framework: [libultraship](https://github.com/Kenix3/libultraship) (Kenix3 and the Harbour Masters team).
 - Asset pipeline: [Torch](https://github.com/HarbourMasters/Torch) (Harbour Masters).
+- Menu fonts: [Montserrat](https://github.com/JulietaUla/Montserrat) and [Inconsolata](https://github.com/cyrealtype/Inconsolata), both bundled under the [SIL Open Font License 1.1](https://openfontlicense.org). License texts ship alongside the font files in [`assets/custom/fonts/`](assets/custom/fonts/).
 - Reference ports I learned from: [Starship](https://github.com/HarbourMasters/Starship) (SF64), [SpaghettiKart](https://github.com/HarbourMasters/SpaghettiKart) (MK64).
 - Port work: me ([JRickey](https://github.com/JRickey)), with an enormous amount of help from [Claude](https://claude.com/claude-code).
 
@@ -365,3 +279,4 @@ The MIT grant covers only the port-specific code (the `port/` layer, build scrip
 - Game assets, code, audio, textures, models, or any other content owned by Nintendo / HAL Laboratory — none of which is in this repository.
 - The decompilation in `src/`, which carries its own license from the [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) project.
 - The `libultraship` and `torch` submodules, which carry their own upstream licenses.
+- The bundled menu fonts under `assets/custom/fonts/`, which are licensed under the SIL Open Font License 1.1 (per-font license files in that directory).

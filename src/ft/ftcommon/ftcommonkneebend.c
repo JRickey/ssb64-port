@@ -1,5 +1,9 @@
 #include <ft/fighter.h>
 
+#ifdef PORT
+#include <enhancements/enhancements.h>
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //           FUNCTIONS           //
@@ -86,7 +90,13 @@ sb32 ftCommonKneeBendCheckButtonTap(FTStruct *fp)
 // 0x8013F474
 s32 ftCommonKneeBendGetInputTypeCommon(FTStruct *fp)
 {
-    if ((fp->input.pl.stick_range.y >= FTCOMMON_KNEEBEND_STICK_RANGE_MIN) && (fp->tap_stick_y <= FTCOMMON_KNEEBEND_BUFFER_TICS_MAX))
+#ifdef PORT
+    sb32 tap_jump_disabled = port_enhancement_tap_jump_disabled(fp->player);
+#else
+    sb32 tap_jump_disabled = FALSE;
+#endif
+
+    if (!tap_jump_disabled && (fp->input.pl.stick_range.y >= FTCOMMON_KNEEBEND_STICK_RANGE_MIN) && (fp->tap_stick_y <= FTCOMMON_KNEEBEND_BUFFER_TICS_MAX))
     {
         return FTCOMMON_KNEEBEND_INPUT_TYPE_STICK;
     }
@@ -121,7 +131,13 @@ sb32 ftCommonKneeBendCheckInterruptCommon(GObj *fighter_gobj)
 // 0x8013F53C
 s32 ftCommonKneeBendGetInputTypeRun(FTStruct *fp)
 {
-    if ((fp->input.pl.stick_range.y > FTCOMMON_KNEEBEND_RUN_STICK_RANGE_MIN) && (fp->tap_stick_y <= FTCOMMON_KNEEBEND_BUFFER_TICS_MAX))
+#ifdef PORT
+    sb32 tap_jump_disabled = port_enhancement_tap_jump_disabled(fp->player);
+#else
+    sb32 tap_jump_disabled = FALSE;
+#endif
+
+    if (!tap_jump_disabled && (fp->input.pl.stick_range.y > FTCOMMON_KNEEBEND_RUN_STICK_RANGE_MIN) && (fp->tap_stick_y <= FTCOMMON_KNEEBEND_BUFFER_TICS_MAX))
     {
         return FTCOMMON_KNEEBEND_INPUT_TYPE_STICK;
     }

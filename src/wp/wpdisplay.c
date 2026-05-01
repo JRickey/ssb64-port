@@ -4,6 +4,10 @@
 #include <sys/matrix.h>
 #include <sys/malloc.h>
 
+#ifdef PORT
+#include <enhancements/enhancements.h>
+#endif
+
 extern SYMallocRegion gSYTaskmanGraphicsHeap;
 
 // // // // // // // // // // // //
@@ -148,6 +152,10 @@ void wpDisplayMain(GObj *weapon_gobj, void (*proc_display)(GObj*))
 {
     WPStruct *wp = wpGetStruct(weapon_gobj);
 
+#ifdef PORT
+    wp->display_mode = port_enhancement_hitbox_display_override(wp->display_mode);
+#endif
+
     if (wp->display_mode == nDBDisplayModeMapCollision)
     {
         wpDisplayDrawNormal();
@@ -198,6 +206,10 @@ void wpDisplayPKThunderProcDisplay(GObj *weapon_gobj)
 {
     WPStruct *wp = wpGetStruct(weapon_gobj);
     s32 index = wp->weapon_vars.pkthunder_trail.trail_id;
+
+#ifdef PORT
+    wp->display_mode = port_enhancement_hitbox_display_override(wp->display_mode);
+#endif
 
     if (wp->display_mode == nDBDisplayModeMapCollision)
     {

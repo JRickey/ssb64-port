@@ -4,22 +4,21 @@
 
 namespace ssb64 {
 
-/* Ensure BattleShip.o2r exists at `target_o2r_path`. If it doesn't, locate a ROM
- * (.z64 / .n64 / .v64), the torch binary, and the asset extraction yamls,
- * then shell out to torch to extract.
- *
- * Returns true if `target_o2r_path` exists (or was successfully extracted)
- * after the call. Returns false if extraction was needed but couldn't be
- * performed (no ROM, no torch, or torch failed) — caller should surface a
- * user-facing error.
- *
- * Logs every step via port_log so failures are diagnosable from ssb64.log.
- */
+struct ExtractionResult {
+    bool success = false;
+    std::string outputPath;
+    std::string error;
+    std::string logPath;
+};
+
+/* Ensure BattleShip.o2r exists at `target_o2r_path`. If it doesn't, locate a
+ * ROM (.z64 / .n64 / .v64), config.yml + yamls/us, and invoke the standalone
+ * Torch executable to build the archive. */
 // silent=true suppresses native SDL_ShowSimpleMessageBox popups. The
 // ImGui wizard sets this so failures land in the wizard's own status
 // line instead of an alien-looking second dialog.
-bool ExtractAssetsIfNeeded(const std::string& target_o2r_path,
-                           bool silent = false);
+ExtractionResult ExtractAssetsIfNeeded(const std::string& target_o2r_path, bool silent = false,
+                                       const std::string& romOverridePath = {});
 
 /* Drive an ImGui first-run wizard until either:
  *   - the user provides a ROM and extraction succeeds (returns true,

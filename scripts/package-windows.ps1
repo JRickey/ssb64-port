@@ -34,7 +34,8 @@ function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 # ── 0. Run codegen scripts that don't need the ROM ──
 # Encoded credit files are gitignored (input text is in src/credits/),
 # so a fresh checkout (CI or otherwise) must run the encoder before
-# cmake builds scstaffroll.c. ROM-independent — same step as build.sh.
+# cmake builds scstaffroll.c. ROM-independent — same step CMake's
+# GenerateCreditsAssets target runs.
 Write-Step "Encoding credits text"
 Push-Location (Join-Path $Root "src/credits")
 foreach ($f in @("staff.credits.us.txt", "titles.credits.us.txt")) {
@@ -49,9 +50,18 @@ Pop-Location
 
 # ── 1. Configure + build with NON_PORTABLE=ON (Release) ──
 Write-Step "Configuring release build with NON_PORTABLE=ON"
+# CMAKE_INSTALL_PREFIX is baked into libultraship's install_config.h at
+# configure time and returned by Ship::Context::GetAppBundlePath() under
+# NON_PORTABLE. CMake's Windows default is $ENV{ProgramFiles(x86)}/<project>
+# (e.g. "C:\Program Files (x86)\ssb64") which is meaningless for a zip the
+# user extracts to an arbitrary directory. We never run `cmake --install`,
+# so the value is cosmetic — the runtime path resolution lives in
+# port/app_paths.cpp::RealAppBundlePath() (GetModuleFileNameW). Set a
+# readable label so log lines make sense.
 cmake -B $BuildDir $Root `
     -DCMAKE_BUILD_TYPE=Release `
     -DNON_PORTABLE=ON `
+    -DCMAKE_INSTALL_PREFIX=BattleShip `
     | Out-Null
 if ($LASTEXITCODE -ne 0) { Fail "cmake configure failed" }
 
@@ -104,11 +114,27 @@ Copy-Item (Join-Path $Root "yamls\us\*.yml") (Join-Path $StageDir "yamls\us")
 # without this file. Keep it bundled for future installer work.
 Copy-Item (Join-Path $Root "assets\icon.ico") (Join-Path $StageDir "$AppName.ico")
 
+# Bundle the ESC menu fonts. Menu.cpp::FindMenuAssetPath walks up from
+# RealAppBundlePath() and from current_path(); placing the TTFs at
+# <staging>\assets\custom\fonts\ next to the .exe matches the first
+# iteration of the walker rooted at the .exe's directory. Without this
+# the menu falls back to ImGui's default font silently.
+$FontsDir = Join-Path $StageDir "assets\custom\fonts"
+New-Item -ItemType Directory -Path $FontsDir -Force | Out-Null
+Copy-Item (Join-Path $Root "assets\custom\fonts\Montserrat-Regular.ttf")  $FontsDir
+Copy-Item (Join-Path $Root "assets\custom\fonts\Inconsolata-Regular.ttf") $FontsDir
+
 # Bundle DLLs that landed next to BattleShip.exe (vcpkg drops SDL2.dll, etc.).
 $ExeBuildDir = Split-Path $GameExe -Parent
 Get-ChildItem -Path $ExeBuildDir -Filter "*.dll" | ForEach-Object {
     Copy-Item $_.FullName $StageDir
 }
+
+# Bundle the standalone Python save editor next to the .exe so users
+# can edit %APPDATA%\BattleShip\ssb64_save.bin from the command line
+# (binary save game format documented in the script's docstring).
+# Pure stdlib, no install needed — runs as `python save_editor.py …`.
+Copy-Item (Join-Path $Root "tools\save_editor.py") $StageDir
 
 # ── 5. Zip ──
 Write-Step "Compressing $ZipPath"

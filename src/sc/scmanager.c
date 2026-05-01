@@ -852,6 +852,11 @@ void scManagerRunLoop(sb32 arg)
 	/* Skip framebuffer clear — no physical N64 framebuffers on PC.
 	 * Fast3D handles framebuffer management. */
 	port_log("SSB64: scManagerRunLoop — past audio/FB setup\n");
+	/* SRAM is backed by a real file in the user's app-data dir
+	 * (port_save.cpp). Load it so unlocks/options persist across runs
+	 * — without this the backup struct stays at defaults forever. */
+	lbBackupIsSramValid();
+	lbBackupApplyOptions();
 #else
 	syAudioSetSettingsUpdated();
 
@@ -902,6 +907,13 @@ void scManagerRunLoop(sb32 arg)
 			int s = atoi(stage_env);
 			gSCManagerSceneData.spgame_stage = s;
 			port_log("SSB64: SSB64_SPGAME_STAGE override → spgame_stage=%d (13=Boss/MasterHand)\n", s);
+		}
+		const char *fkind_env = getenv("SSB64_SPGAME_FKIND");
+		if (fkind_env != NULL)
+		{
+			int f = atoi(fkind_env);
+			gSCManagerSceneData.fkind = f;
+			port_log("SSB64: SSB64_SPGAME_FKIND override → fkind=%d\n", f);
 		}
 	}
 	port_log("SSB64: scManagerRunLoop — controllers=%d scene=%d\n",

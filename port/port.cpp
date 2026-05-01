@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
+#include <typeinfo>
 
 #include "resource/ResourceType.h"
 #include "resource/RelocFileFactory.h"
@@ -20,7 +22,7 @@
 
 #include "bridge/audio_bridge.h"
 #include "first_run.h"
-#include "gui/MenuBar.h"
+#include "gui/PortMenu.h"
 #include "renderdoc_trigger.h"
 #include "port_log.h"
 
@@ -193,7 +195,30 @@ static std::shared_ptr<Ship::Context> sContext;
 
 extern "C" {
 
+static int PortInitImpl(int argc, char* argv[]);
+
 int PortInit(int argc, char* argv[]) {
+	// Top-level catch so unhandled C++ exceptions during init land in
+	// ssb64.log with their type and what() instead of bubbling up as an
+	// opaque MSVC 0xE06D7363 throw that the user sees as "the app just
+	// crashed". Issue #58 reported a Win10 19042 crash with no usable
+	// signal beyond "ControlDeck OK"; the caught e.what() narrows it.
+	try {
+		return PortInitImpl(argc, argv);
+	} catch (const std::exception& e) {
+		port_log("\n*** PortInit: unhandled C++ exception ***\n"
+		         "    type: %s\n    what: %s\n",
+		         typeid(e).name(), e.what());
+		port_log_close();
+		return 1;
+	} catch (...) {
+		port_log("\n*** PortInit: unhandled non-std exception ***\n");
+		port_log_close();
+		return 1;
+	}
+}
+
+static int PortInitImpl(int argc, char* argv[]) {
 	port_log("SSB64: PortInit entered\n");
 
 	sContext = Ship::Context::CreateUninitializedInstance(
@@ -256,8 +281,8 @@ int PortInit(int argc, char* argv[]) {
 	 *      f3d.o2r during InitWindow's first frame setup, so the
 	 *      ResourceManager has to exist by then.  f3d.o2r is shipped
 	 *      with the binary (always present, no ROM needed).
-	 *   3. Window + MenuBar
-	 *   4. First-run flow: silent shell-out, then ImGui wizard if needed.
+	 *   3. Window + Port Menu
+	 *   4. First-run flow: silent in-process extraction, then ImGui wizard if needed.
 	 *      Once BattleShip.o2r is on disk we add it via ArchiveManager.
 	 *   5. Audio / GfxDebugger / FileDropMgr / factory registration. */
 	if (!sContext->InitCrashHandler()) { port_log("SSB64: InitCrashHandler failed\n"); return 1; }
@@ -282,13 +307,21 @@ int PortInit(int argc, char* argv[]) {
 		// Bootstrap ResourceManager with f3d.o2r only. Allow empty paths
 		// so a missing f3d.o2r logs but doesn't fatal — the Window init
 		// would still partially work for the wizard, which is enough.
+		//
+		// Each step gets its own checkpoint log so a Windows heap-corruption
+		// crash here (issue #58) tells us which Ship::Context call ate it,
+		// not just that we got past ControlDeck OK and never returned.
+		port_log("SSB64: locating f3d.o2r ...\n");
 		const std::string f3d = Ship::Context::LocateFileAcrossAppDirs("f3d.o2r");
 		port_log("SSB64: bootstrap archive (shaders) -> %s\n", f3d.c_str());
-		port_log("SSB64: AppBundlePath    = %s\n",
-		         Ship::Context::GetAppBundlePath().c_str());
-		port_log("SSB64: AppDirectoryPath = %s\n",
-		         Ship::Context::GetAppDirectoryPath().c_str());
+		port_log("SSB64: querying AppBundlePath ...\n");
+		const std::string appBundle = Ship::Context::GetAppBundlePath();
+		port_log("SSB64: AppBundlePath    = %s\n", appBundle.c_str());
+		port_log("SSB64: querying AppDirectoryPath ...\n");
+		const std::string appDir = Ship::Context::GetAppDirectoryPath();
+		port_log("SSB64: AppDirectoryPath = %s\n", appDir.c_str());
 		std::vector<std::string> bootstrapPaths = {f3d};
+		port_log("SSB64: calling InitResourceManager (bootstrap) ...\n");
 		if (!sContext->InitResourceManager(bootstrapPaths, {}, 0,
 		                                   /*allowEmptyPaths=*/true)) {
 			port_log("SSB64: bootstrap InitResourceManager failed\n");
@@ -299,14 +332,17 @@ int PortInit(int argc, char* argv[]) {
 
 	// See controlDeck note above re: scoping.
 	{
+		port_log("SSB64: constructing Fast3dWindow ...\n");
 		auto window = std::make_shared<Fast::Fast3dWindow>();
+		port_log("SSB64: calling InitWindow ...\n");
 		if (!sContext->InitWindow(window)) { port_log("SSB64: InitWindow failed\n"); return 1; }
 		port_log("SSB64: Window OK\n");
 
-		// Top-of-screen menu bar (File / View / Help). Toggle with F1.
+		// Esc Menu screen, Toggle with Esc.
 		if (auto gui = window->GetGui()) {
-			gui->SetMenuBar(std::make_shared<ssb64::MenuBar>());
-			port_log("SSB64: MenuBar attached\n");
+			port_log("SSB64: attaching Port menu ...\n");
+			gui->SetMenu(std::make_shared<ssb64::PortMenu>());
+			port_log("SSB64: Port menu attached\n");
 		}
 	}
 
@@ -317,7 +353,7 @@ int PortInit(int argc, char* argv[]) {
 	port_log("SSB64: FileDropMgr OK\n");
 
 	/* First-run flow:
-	 *   1. Silent shell-out: if a ROM sits at app-data / bundle / cwd we
+	 *   1. Silent extraction: if a ROM sits at app-data / bundle / cwd we
 	 *      just extract without bothering the user.
 	 *   2. If still missing, drive an ImGui wizard modal in a pre-gameloop
 	 *      render loop until the user provides a ROM and extraction
@@ -460,6 +496,12 @@ int main(int argc, char* argv[]) {
 		return 1;
 	}
 
+	// Wrap post-init (game boot + main loop + shutdown) in a top-level
+	// catch so uncaught C++ exceptions get logged as ssb64.log entries
+	// with type and what() before the process exits, instead of bubbling
+	// up as an opaque MSVC 0xE06D7363 throw.
+	try {
+
 	// Initialize the game boot sequence (coroutines, thread init, etc.)
 	PortGameInit();
 
@@ -481,20 +523,9 @@ int main(int argc, char* argv[]) {
 		PortPushFrame();
 		frame++;
 
-		// First-launch UX hint: most users won't know F1 toggles the menu
-		// bar. Show a one-shot LUS GameOverlay notification on frame 60
-		// (~1 s in) so it lands after the title screen has materialized.
-		// Persisted via cvar gFirstRunHintShown so it never repeats.
 		if (!firstRunHintShown && frame == 60) {
 			auto cv = sContext->GetConsoleVariables();
 			if (cv && cv->GetInteger("gFirstRunHintShown", 0) == 0) {
-				if (auto gui = sContext->GetWindow()->GetGui()) {
-					if (auto overlay = gui->GetGameOverlay()) {
-						overlay->TextDrawNotification(
-							8.0f, true,
-							"Press F1 to open the menu");
-					}
-				}
 				cv->SetInteger("gFirstRunHintShown", 1);
 				if (auto gui = sContext->GetWindow()->GetGui()) {
 					gui->SaveConsoleVariablesNextFrame();
@@ -522,4 +553,16 @@ int main(int argc, char* argv[]) {
 	PortShutdown();
 	portRenderDocShutdown();
 	return 0;
+
+	} catch (const std::exception& e) {
+		port_log("\n*** main: unhandled C++ exception ***\n"
+		         "    type: %s\n    what: %s\n",
+		         typeid(e).name(), e.what());
+		port_log_close();
+		return 1;
+	} catch (...) {
+		port_log("\n*** main: unhandled non-std exception ***\n");
+		port_log_close();
+		return 1;
+	}
 }

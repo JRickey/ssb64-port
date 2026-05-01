@@ -299,16 +299,40 @@ extern "C" void port_aobj_register_halfswapped_range(void *base, unsigned long s
     if (base == nullptr || size == 0) return;
     uintptr_t b = reinterpret_cast<uintptr_t>(base);
     uintptr_t e = b + static_cast<uintptr_t>(size);
-    /* Evict any visited-set entries that fall in the new range —
-     * figatree-heap reloads land fresh halfswapped bytes at the same
-     * address and need their spline-data fixup re-applied. */
-    for (auto it = sUnhalfswappedVisited.begin(); it != sUnhalfswappedVisited.end(); ) {
-        if (*it >= b && *it < e) {
-            it = sUnhalfswappedVisited.erase(it);
-        } else {
-            ++it;
+    /* Evict every cache keyed on an address inside the new range —
+     * fighter figatree heaps are bump-reset between status changes, so a
+     * later load lands fresh halfswap-corrupted bytes at addresses a
+     * previous load already populated.  Any cached "already processed"
+     * verdict from the previous load is stale once the bytes change.
+     *
+     * Three caches need eviction in lockstep, all keyed on raw heap
+     * pointer:
+     *   - sUnhalfswappedVisited: per-block one-shot fixup tracker (used
+     *     by interp.c spline data).  Eviction was already here.
+     *   - sUnswappedHeads: event32 streams the walker successfully fixed
+     *     up.  Without eviction, the walker short-circuits on a fresh
+     *     load's stream that happens to land at the same address.
+     *   - sRejectedHeads: event32 streams the walker decided not to
+     *     touch.  Without eviction, a stream that was non-event32 in the
+     *     previous load (correctly rejected) blocks a real event32 stream
+     *     in the new load from being un-halfswapped.
+     *
+     * Symptom that surfaced the missing two: Master Hand's okutsubushi /
+     * okupunch / drill animations parsed garbage — gcParseDObjAnimJoint
+     * would hit a halfswap-corrupted command word with an out-of-range
+     * opcode (typically 64) and bail with "UNHANDLED opcode=64 — ending
+     * anim", leaving TransN.translate at (0,0,0) for the rest of the
+     * attack.  Same shape as project_fixup_idempotency_heap_reuse: cache
+     * keyed on pointer, heap reuses addresses, fresh bytes skip fixup. */
+    auto evict = [&](std::unordered_set<uintptr_t> &set) {
+        for (auto it = set.begin(); it != set.end(); ) {
+            if (*it >= b && *it < e) it = set.erase(it);
+            else ++it;
         }
-    }
+    };
+    evict(sUnhalfswappedVisited);
+    evict(sUnswappedHeads);
+    evict(sRejectedHeads);
     sHalfswappedRanges.push_back({b, e});
 }
 
