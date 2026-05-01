@@ -156,21 +156,21 @@ extern "C" int port_get_display_submit_count(void)
 /* Frame-interpolation multiplier — CVar (gSettings.FrameInterpolationMult),
  * env var fallback (SSB64_INTERP_MULT), and a hard cap.
  *
+ * SSB64 ticks at 60 Hz natively (one tick per VRETRACE, posted every
+ * PortPushFrame, paced by vsync on a 60 Hz monitor). So mult only helps on
+ * higher-refresh displays:
  *   N=1: disabled, identical to historical behavior.
- *   N=2: render twice per tick (e.g. 30→60 Hz).
- *   N=3: render thrice.
- *   N=4: 30→120 Hz on a 120 Hz display.
+ *   N=2: 60 Hz logic + 120 Hz display (useful on 120 Hz monitor).
+ *   N=3: 60 Hz logic + 180 Hz display.
+ *   N=4: 60 Hz logic + 240 Hz display.
  *
  * Resolved every frame so the slider in Settings → Graphics → Frame
  * Interpolation Mult takes effect immediately, no relaunch needed.
  *
- * KNOWN LIMITATION (slow motion): on a vsynced 60 Hz display, each call to
- * DrawAndRunGraphicsCommands blocks for ~1/60 s on present, so calling it
- * N times per game tick stretches each tick to N/60 s, slowing game logic
- * to 60/N Hz. The proper fix requires a separate renderer thread or
- * vsync-bypass on intermediate presents (libultraship lacks the API to
- * present without a vsync block from the port side). On a 120 Hz monitor
- * mult=2 works as intended; on a 60 Hz monitor it's a slo-mo demo only. */
+ * On a 60 Hz monitor mult>1 is essentially a no-op visually: the
+ * intermediate lerped frames tear (vsync toggled off below) and are
+ * immediately overwritten by the equivalent un-lerped frame at the next
+ * vsync. No benefit, just tearing — the menu tooltip says so. */
 #define SSB64_INTERP_MULT_MAX 8
 #define CVAR_FRAME_INTERP_MULT "gSettings.FrameInterpolationMult"
 

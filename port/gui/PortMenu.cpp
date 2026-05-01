@@ -282,10 +282,12 @@ void PortMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Options(IntSliderOptions()
                      .Tooltip("Render N display frames per game tick. 1 = disabled. "
-                              "On a 60 Hz vsynced display this slows the game down "
-                              "(2 = half speed) — only useful on 120 Hz+ monitors or "
-                              "with vsync off. Camera lerp is input-domain so the "
-                              "rebuilt frames are rigid (no doubling).")
+                              "SSB64 already ticks at 60 Hz natively, so this only "
+                              "helps on 120 Hz+ monitors (mult=2 -> 120 Hz display, "
+                              "mult=4 -> 240 Hz). On a 60 Hz monitor the intermediate "
+                              "lerped frames tear and are immediately overwritten — "
+                              "no visible benefit, just tearing. Camera lerp is "
+                              "input-domain so rebuilt frames are rigid (no doubling).")
                      .Min(1)
                      .Max(8)
                      .DefaultValue(1));
