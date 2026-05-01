@@ -90,21 +90,31 @@ public final class TouchOverlay {
         });
         root.addView(stickHost, stickLp);
 
-        // Right cluster: positioned absolutely. Bottom-right A is the
-        // primary action; B sits diagonally above-left of A; Z and Start
-        // up at the top-right corner.
+        // Right-cluster layout, sized for landscape. A is the primary
+        // action (largest, bottom-right corner). B sits to its immediate
+        // left at the same height. Z stacks above A. Start is the
+        // smallest, top-right corner — least often pressed.
+        //
+        // dp offsets keep the buttons inside the screen on phones from
+        // ~640dp wide (landscape Pixel 4a) up. Tablets get extra empty
+        // space, which is fine — still thumb-reachable.
+        //
+        // Diameter dp:        A=120  B=110  Z=90  Start=70
+        // marginEnd dp:       24      150    24    24
+        // marginBottom dp:    24      24     160   --   (Z above A)
+        // marginTop dp:       --      --     --    24
         addButton(activity, root, "A",     SDL_CONTROLLER_BUTTON_A,
                   Color.argb(0xC0, 0x33, 0xCC, 0x55), 120,
                   Gravity.BOTTOM | Gravity.END,    24,  24);
         addButton(activity, root, "B",     SDL_CONTROLLER_BUTTON_B,
                   Color.argb(0xC0, 0xCC, 0x33, 0x55), 110,
-                  Gravity.BOTTOM | Gravity.END,    176, 168);
+                  Gravity.BOTTOM | Gravity.END,    150, 24);
         addButton(activity, root, "Z",     SDL_CONTROLLER_BUTTON_LEFTSHOULDER,
                   Color.argb(0xC0, 0x99, 0x66, 0xCC), 90,
-                  Gravity.TOP    | Gravity.END,    24,  24);
+                  Gravity.BOTTOM | Gravity.END,    24,  160);
         addButton(activity, root, "Start", SDL_CONTROLLER_BUTTON_START,
                   Color.argb(0xA0, 0xAA, 0xAA, 0xAA), 70,
-                  Gravity.TOP    | Gravity.END,    140, 36);
+                  Gravity.TOP    | Gravity.END,    24,  24);
 
         activity.addContentView(root,
             new ViewGroup.LayoutParams(
