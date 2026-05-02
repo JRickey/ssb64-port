@@ -326,6 +326,28 @@ void aDMEMMoveImpl(uint16_t in_addr, uint16_t out_addr, int nbytes) {
 
 void aLoadADPCMImpl(int count, uintptr_t book_addr) {
 	if (book_addr == 0) return;
+
+	/* PORT: zero the table before copying so unused predictor slots
+	 * default to zero coefficients instead of retaining a previous
+	 * voice's book.  SSB64's books are uniformly order=2,
+	 * npredictors=4 → count=128 bytes, which fills slots [0..3] of
+	 * the 256-byte rspa.adpcm_table.  Without the memset, slots
+	 * [4..7] keep whatever the previous voice's aLoadADPCM left
+	 * there.  If a wave's ADPCM data ever encodes a frame whose
+	 * table_index ∈ {4..7}, the decoder reads predictor coefficients
+	 * from another sample → wildly wrong sample at the start of that
+	 * frame.  Caused the Sector Z Arwing-whoosh + strong-hit SFX
+	 * corruption (90% of jumps at ADPCM frame boundary, idx%16==15).
+	 * See docs/bugs/audio_adpcm_codebook_stale_slots_2026-05-02.md.
+	 *
+	 * On N64 this was fine because the equivalent unused tail was
+	 * deterministic-per-wave (the bytes immediately following the
+	 * book in ROM, never read), not "previous voice's book." */
+	if (count < 0) count = 0;
+	if ((size_t)count > sizeof(rspa.adpcm_table)) {
+		count = (int)sizeof(rspa.adpcm_table);
+	}
+	memset(rspa.adpcm_table, 0, sizeof(rspa.adpcm_table));
 	memcpy(rspa.adpcm_table, (const void*)book_addr, count);
 }
 

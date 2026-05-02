@@ -91,3 +91,50 @@ const char *port_diag_get_scene_name(u8 id)
 	default:                      return "?";
 	}
 }
+
+/* Whether the current scene has authored climax-freeze frames whose timing
+ * is preserved by the RCP cost-model in port/gameloop.cpp.
+ *
+ * The cost model treats DLs that exceed budget+rect_gate as "authored freezes"
+ * and stretches them across multiple VIs to mimic real-N64 RDP overrun. That
+ * fidelity is only needed in scenes that play the pre-rendered character
+ * intro sequences whose climaxes (Yoshi tongue, Samus grapple, DK smash, etc.)
+ * the game authors timed around the natural overrun:
+ *   - AutoDemo (attract loop cycles through them)
+ *   - the various Opening scenes (first-boot intros, mvOpening*)
+ *   - Ending cutscene
+ *
+ * Everywhere else (CSS, menus, normal battle, 1P game, bonus stages, training,
+ * stage clear, etc.) the cost+rect heuristic just mis-fires on UI-fillrate-
+ * heavy DLs — the 4-fighter VS CSS panels cluster at cost ≈420k, rect_px ≈236k,
+ * which trips both gates every frame and halves the game-tick rate. Issue #78.
+ */
+sb32 port_scene_wants_freeze_simulation(u8 scene_id)
+{
+	switch (scene_id) {
+	case nSCKindOpeningRoom:
+	case nSCKindOpeningPortraits:
+	case nSCKindOpeningMario:
+	case nSCKindOpeningDonkey:
+	case nSCKindOpeningSamus:
+	case nSCKindOpeningFox:
+	case nSCKindOpeningLink:
+	case nSCKindOpeningYoshi:
+	case nSCKindOpeningPikachu:
+	case nSCKindOpeningKirby:
+	case nSCKindOpeningRun:
+	case nSCKindOpeningYoster:
+	case nSCKindOpeningCliff:
+	case nSCKindOpeningStandoff:
+	case nSCKindOpeningYamabuki:
+	case nSCKindOpeningClash:
+	case nSCKindOpeningSector:
+	case nSCKindOpeningJungle:
+	case nSCKindOpeningNewcomers:
+	case nSCKindEnding:
+	case nSCKindAutoDemo:
+		return TRUE;
+	default:
+		return FALSE;
+	}
+}

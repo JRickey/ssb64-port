@@ -252,6 +252,21 @@ extern "C" int port_get_last_dl_defer_n(void)
 	}
 	if (sForceN >= 1) return sForceN;
 
+	/* Scene-level allowlist gate. The cost model exists to recreate the
+	 * authored climax-freeze frames in cutscenes / opening sequences /
+	 * fighter intros (where original-game scene authors timed dialogue,
+	 * camera, and audio around the natural N64 RDP overrun). It has no
+	 * business firing in interactive menus or CSS — there are no authored
+	 * freezes there to preserve, and the cost+rect heuristic mis-fires on
+	 * UI-fillrate-heavy DLs (4-fighter VS CSS panels cluster at cost ≈420k,
+	 * rect_px ≈236k, which trips both gates every frame and halves the
+	 * game-tick rate). Issue #78. */
+	extern unsigned char port_diag_get_scene_curr(void);
+	extern int port_scene_wants_freeze_simulation(unsigned char scene_id);
+	if (!port_scene_wants_freeze_simulation(port_diag_get_scene_curr())) {
+		return 1;
+	}
+
 	int cost = sLastDLTris * 75
 	         + sLastDLRectPx
 	         + sLastDLLoadBytes;

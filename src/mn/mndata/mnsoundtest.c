@@ -11,6 +11,34 @@ extern void func_800266A0_272A0(void);
 
 extern void* func_800269C0_275C0(u16);
 
+#ifdef PORT
+extern void portFixupSprite(void *sprite);
+extern void portFixupBitmapArray(void *bitmaps, unsigned int count);
+extern void portFixupSpriteBitmapData(void *sprite, void *bitmaps);
+
+/* Mirror of ifCommonPortFixupSpriteFull. Sound test value-copies digit
+ * Sprites out of llIFCommonPlayerDamageFileID at mnsoundtest.c:1499
+ * (sobj->sprite = *lbRelocGetFileData(...)), bypassing the fixup that
+ * lbCommonMakeSObjForGObj normally applies. Digits 1-9 thus walk the
+ * renderer through unfixed Sprite/Bitmap headers, producing the
+ * RelocPointerTable "invalid/stale token" flood from
+ * lbCommonDrawSObjBitmap when the menu opens. Pre-fixing every digit at
+ * load time keeps the value-copy path correct. */
+static void mnSoundTestPortFixupSpriteFull(Sprite *sprite)
+{
+    if (sprite == NULL) return;
+    portFixupSprite(sprite);
+    {
+        Bitmap *bitmaps = (Bitmap*)PORT_RESOLVE(sprite->bitmap);
+        if (bitmaps != NULL)
+        {
+            portFixupBitmapArray(bitmaps, sprite->nbitmaps);
+            portFixupSpriteBitmapData(sprite, bitmaps);
+        }
+    }
+}
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //             MACROS            //
@@ -1025,6 +1053,25 @@ void mnSoundTestSetupFiles(void)
 
     lbRelocInitSetup(&rl_setup);
     lbRelocLoadFilesListed(dMNSoundTestFileIDs, sMNSoundTestFiles);
+
+#ifdef PORT
+    /* Pre-fixup the 10 digit Sprites in llIFCommonPlayerDamageFileID
+     * (sMNSoundTestFiles[1]). mnSoundTestUpdateNumberSprites copies
+     * these by value into sobj->sprite (line 1499) without going
+     * through lbCommonMakeSObjForGObj, so without this loop only digit
+     * 0 (used by mnSoundTestMakeNumberSObj) would have its byte order
+     * corrected — digits 1-9 would render through garbled Bitmap
+     * headers and flood the RelocPointerTable with stale tokens. */
+    {
+        s32 i;
+        for (i = 0; i < ARRAY_COUNT(dMNSoundTestDigitSpriteOffsets); i++)
+        {
+            mnSoundTestPortFixupSpriteFull(
+                lbRelocGetFileData(Sprite*, sMNSoundTestFiles[1],
+                                   dMNSoundTestDigitSpriteOffsets[i]));
+        }
+    }
+#endif
 }
 
 // 0x8013234C

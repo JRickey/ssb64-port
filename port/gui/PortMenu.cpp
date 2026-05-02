@@ -1,6 +1,7 @@
 #include "PortMenu.h"
 
 #include "Compat.h"
+#include "../bridge/framebuffer_capture.h"
 #include "../enhancements/enhancements.h"
 
 #include <fast/backends/gfx_rendering_api.h>
@@ -307,7 +308,23 @@ void PortMenu::AddMenuSettings() {
         .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
     */
 
-    // hitbox
+    AddWidget(path, "1P Stage Clear: Frozen Frame Background", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::StageClearFrozenWallpaperCVarName())
+        .RaceDisable(false)
+        .Callback([](WidgetInfo&) {
+            // When this flips on we need LUS to start rendering off-screen so
+            // mGameFb is populated by the time the next stage-clear scene
+            // transition fires. When it flips off we drop the per-frame blit.
+            port_capture_set_force_render_to_fb(
+                port_enhancement_stage_clear_frozen_wallpaper_enabled());
+        })
+        .Options(CheckboxOptions().Tooltip(
+            "On real hardware the 1P stage-clear bonus screen freezes the last gameplay frame "
+            "as the background. The port reproduces this via a GPU readback when the scene "
+            "loads. While enabled, the renderer draws each frame to an off-screen buffer "
+            "(sub-millisecond cost) so the prior gameplay frame is preserved across the "
+            "scene transition. Disable to revert to a solid black background.")
+                     .DefaultValue(true));
     AddWidget(path, "Debug", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Hitbox View", WIDGET_CVAR_COMBOBOX)
         .CVar(enhancements::HitboxViewCVarName())
@@ -322,58 +339,67 @@ void PortMenu::AddMenuSettings() {
                      .ComboMap(kHitboxViewMap)
                      .DefaultIndex(0));
 
-        AddWidget(path, "Per-Port Enhancements", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Per-Port Enhancements", WIDGET_SEPARATOR_TEXT);
 
-        // --- Player 1 ---
-        AddWidget(path, "Player 1", WIDGET_SEPARATOR_TEXT);
-        AddWidget(path, "Disable Tap Jump (P1)", WIDGET_CVAR_CHECKBOX)
+    // --- Player 1 ---
+    AddWidget(path, "Player 1", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Disable Tap Jump (P1)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::TapJumpCVarName(0))
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip("Disables jumping by pushing up on the analog stick."));
-        AddWidget(path, "C-Stick Smash (P1)", WIDGET_CVAR_CHECKBOX)
+    AddWidget(path, "C-Stick Smash (P1)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::CStickSmashCVarName(0))
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip("Replaces C-Button inputs with instant smash attacks."));
-        AddWidget(path, "D-Pad to Jump (P1)", WIDGET_CVAR_CHECKBOX)
+    AddWidget(path, "D-Pad to Jump (P1)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::DPadJumpCVarName(0))
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip("Translates N64 D-Pad inputs into C-Up (Jump)."));
 
-        // --- Player 2 ---
-        AddWidget(path, "Player 2", WIDGET_SEPARATOR_TEXT);
-        AddWidget(path, "Disable Tap Jump (P2)", WIDGET_CVAR_CHECKBOX)
+    // --- Player 2 ---
+    AddWidget(path, "Player 2", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Disable Tap Jump (P2)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::TapJumpCVarName(1))
-        .RaceDisable(false);
-        AddWidget(path, "C-Stick Smash (P2)", WIDGET_CVAR_CHECKBOX)
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
+    AddWidget(path, "C-Stick Smash (P2)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::CStickSmashCVarName(1))
-        .RaceDisable(false);
-        AddWidget(path, "D-Pad to Jump (P2)", WIDGET_CVAR_CHECKBOX)
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
+    AddWidget(path, "D-Pad to Jump (P2)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::DPadJumpCVarName(1))
-        .RaceDisable(false);
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
 
-        // --- Player 3 ---
-        AddWidget(path, "Player 3", WIDGET_SEPARATOR_TEXT);
-        AddWidget(path, "Disable Tap Jump (P3)", WIDGET_CVAR_CHECKBOX)
+    // --- Player 3 ---
+    AddWidget(path, "Player 3", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Disable Tap Jump (P3)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::TapJumpCVarName(2))
-        .RaceDisable(false);
-        AddWidget(path, "C-Stick Smash (P3)", WIDGET_CVAR_CHECKBOX)
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
+    AddWidget(path, "C-Stick Smash (P3)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::CStickSmashCVarName(2))
-        .RaceDisable(false);
-        AddWidget(path, "D-Pad to Jump (P3)", WIDGET_CVAR_CHECKBOX)
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
+    AddWidget(path, "D-Pad to Jump (P3)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::DPadJumpCVarName(2))
-        .RaceDisable(false);
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
 
-        // --- Player 4 ---
-        AddWidget(path, "Player 4", WIDGET_SEPARATOR_TEXT);
-        AddWidget(path, "Disable Tap Jump (P4)", WIDGET_CVAR_CHECKBOX)
+    // --- Player 4 ---
+    AddWidget(path, "Player 4", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Disable Tap Jump (P4)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::TapJumpCVarName(3))
-        .RaceDisable(false);
-        AddWidget(path, "C-Stick Smash (P4)", WIDGET_CVAR_CHECKBOX)
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
+    AddWidget(path, "C-Stick Smash (P4)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::CStickSmashCVarName(3))
-        .RaceDisable(false);
-        AddWidget(path, "D-Pad to Jump (P4)", WIDGET_CVAR_CHECKBOX)
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
+    AddWidget(path, "D-Pad to Jump (P4)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::DPadJumpCVarName(3))
-        .RaceDisable(false);
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
 }
 
 void PortMenu::AddMenuWindows() {

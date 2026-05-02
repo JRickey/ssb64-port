@@ -21,6 +21,8 @@
 #include <ship/resource/ResourceType.h>
 
 #include "bridge/audio_bridge.h"
+#include "bridge/framebuffer_capture.h"
+#include "enhancements/enhancements.h"
 #include "first_run.h"
 #include "gui/PortMenu.h"
 #include "renderdoc_trigger.h"
@@ -346,6 +348,16 @@ static int PortInitImpl(int argc, char* argv[]) {
 		}
 	}
 
+	// Pin LUS to off-screen rendering when the stage-clear "frozen frame"
+	// enhancement is enabled, so mGameFb is populated during gameplay and
+	// the GPU readback at scene transitions captures the prior frame
+	// rather than the post-Present swap-chain back buffer (undefined
+	// contents under DXGI FLIP_DISCARD on D3D11). Cost is one extra full-
+	// screen blit per frame (sub-millisecond on any modern GPU). The CVar
+	// menu callback re-applies this on toggle.
+	port_capture_set_force_render_to_fb(
+		port_enhancement_stage_clear_frozen_wallpaper_enabled());
+
 	// FileDropMgr must come up before the first-run wizard so SDL_DROPFILE
 	// events landing on the window during the wizard frame loop can be
 	// polled and used to fill the ROM path field.
@@ -437,6 +449,19 @@ void PortShutdown(void) {
 	// Otherwise their shared_ptrs survive into __cxa_finalize_ranges and
 	// Ship::IResource::~IResource() lands on a shut-down spdlog.
 	portAudioShutdownAssets();
+	// Stop any in-flight controller rumble while Context + ControlDeck +
+	// gamepads + SDL are all still alive. SDLRumbleMapping::StopRumble walks
+	// back through Context::GetInstance(), so this MUST run before
+	// sContext.reset() — destructor re-entry through the Context singleton
+	// has its own SIGSEGV trap. Issue #82: on Linux/evdev, the last
+	// SDL_GameControllerRumble call uploads an FF effect with
+	// SDL_MAX_RUMBLE_DURATION_MS (~32s); without an explicit stop, the
+	// kernel runs the effect to completion after the process exits.
+	if (sContext) {
+		if (auto cd = sContext->GetControlDeck()) {
+			cd->StopAllRumble();
+		}
+	}
 	sContext.reset();
 	port_log_close();
 }

@@ -5,6 +5,9 @@ extern void port_coroutine_yield(void);
 #include <if/interface.h>
 #include <gr/ground.h>
 #include <sc/scene.h>
+#include <sys/netinput.h>
+#include <sys/netpeer.h>
+#include <sys/netreplay.h>
 #include <sys/video.h>
 #include <reloc_data.h>
 #include <gm/gmcamera.h>
@@ -49,7 +52,7 @@ SYTaskmanSetup dSCVSBattleTaskmanSetup =
         2,                              // ???
         0xC000,                         // RDP Output Buffer Size
         scVSBattleFuncLights,       	// Pre-render function
-        syControllerFuncRead,           // Controller I/O function
+        syNetInputFuncRead,             // Controller I/O function
     },
 
     0,                                  // Number of GObjThreads
@@ -84,6 +87,8 @@ SYTaskmanSetup dSCVSBattleTaskmanSetup =
 void scVSBattleFuncUpdate(void)
 {
 	ifCommonBattleUpdateInterfaceAll();
+	syNetReplayUpdate();
+	syNetPeerUpdate();
 }
 
 // 0x8018D0E0 - Get player's initial facing direction for battle start
@@ -139,6 +144,10 @@ void scVSBattleStartBattle(void)
 	void *file;
 	FTDesc desc;
 	SYColorRGBA color;
+
+	syNetInputStartVSSession();
+	syNetReplayStartVSSession(gSCManagerBattleState);
+	syNetPeerStartVSSession();
 
 	gSCManagerSceneData.is_reset = FALSE;
 	gSCManagerSceneData.is_suddendeath = FALSE;
@@ -571,6 +580,8 @@ void scVSBattleStartScene(void)
 		func_800266A0_272A0();
 		gmRumbleInitPlayers();
 	}
+	syNetReplayFinishVSSession();
+	syNetPeerStopVSSession();
 	gSCManagerSceneData.scene_prev = gSCManagerSceneData.scene_curr;
 	gSCManagerSceneData.scene_curr = nSCKindVSResults;
 }

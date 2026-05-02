@@ -183,13 +183,29 @@ void syControllerUpdateGlobalData(void)
             gSYControllerDevices[i].stick_range.x = sSYControllerDescs[i].unk0E;
             gSYControllerDevices[i].stick_range.y = sSYControllerDescs[i].unk0F;
 
-            // only apply c-stick smash if we're in a game
-            if (gSCManagerBattleState != NULL && gSCManagerBattleState->players[i].fighter_gobj != NULL) {
-                // Apply C-Stick Smash
-                port_enhancement_c_stick_smash(i, &gSYControllerDevices[i].button_hold, &gSYControllerDevices[i].button_tap, &gSYControllerDevices[i].stick_range.x, &gSYControllerDevices[i].stick_range.y, sSYControllerDescs[i].unk04);
+            // Apply input remap enhancements only during gameplay. The
+            // BattleState->players[] array is only valid in VS / 1P scenes;
+            // it's NULL in menus / CSS / opening / staffroll, and we must
+            // not deref it. Bound `i` against GMCOMMON_PLAYERS_MAX explicitly
+            // because the loop limit is `(ARRAY_COUNT(descs)+ARRAY_COUNT(devs))/2`
+            // — equal to GMCOMMON_PLAYERS_MAX today but the math is fragile
+            // and `players[]` overruns would clobber the next BattleState
+            // field on LP64 with the same fingerprint as past per-player-
+            // array bugs (see docs/bugs/per_gkind_table_inishie_short).
+            if (i < GMCOMMON_PLAYERS_MAX
+                && gSCManagerBattleState != NULL
+                && gSCManagerBattleState->players[i].fighter_gobj != NULL) {
+                port_enhancement_c_stick_smash(i,
+                    &gSYControllerDevices[i].button_hold,
+                    &gSYControllerDevices[i].button_tap,
+                    &gSYControllerDevices[i].stick_range.x,
+                    &gSYControllerDevices[i].stick_range.y,
+                    sSYControllerDescs[i].unk04);
 
-                // Apply D-Pad Jump
-                port_enhancement_dpad_jump(i, &gSYControllerDevices[i].button_hold, &gSYControllerDevices[i].button_tap, sSYControllerDescs[i].unk04);
+                port_enhancement_dpad_jump(i,
+                    &gSYControllerDevices[i].button_hold,
+                    &gSYControllerDevices[i].button_tap,
+                    sSYControllerDescs[i].unk04);
             }
 
             sSYControllerDescs[i].unk04 = sSYControllerDescs[i].unk08 = sSYControllerDescs[i].unk0C = 0;

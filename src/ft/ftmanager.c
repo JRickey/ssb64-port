@@ -663,27 +663,38 @@ void ftManagerInitFighter(GObj *fighter_gobj, FTDesc *desc)
         }
         else fp->passive_vars.kirby.is_ignore_losecopy = TRUE;
 
-        if (fp->fkind == nFTKindKirby)
         {
             FTKirbyCopy *copy = lbRelocGetFileData(FTKirbyCopy*, gFTDataKirbyMainMotion, llKirbyMainMotionSpecialNFTKirbyCopy);
 #ifdef PORT
             /* PORT: FTKirbyCopy's first u32 word is [u16 copy_id][s16 copy_modelpart_id]
-             * — adjacent u16s in one word.  Pass1's blanket BSWAP32 position-swaps the
-             * two halves, so without this fixup the copy_id/copy_modelpart_id read as
-             * each other's values.  Array is indexed by any fkind (0..nFTKindNEnd) via
-             * the eat/inhale path `copy[victim_fp->fkind]`, so every entry must be
-             * fixed up — not just copy[8] (Kirby).  26 entries span all playable
-             * (0..11), Boss (12), MMario (13), and N-series (14..25).
-             * Idempotent via sStructU16Fixups (keyed on per-entry pointer). */
+             * — adjacent u16s in one word.  Pass1's blanket BSWAP32 position-swaps
+             * the two halves, so without this fixup copy_id/copy_modelpart_id read
+             * as each other's values.
+             *
+             * The consumer in ftkirbyspecialn.c (the eat/inhale path) indexes the
+             * array by raw `victim_fp->fkind` — which on the Giant DK 1P stage is
+             * `nFTKindGDonkey`, beyond `nFTKindNEnd`.  The fixup domain MUST match
+             * the consumer's domain or specific stages corrupt copy_id and dispatch
+             * Kirby into the wrong character's special-N (originally surfaced as a
+             * NULL deref in wpManagerMakeWeapon when GiantDK landed on Mario's
+             * fireball spawn).  Iterate the full FTKind value range so this stays
+             * correct if the enum grows.  Run for both Kirby and N-Kirby spawns:
+             * polygon-Kirby on 1P stage 12 uses real Kirby's AI attack table and
+             * fires neutral-B at any nearby polygon, so its eat path also reads
+             * copy[fkind] — must be fixed up even when the player isn't Kirby.
+             * Idempotent via sStructU16Fixups. */
             {
                 s32 i;
-                for (i = 0; i <= nFTKindNEnd; i++)
+                for (i = 0; i < nFTKindEnumCount; i++)
                 {
                     portFixupStructU16(&copy[i], 0, 1);
                 }
             }
 #endif
-            ftParamSetModelPartDefaultID(fighter_gobj, FTKIRBY_COPY_MODELPARTS_JOINT, copy[fp->passive_vars.kirby.copy_id].copy_modelpart_id);
+            if (fp->fkind == nFTKindKirby)
+            {
+                ftParamSetModelPartDefaultID(fighter_gobj, FTKIRBY_COPY_MODELPARTS_JOINT, copy[fp->passive_vars.kirby.copy_id].copy_modelpart_id);
+            }
         }
         break;
 
