@@ -85,7 +85,7 @@ Take it away, Claude:
 
 ## Building
 
-If you want to manually compile BattleShip, please consult the [building instructions](docs/BUILDING.md).
+If you want to manually compile BattleShip, please consult the [building instructions](BUILDING.md).
 
 ## Architecture
 
