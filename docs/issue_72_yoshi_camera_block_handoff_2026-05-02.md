@@ -120,3 +120,69 @@ skipped.**
 - `libultraship/src/fast/Fast3dWindow.cpp`
 - `libultraship/src/fast/backends/gfx_metal.cpp`
 - User-attached log + videos at <https://github.com/JRickey/BattleShip/issues/72>
+
+## Update — 2026-05-02 evening session
+
+**User clarified the symptom:** not full-FB pink flash. The actual bug is
+**yellow vertex geometry blocking part of the camera at the top of the
+screen, only during Yoshi's tongue animation.**
+
+**User also noted:** the bug reproduces on inaccurate emulators
+(mupen64plus + dynarec / HLE) but NOT on Rosalie's Mupen GUI with the
+Pure Interpreter CPU + Azimer HLE RSP combo. **This is a CPU-accuracy
+class bug** — i.e., the same family as our LP64 / pointer-arithmetic
+regressions where x64/arm64 native-recompile semantics diverge from
+N64 MIPS semantics.
+
+### New hypothesis
+
+The captured fighter (Pikachu, the yellow one Yoshi grabs in the
+intro) is positioned via `ftCommonCapturePulledRotateScale`
+(`src/ft/ftcommon/ftcommoncapturepulled.c:11`) which reads:
+
+```c
+DObj *joint = DObjGetStruct(fighter_gobj)->child;
+func_ovl0_800C9A38(mtx, capture_fp->joints[capture_fp->attr->joint_itemheavy_id]);
+func_ovl2_800EDA0C(mtx, rotate);
+this_pos->x = (-joint->translate.vec.f.x * scale.x);
+…
+gmCollisionGetWorldPosition(mtx, this_pos);
+```
+
+`func_ovl0_800C9A38` (`src/lb/lbcommon.c:1667`) walks
+`ftGetParts(dobj) → parts->mtx_translate` to build the world-space
+matrix the captured fighter is pinned to.
+
+The same family of bug already shipped a fix:
+`fighter_slope_contour_lp64_alias` (memory note + bug doc) — fighter
+foot IK was reading a cached transform through an
+`FTParts*`-as-`DObj*` alias that LP64 widening broke. The captured-
+fighter positioning code path traverses similar FTParts-side data and
+could have the same class of issue: an alias / cast / pointer-stride
+that's correct under N64 32-bit pointers but wrong under LP64.
+
+### Visual evidence
+
+Saved at `docs/issue_72_caps/cap_0{2-7}.png` — direct boot via
+`SSB64_START_SCENE=35 ./BattleShip`, screencap'd at ~32s wall-clock
+(after the 1875-tic FuncStart wait). On Mac Metal the captures show
+roughly normal frames (cap_03 shows the tongue grab moment with
+Pikachu visible at the upper-left of Yoshi's snout) — the Mac Metal
+build may not exhibit the bug as severely as Windows DX11, OR the
+visual difference is subtle in stills and only obvious in motion.
+
+### Suggested next steps (revised)
+
+1. **Confirm on Windows DX11 first.** Run the same direct-boot test
+   on the user's machine, capture the broken frame.
+2. **Audit FTParts/DObj alias paths** in `ftcommoncapture.c`,
+   `ftcommoncapturepulled.c`, `ftcommoncaptureyoshi.c`. Apply the
+   same #ifdef PORT explicit-FTParts-row-read pattern from
+   `fighter_slope_contour_lp64_alias`.
+3. **Instrument `func_ovl0_800C9A38`** to log
+   `parts->mtx_translate` row 0 when entered for a captured fighter
+   in the Yoshi tongue context. Compare against expected joint
+   matrix on RMG/PureInterp.
+4. **Check the FTAttributes file load** for fkind=Yoshi (fkind=6).
+   `joint_itemheavy_id` is at struct offset 0x334 — verify pass1
+   BSWAP + any pass2 fixup for that field reads correctly.
