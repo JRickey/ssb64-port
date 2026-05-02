@@ -524,6 +524,12 @@ int main(int argc, char* argv[]) {
 		         SDL_GetError());
 	}
 
+	// Prefer AAudio (Android 8.0+ low-latency audio API) over the default
+	// OpenSL ES backend. Worth a few ms of latency for a fighting game,
+	// and SDL2 falls back to OpenSL ES if AAudio isn't compiled in or
+	// the device rejects it.
+	SDL_SetHint(SDL_HINT_AUDIODRIVER, "aaudio");
+
 	// 2. Suppress ImGui's per-frame SDL_GetDisplayUsableBounds JNI path.
 	//    ImGui_ImplSDL2_UpdateMonitors runs on the SSB64 GFX coroutine
 	//    every frame; it calls SDL_GetDisplayUsableBounds →
