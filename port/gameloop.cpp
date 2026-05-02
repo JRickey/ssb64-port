@@ -30,6 +30,7 @@
 
 #include <cstdio>
 #include <chrono>
+#include <thread>
 #include <unordered_map>
 #include <unordered_set>
 #include <filesystem>
@@ -136,35 +137,165 @@ static void game_coroutine_entry(void *arg)
  * Called from osSpTaskStartGo (n64_stubs.c) when a GFX task is submitted.
  * Routes the N64 display list through Fast3D for rendering.
  */
-static int sDLSubmitCount = 0;
 static int sGbiTraceInitDone = 0;
+
+/* Per-DL gfx-task wall-clock cost estimator (Phase 3 of the freeze-frame
+ * fix). Each command processed by Fast3D's interpreter fires this
+ * callback; we accumulate a coarse cost estimate from F3DEX opcodes that
+ * dominate real-hw RDP/RSP budget on N64 (triangles, fillrects, texrects).
+ *
+ * After the DL is fully processed, port_get_last_dl_defer_n() turns the
+ * accumulated cost into the deferral count N for the SP/DP-interrupt
+ * delay queue in osSpTaskStartGo: light DLs N=1 (no SwitchContext
+ * contention, smooth play), heavy climax DLs N=2 (contention triggers
+ * the game-thread cap which holds one host frame = visible 1-frame
+ * whole-screen freeze, matching real-hw / parallel-rdp behavior).
+ *
+ * F3DEX opcode reference (SSB64 ucode is gsp.fifo / F3DEX). Top byte of
+ * w0 is the opcode. */
+static int sFrameTriCount = 0;
+static int sFrameRectPx = 0;
+static int sFrameLoadBytes = 0;
+static int sLastDLTris = 0;
+static int sLastDLRectPx = 0;
+static int sLastDLLoadBytes = 0;
 
 /* Thin C wrapper for the trace callback (matches GbiTraceCallbackFn signature) */
 static void gbi_trace_callback(uintptr_t w0, uintptr_t w1, int dl_depth)
 {
 	gbi_trace_log_cmd((unsigned long long)w0, (unsigned long long)w1, dl_depth);
+
+	uint8_t opcode = (uint8_t)((w0 >> 24) & 0xFFu);
+	switch (opcode) {
+	/* SSB64 ucode is F3DEX2 (gsp.fifo). Tri opcodes are 0x05/0x06/0x07,
+	 * NOT F3DEX's 0xBF/0xB1/0xB5 — confirmed by histogram showing 0x05
+	 * and 0x06 emitted in the hundreds per frame. RDP rect/load opcodes
+	 * (0xE4, 0xF3, 0xF4, 0xF6) are shared across F3DEX/F3DEX2. */
+	case 0x05: /* F3DEX2 G_TRI1 — 1 triangle */
+		sFrameTriCount += 1;
+		break;
+	case 0x06: /* F3DEX2 G_TRI2 — 2 triangles */
+	case 0x07: /* F3DEX2 G_QUAD — 2 triangles */
+		sFrameTriCount += 2;
+		break;
+	case 0xE4: /* G_TEXRECT, fillrate-bound */
+	case 0xF6: /* G_FILLRECT */
+	{
+		/* Both encode (ulx,uly,lrx,lry) in 10.2 fixed-point.
+		 * G_TEXRECT: w0 = 0xE4 | lrx<<12 | lry; w1 = tile<<24 | ulx<<12 | uly
+		 * G_FILLRECT: w0 = 0xF6 | lrx<<12 | lry; w1 = ulx<<12 | uly
+		 * Pixel area = (lrx - ulx) * (lry - uly) >> 4 (10.2 → integer). */
+		int lrx = (int)((w0 >> 12) & 0xFFF);
+		int lry = (int)( w0        & 0xFFF);
+		int ulx = (int)((w1 >> 12) & 0xFFF);
+		int uly = (int)( w1        & 0xFFF);
+		int w_px = (lrx - ulx) >> 2;
+		int h_px = (lry - uly) >> 2;
+		if (w_px > 0 && h_px > 0) {
+			sFrameRectPx += w_px * h_px;
+		}
+		break;
+	}
+	case 0xF3: /* G_LOADBLOCK */
+	case 0xF4: /* G_LOADTILE */
+		/* Coarse: each load contributes ~512 bytes worst case. Real cost
+		 * depends on tex size but we just want order-of-magnitude. */
+		sFrameLoadBytes += 512;
+		break;
+	default:
+		break;
+	}
 }
 
-extern "C" int port_get_display_submit_count(void)
+/* Called by osSpTaskStartGo after Fast3D has processed the DL. Returns
+ * the deferral count N for the SP/DP-interrupt delay queue.
+ *
+ * Heuristic linear cost: each tri ~= 75 RSP cycles, each fillrect/texrect
+ * pixel ~= 1 RDP cycle, each load ~= the byte count. Budget is one VI
+ * period ≈ 1.04M RCP cycles at 62.5 MHz. If accumulated cost exceeds the
+ * budget, the DL would have overrun on real hw → return N=2 (force a
+ * 1-frame contention next VI). Otherwise return N=1.
+ *
+ * Tunable via SSB64_RCP_CYCLE_BUDGET (default 1040000). Lower budget →
+ * more freezes; higher → fewer. SSB64_RCP_FORCE_N overrides cost model
+ * with a fixed N for testing (matches old SSB64_GFX_DEFER_VI semantics). */
+extern "C" int port_get_last_dl_defer_n(void)
 {
-	return sDLSubmitCount;
+	static int sBudget = -1;
+	static int sForceN = -1;
+	static int sRectGate = -1;
+	if (sBudget < 0) {
+		/* Calibrated empirically against attract-mode DL cost histogram:
+		 * p99 ≈ 394k, p99.5 ≈ 397k, max observed = 415k. Setting the
+		 * budget at 400k means only the top ~0.1% of DLs trigger a
+		 * delayed completion, giving a sparse climax-only freeze rather
+		 * than uniform stutter.
+		 * See `docs/freeze_frame_rcp_clock_design_2026-04-26.md` for
+		 * the full design + tuning rationale. */
+		const char *env = std::getenv("SSB64_RCP_CYCLE_BUDGET");
+		sBudget = (env != NULL) ? std::atoi(env) : 400000;
+		if (sBudget < 1000) sBudget = 1000;
+		const char *fenv = std::getenv("SSB64_RCP_FORCE_N");
+		sForceN = (fenv != NULL) ? std::atoi(fenv) : 0;
+		/* Fillrate gate: a DL must ALSO push significant rect_px (texrect /
+		 * fillrect coverage) before we treat it as an authored freeze.
+		 * Empirical observation 2026-05-01: high-tri fighter-model DLs in
+		 * the attract run-sequence cluster at cost 400–419k with rect_px
+		 * 148–167k (false positives), while authored-climax effect DLs
+		 * have rect_px ≥ 260k. The cost-only model couldn't distinguish.
+		 * Default 200k sits cleanly between the two distributions. */
+		const char *renv = std::getenv("SSB64_RCP_RECT_GATE");
+		sRectGate = (renv != NULL) ? std::atoi(renv) : 200000;
+		if (sRectGate < 0) sRectGate = 0;
+		port_log("SSB64: RCP cost model — budget=%d cycles/VI, force_n=%d (0=cost-model, >=1=fixed), rect_gate=%d\n",
+		         sBudget, sForceN, sRectGate);
+	}
+	if (sForceN >= 1) return sForceN;
+
+	int cost = sLastDLTris * 75
+	         + sLastDLRectPx
+	         + sLastDLLoadBytes;
+	/* Heavy-DL deferral. The port's coroutine scheduler observes the held
+	 * framebuffer one host frame after slot contention, so climax DLs need
+	 * one extra VI of synthetic RCP latency beyond the first visible stall.
+	 * This shifts all authored freezes together (portrait banners, fighter
+	 * poses, stage cuts) instead of patching scene timers individually. */
+	int n;
+	if (cost < sBudget) {
+		n = 1;
+	} else if (sLastDLRectPx < sRectGate) {
+		/* Cost is over budget but the load is dominated by triangles, not
+		 * fillrate — looks like a fighter model render, not an authored
+		 * full-screen effect. Don't freeze. */
+		n = 1;
+	} else {
+		n = 3;
+	}
+	if (n < 1) n = 1;
+	if (n > 3) n = 3;
+	return n;
 }
+
+/* Tracks whether this VI period submitted a rendered gfx task. On real N64,
+ * VI still scans out the current framebuffer when a period has no new task;
+ * the port mirrors that below by presenting the cached Fast3D framebuffer. */
+static int sDLSubmitsThisFrame = 0;
 
 extern "C" void port_submit_display_list(void *dl)
 {
-	sDLSubmitCount++;
-	if (sDLSubmitCount <= 60 || (sDLSubmitCount % 60 == 0)) {
-		port_log("SSB64: port_submit_display_list #%d dl=%p\n", sDLSubmitCount, dl);
-	}
-
-	/* Lazy-init the GBI trace system on first DL submit */
+	/* Lazy-init the GBI trace system on first DL submit. Always install
+	 * the callback because Phase 3's per-DL cost model also runs through
+	 * it — gbi_trace_log_cmd is the no-op fast path when tracing is off. */
 	if (!sGbiTraceInitDone) {
 		sGbiTraceInitDone = 1;
 		gbi_trace_init();
-		if (gbi_trace_is_enabled()) {
-			gfx_set_trace_callback(gbi_trace_callback);
-		}
+		gfx_set_trace_callback(gbi_trace_callback);
 	}
+
+	/* Reset per-DL accumulators before Fast3D walks the DL. */
+	sFrameTriCount = 0;
+	sFrameRectPx = 0;
+	sFrameLoadBytes = 0;
 
 	if (dl == NULL) {
 		port_log("SSB64: WARNING — display list is NULL!\n");
@@ -190,21 +321,26 @@ extern "C" void port_submit_display_list(void *dl)
 	try {
 		window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
 	} catch (long hr) {
-		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX on DL #%d\n", hr, sDLSubmitCount);
+		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX\n", hr);
 		gbi_trace_end_frame();
 		return;
 	} catch (...) {
-		port_log("SSB64: CAUGHT unknown exception on DL #%d\n", sDLSubmitCount);
+		port_log("SSB64: CAUGHT unknown exception while processing display list\n");
 		gbi_trace_end_frame();
 		return;
 	}
+
+	sDLSubmitsThisFrame++;
 
 	/* End trace frame after processing */
 	gbi_trace_end_frame();
 
-	if (sDLSubmitCount <= 60) {
-		port_log("SSB64: DrawAndRunGraphicsCommands returned OK\n");
-	}
+	/* Capture this DL's cost so port_get_last_dl_defer_n() can use it
+	 * to set N for THIS task's SP/DP-interrupt deferral. osSpTaskStartGo
+	 * reads it AFTER port_submit_display_list returns. */
+	sLastDLTris = sFrameTriCount;
+	sLastDLRectPx = sFrameRectPx;
+	sLastDLLoadBytes = sFrameLoadBytes;
 }
 
 /* ========================================================================= */
@@ -352,6 +488,10 @@ static void port_screenshot_maybe_capture(int frame)
 
 void PortPushFrame(void)
 {
+	/* Capture the wall-clock start of this PortPushFrame for the
+	 * frame-pacing fallback below. */
+	auto frameStart = std::chrono::steady_clock::now();
+
 	/* Pump SDL events so the window stays responsive and WindowIsRunning
 	 * detects the close button. HandleEvents also updates controller state. */
 	auto context = Ship::Context::GetInstance();
@@ -361,7 +501,6 @@ void PortPushFrame(void)
 			window->HandleEvents();
 		}
 	}
-
 	/* Propagate the previous frame's queued framebuffer (if any) to VI's
 	 * "current" slot. The scheduler's CheckReadyFramebuffer fnCheck reads
 	 * osViGetCurrent/NextFramebuffer to decide whether the slot the game
@@ -369,8 +508,8 @@ void PortPushFrame(void)
 	 * those getters would always report NULL and the scheduler would
 	 * never stall, so the intentional freeze frames during fighter
 	 * intros and the desk-to-stage transition would never appear. Run
-	 * this BEFORE posting INTR_VRETRACE so sySchedulerSwapBuffer and
-	 * the gfx-task fnCheck see the rotated state. */
+	 * this BEFORE posting INTR_VRETRACE so old gfx completions are
+	 * delivered before the next game tick can tear down scene memory. */
 	port_vi_simulate_vblank();
 
 	/* Post a VI retrace event to the scheduler's message queue. See
@@ -387,6 +526,46 @@ void PortPushFrame(void)
 	port_resume_service_threads();
 
 	sFrameCount++;
+
+	/* VI-style idle presentation: when no gfx task was submitted this VI,
+	 * original hardware still scans out the current RDRAM framebuffer.
+	 * Fast3D normally presents only from DrawAndRunGraphicsCommands(), so
+	 * 0-submit frames can otherwise hold an older swapchain image. Present
+	 * the cached game framebuffer texture through the normal GUI/window path
+	 * without re-running any display list or touching game memory. */
+	if (sDLSubmitsThisFrame == 0) {
+		bool idlePresented = false;
+		static int sFreezePacing = -1;
+		if (sFreezePacing < 0) {
+			const char *env = std::getenv("SSB64_FREEZE_PACING");
+			sFreezePacing = (env != nullptr) ? std::atoi(env) : 1;
+		}
+		if (sFreezePacing) {
+			auto context = Ship::Context::GetInstance();
+			auto window = context
+				? std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow())
+				: nullptr;
+			if (window) {
+				idlePresented = window->PresentCurrentFramebuffer();
+			}
+
+			if (!idlePresented) {
+				/* Fallback pace to one VI period if there is no cached
+				 * framebuffer yet. Normal idle presents pace through the
+				 * backend's SwapBuffers path. */
+				auto target = frameStart + std::chrono::microseconds(16667);
+				auto coarseTarget = target - std::chrono::microseconds(2000);
+				auto now = std::chrono::steady_clock::now();
+				if (now < coarseTarget) {
+					std::this_thread::sleep_for(coarseTarget - now);
+				}
+				while (std::chrono::steady_clock::now() < target) {
+					/* busy-wait */
+				}
+			}
+		}
+	}
+	sDLSubmitsThisFrame = 0;
 
 	/* Tell the hang watchdog a frame completed. */
 	port_watchdog_note_frame_end();

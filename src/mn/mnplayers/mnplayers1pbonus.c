@@ -796,6 +796,9 @@ void mnPlayers1PBonusMakeGate(s32 player)
 
 	gobj = gcMakeGObjSPAfter(0, NULL, 22, GOBJ_PRIORITY_DEFAULT);
 	sMNPlayers1PBonusSlot.name_emblem_gobj = gobj;
+#ifdef PORT
+	sMNPlayers1PBonusSlot.name_emblem_fkind = nFTKindNull;
+#endif
 	gcAddGObjDisplay(gobj, lbCommonDrawSObjAttr, 28, GOBJ_PRIORITY_DEFAULT, ~0);
 }
 
@@ -1358,6 +1361,9 @@ void mnPlayers1PBonusMakeFighter(GObj *fighter_gobj, s32 player, s32 fkind)
 		sMNPlayers1PBonusSlot.costume = desc.costume = mnPlayers1PBonusGetCostume(fkind, 0);
 		desc.figatree_heap = sMNPlayers1PBonusFigatreeHeap;
 		desc.player = player;
+#ifdef PORT
+		desc.is_skip_shadow_setup = TRUE;
+#endif
 		sMNPlayers1PBonusSlot.player = fighter_gobj = ftManagerMakeFighter(&desc);
 
 		gcAddGObjProcess(fighter_gobj, mnPlayers1PBonusFighterProcUpdate, nGCProcessKindFunc, 1);
@@ -1554,7 +1560,10 @@ void mnPlayers1PBonusResetPlayer(s32 player)
 void mnPlayers1PBonusUpdateFighter(s32 player)
 {
 	sb32 is_skip_fighter = FALSE;
-
+	
+#ifdef PORT
+	s32 costume;
+#endif
 	if ((sMNPlayers1PBonusSlot.fkind == nFTKindNull) && (sMNPlayers1PBonusSlot.is_selected == FALSE))
 	{
 #ifdef PORT
@@ -1570,7 +1579,23 @@ void mnPlayers1PBonusUpdateFighter(s32 player)
 	}
 	if (is_skip_fighter == FALSE)
 	{
+	#ifdef PORT
+		costume = mnPlayers1PBonusGetCostume(sMNPlayers1PBonusSlot.fkind, 0);
+
+		if ((sMNPlayers1PBonusSlot.player != NULL) &&
+			(ftGetStruct(sMNPlayers1PBonusSlot.player)->fkind == sMNPlayers1PBonusSlot.fkind))
+		{
+			if (sMNPlayers1PBonusSlot.costume != costume)
+			{
+				sMNPlayers1PBonusSlot.costume = costume;
+				ftParamInitAllParts(sMNPlayers1PBonusSlot.player, costume, 0);
+			}
+		} else {
+			mnPlayers1PBonusMakeFighter(sMNPlayers1PBonusSlot.player, player, sMNPlayers1PBonusSlot.fkind);
+		}
+#else
 		mnPlayers1PBonusMakeFighter(sMNPlayers1PBonusSlot.player, player, sMNPlayers1PBonusSlot.fkind);
+#endif
 		mnPlayers1PBonusMakeHiScore();
 		sMNPlayers1PBonusSlot.player->flags = GOBJ_FLAG_NONE;
 		sMNPlayers1PBonusSlot.is_status_selected = FALSE;
@@ -1593,8 +1618,12 @@ void mnPlayers1PBonusUpdateNameAndEmblem(s32 player)
 	else
 	{
 		sMNPlayers1PBonusSlot.name_emblem_gobj->flags = GOBJ_FLAG_NONE;
+		if (sMNPlayers1PBonusSlot.name_emblem_fkind != sMNPlayers1PBonusSlot.fkind)
+		{
+			sMNPlayers1PBonusSlot.name_emblem_fkind = sMNPlayers1PBonusSlot.fkind;
 		mnPlayers1PBonusMakeNameAndEmblem(sMNPlayers1PBonusSlot.name_emblem_gobj, player, sMNPlayers1PBonusSlot.fkind);
 	}
+}
 }
 
 // 0x80134858

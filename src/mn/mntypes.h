@@ -47,6 +47,11 @@ struct MNPlayersSlot1PGame
 	GObj *puck;
 	GObj *player;
 	GObj *name_emblem_gobj;
+#ifdef PORT
+	s32 name_emblem_fkind;
+	s32 fighter_update_fkind;
+	s32 record_update_fkind;
+#endif
 	GObj *panel_doors;
 	GObj *panel;
 	GObj *flash;
@@ -86,6 +91,9 @@ struct MNPlayersSlotTraining
 	GObj *player;
 	GObj *type_button;
 	GObj *name_emblem_gobj;
+#ifdef PORT
+	s32 name_emblem_fkind;
+#endif
 	GObj *panel_doors;
 	GObj *panel;
 	GObj *team_color_button;
@@ -137,6 +145,9 @@ struct MNPlayersSlotVS
 	GObj *player;
 	GObj *type_button;
 	GObj *name_emblem_gobj;
+#ifdef PORT
+	s32 name_emblem_fkind;
+#endif
 	GObj *panel_doors;
 	GObj *panel;
 	GObj *team_color_button;
@@ -187,6 +198,9 @@ struct MNPlayersSlotBonus
 	GObj *puck;
 	GObj *player;
 	GObj *name_emblem_gobj;
+#ifdef PORT
+	s32 name_emblem_fkind;
+#endif
 	GObj *panel_doors;
 	GObj *panel;
 	GObj *flash;

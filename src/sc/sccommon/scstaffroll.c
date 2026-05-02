@@ -742,12 +742,27 @@ void func_ovl59_8013202C(GObj *arg0)
 		gcAddGObjProcess(gobj, func_ovl59_80131F34, nGCProcessKindFunc, 1);
 
 		gobj->user_data.p = arg0;
+#ifndef PORT
+		/* On N64 this writes a 4-byte GObj pointer at offset 0x1C of the
+		 * SCStaffrollName cn (aliased through GObj*'s unk_gobj_0x1C union
+		 * field) — equivalent to setting cn->unkgmcreditsstruct0x1C. The
+		 * field is write-only across the entire codebase: no reader.
+		 *
+		 * On LP64 the GObj layout shifts unk_gobj_0x1C from offset 0x1C
+		 * to offset 0x30, and the union widens from 4 to 8 bytes — so
+		 * the compiler emits an 8-byte store at cn+48. cn allocations
+		 * are 40 bytes apart, so cn+48 lands at the *next* cn's name_id.
+		 * That trashes the next name's metadata index and the lock-on
+		 * test reads garbage on the 4th-or-so click. Skip the write. */
 		ugobj->unk_gobj_0x1C = gobj;
+#endif
 	}
 	else
 	{
 		gobj->user_data.p = arg0;
+#ifndef PORT
 		ugobj->unk_gobj_0x1C = gobj;
+#endif
 	}
 }
 

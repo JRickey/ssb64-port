@@ -206,7 +206,23 @@ struct SC1PTrainingModeMenu
 
 struct SCStaffrollMatrix
 {
+	/* This struct is a type pun over SCStaffrollName (gobj->user_data.p in the
+	 * staff roll). On N64 the leading SCStaffrollName *next pointer is 4 bytes,
+	 * so the float trio that the credits projection reads happens to land at
+	 * offsets 0xC / 0x10 / 0x14 — which is what the field names below encode.
+	 *
+	 * On LP64 the pointer is 8 bytes, so every SCStaffrollName field after
+	 * `next` shifts +4. Without an extra 4 bytes of filler here, this struct
+	 * would land its three floats on (job_or_name, offset_x,
+	 * unkgmcreditsstruct0x10) instead of the intended (offset_x,
+	 * unkgmcreditsstruct0x10, interpolation), and the credits cursor lock-on
+	 * test reads a garbage "name height" → projected quad is nonsense → A
+	 * never registers as overlapping a name. */
+#ifdef PORT
+	u8 filler_0x0[0x10];
+#else
 	u8 filler_0x0[0xC];
+#endif
 	f32 unk_gmcreditsmtx_0xC;
 	f32 unk_gmcreditsmtx_0x10;
 	f32 unk_gmcreditsmtx_0x14;
