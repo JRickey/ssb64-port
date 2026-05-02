@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">BattleShip</string>
+
+    <!-- Launcher long-press shortcuts (res/xml/shortcuts.xml). -->
+    <string name="shortcut_repick_short">Re-extract ROM</string>
+    <string name="shortcut_repick_long">Provide a different SSB64 ROM</string>
 </resources>

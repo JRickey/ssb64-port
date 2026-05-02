@@ -66,6 +66,20 @@ public class BootActivity extends ComponentActivity {
      */
     private static final String EXTRA_DEV_ROM = "ssb64.dev_rom";
 
+    /**
+     * If true on the launching Intent, BootActivity deletes the existing
+     * BattleShip.o2r before evaluating the assets-ready check — forcing
+     * the SAF picker (or dev_rom shortcut) to run again. Used to swap
+     * a different region/version of the ROM without wiping app data.
+     *
+     *   adb shell am start -n com.jrickey.battleship.debug/.BootActivity \
+     *                       --ez ssb64.repick true
+     *
+     * Or via the launcher long-press shortcut "Re-extract ROM"
+     * (defined in res/xml/shortcuts.xml).
+     */
+    private static final String EXTRA_REPICK = "ssb64.repick";
+
     private void buildUi() {
         mStatus = new TextView(this);
         mStatus.setGravity(Gravity.CENTER);
@@ -92,6 +106,22 @@ public class BootActivity extends ComponentActivity {
     /* ===================================================================== */
 
     private void startAssetExtraction() {
+        // Honor the --ez ssb64.repick true Intent extra: delete the existing
+        // BattleShip.o2r so routeAfterAssets() falls into the SAF picker
+        // path again. Bundled assets (config.yml / yamls / f3d.o2r /
+        // ssb64.o2r) stay intact — those don't depend on the user's ROM.
+        boolean repick = getIntent() != null
+            && getIntent().getBooleanExtra(EXTRA_REPICK, false);
+        if (repick) {
+            File extDir = getExternalFilesDir(null);
+            if (extDir != null) {
+                File rom = new File(extDir, "BattleShip.o2r");
+                if (rom.exists() && !rom.delete()) {
+                    Log.w(TAG, "Couldn't delete BattleShip.o2r for repick");
+                }
+            }
+        }
+
         new Thread(() -> {
             String err = AssetExtractor.extractIfNeeded(getApplicationContext());
             runOnUi(() -> {

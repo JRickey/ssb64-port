@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Static launcher shortcuts. Long-pressing the BattleShip icon on the
+    home screen / app drawer surfaces these as a popup menu.
+
+    The "Re-extract ROM" shortcut starts BootActivity with the
+    ssb64.repick=true Intent extra, which deletes BattleShip.o2r and
+    re-shows the SAF picker. Lets users swap to a different ROM without
+    needing adb to wipe filesDir.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="repick_rom"
+        android:enabled="true"
+        android:shortcutShortLabel="@string/shortcut_repick_short"
+        android:shortcutLongLabel="@string/shortcut_repick_long">
+
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.jrickey.battleship"
+            android:targetClass="com.jrickey.battleship.BootActivity">
+            <extra
+                android:name="ssb64.repick"
+                android:value="true" />
+        </intent>
+
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+</shortcuts>
