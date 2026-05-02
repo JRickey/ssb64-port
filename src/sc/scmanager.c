@@ -899,7 +899,18 @@ void scManagerRunLoop(sb32 arg)
 			int n = atoi(env);
 			gSCManagerSceneData.scene_curr = n;
 			gSCManagerSceneData.scene_prev = n;
-			port_log("SSB64: SSB64_START_SCENE override → scene=%d\n", n);
+			/* The override jumps the player into a scene that they may
+			 * not have unlocked yet (e.g. nSCKindSoundTest requires
+			 * LBBACKUP_UNLOCK_MASK_SOUNDTEST). Several menus assume
+			 * scene_prev only ever names a reachable scene, and gate
+			 * GObj creation on the matching unlock bit. Visiting Sound
+			 * Test on a fresh save and pressing B otherwise drops back
+			 * into the Data menu with sMNDataOption=SoundTest but
+			 * sMNDataOptionSoundTestGObj=NULL → SIGSEGV. Granting all
+			 * unlocks alongside the scene override keeps backup-mask
+			 * state consistent with where the user told us to start. */
+			gSCManagerBackupData.unlock_mask |= LBBACKUP_UNLOCK_MASK_ALL;
+			port_log("SSB64: SSB64_START_SCENE override → scene=%d (unlock_mask |= ALL)\n", n);
 		}
 		const char *stage_env = getenv("SSB64_SPGAME_STAGE");
 		if (stage_env != NULL)
