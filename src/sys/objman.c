@@ -1597,6 +1597,18 @@ SObj* gcAddSObjForGObj(GObj *gobj, Sprite *sprite)
 	{
 		new_sobj->sprite = *sprite;
 	}
+#ifdef PORT
+	else
+	{
+		/* gcGetSObjSetNextAlloc pulls from the recycled-SObj freelist
+		 * with no zero-init, so the embedded Sprite carries whatever the
+		 * previous occupant wrote (including `nbitmaps` and `bitmap`
+		 * token). Zero it on the NULL-sprite path (e.g. ifcommon.c:1003)
+		 * so the next caller's `attr = SP_HIDDEN` is the only field
+		 * driving the renderer rather than leaking stale data. */
+		bzero(&new_sobj->sprite, sizeof(new_sobj->sprite));
+	}
+#endif
 	new_sobj->user_data.p = NULL;
 
 	return new_sobj;

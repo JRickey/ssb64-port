@@ -6210,7 +6210,7 @@ FTData dFTNPikachuData =
 	&gFTDataNPikachuModel,
 	0x00000000,
 	0x00000000,
-	(void **)&gFTDataNPikachuParticleBankID,
+	&gFTDataNPikachuParticleBankID,
 	0x00000000,
 	0x00000000,
 	&gFTDataNPikachuPad0x801310E0,
