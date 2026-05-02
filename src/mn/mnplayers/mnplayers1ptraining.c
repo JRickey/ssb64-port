@@ -2785,7 +2785,7 @@ void mnPlayers1PTrainingSpotlightProcUpdate(GObj *gobj)
 
 		DObjGetStruct(gobj)->scale.vec.f.x = sizes[sMNPlayers1PTrainingSlots[player].fkind];
 		DObjGetStruct(gobj)->scale.vec.f.y = sizes[sMNPlayers1PTrainingSlots[player].fkind];
-#TODO is this a decompilation error?
+		/* Decomp emits two stores to scale.vec.f.y here; preserved to match IDO output. */
 		DObjGetStruct(gobj)->scale.vec.f.y = sizes[sMNPlayers1PTrainingSlots[player].fkind];
 	}
 	else gobj->flags = GOBJ_FLAG_HIDDEN;
