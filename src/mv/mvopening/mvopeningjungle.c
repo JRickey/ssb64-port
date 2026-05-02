@@ -382,9 +382,15 @@ void func_ovl51_8018D668(void)
     return;
 }
 
+void mvOpeningJungleInitTotalTimeTics(void)
+{
+    sMVOpeningJungleTotalTimeTics = 0;
+}
+
 // 0x8018D670
 void mvOpeningJungleFuncStart(void)
 {
+    mvOpeningJungleInitTotalTimeTics();
     sMVOpeningJungleBattleState = dSCManagerDefaultBattleState;
     gSCManagerBattleState = &sMVOpeningJungleBattleState;
 

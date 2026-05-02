@@ -7,6 +7,7 @@
 #include <reloc_data.h>
 
 extern u32 sySchedulerGetTicCount();
+extern void *func_800269C0_275C0(u16 id);
 #ifdef PORT
 extern void port_coroutine_yield(void);
 #endif
@@ -321,18 +322,8 @@ void mvOpeningRunFuncRun(GObj *gobj)
 		}
 		if (sMVOpeningRunTotalTimeTics == 190)
 		{
-#ifdef PORT
-			/* Skip the scene-38 "impact flash" effect on PC.  Drawing its
-			 * DObj the first time deadlocks Fast3D because the crash-file
-			 * MObjSub / material-animation chain isn't running through the
-			 * byte-order fixups that the other scene DObjs go through, and
-			 * the resulting DL reads garbage texture state.  The effect is
-			 * cosmetic (a 30-tick explosion flash between OpeningRun and
-			 * OpeningCliff) — we keep the audio stubbed to match. */
-#else
 			mvOpeningRunMakeCrash();
 			func_800269C0_275C0(nSYAudioFGMExplodeL);
-#endif
 		}
 		if (sMVOpeningRunTotalTimeTics == 220)
 		{
