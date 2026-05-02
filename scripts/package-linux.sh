@@ -171,8 +171,8 @@ cp "$ICON_SRC" "$ICON_HI512"
 # the host's modern toolchain in: PATCHELF env var overrides linuxdeploy's
 # bundled patchelf, NO_STRIP=1 skips the broken strip pass entirely. CI builds
 # on jammy (glibc 2.35) — pre-DT_RELR — and is unaffected.
-LIBCRYPTO_HOST="$(ldconfig -p 2>/dev/null | awk '/libcrypto\.so\.3/ && /x86-64/ {print $NF; exit}')"
-if [[ -n "$LIBCRYPTO_HOST" ]] && readelf -d "$LIBCRYPTO_HOST" 2>/dev/null | grep -q '(RELR)'; then
+LIBCRYPTO_HOST="$(ldconfig -p 2>/dev/null | awk '/libcrypto\.so\.3/ && /x86-64/ && first == "" { first = $NF } END { if (first != "") print first }')"
+if [[ -n "$LIBCRYPTO_HOST" ]] && readelf -d "$LIBCRYPTO_HOST" 2>/dev/null | awk '/\(RELR\)/ { found = 1 } END { exit !found }'; then
     export NO_STRIP=1
     if command -v patchelf >/dev/null 2>&1; then
         export PATCHELF="$(command -v patchelf)"

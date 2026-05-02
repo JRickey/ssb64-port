@@ -18,6 +18,8 @@ extern int atoi(const char *s);
 #include <sys/audio.h>
 #include <sys/video.h>
 #include <sys/controller.h>
+#include <sys/netpeer.h>
+#include <sys/netreplay.h>
 
 extern void mnVSModeStartScene();
 
@@ -926,6 +928,8 @@ void scManagerRunLoop(sb32 arg)
 			gSCManagerSceneData.fkind = f;
 			port_log("SSB64: SSB64_SPGAME_FKIND override → fkind=%d\n", f);
 		}
+		syNetReplayInitDebugEnv();
+		syNetPeerInitDebugEnv();
 	}
 	port_log("SSB64: scManagerRunLoop — controllers=%d scene=%d\n",
 	         (int)gSYControllerConnectedNum, (int)gSCManagerSceneData.scene_curr);
