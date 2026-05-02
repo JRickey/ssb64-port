@@ -48,17 +48,6 @@
  * Returns 1 on success, 0 on failure (silent). Never throws. */
 extern "C" int portFastCaptureBackbufferPNG(const char *path);
 
-/* Set by syTaskmanSwitchContext when slot contention occurs this frame.
- * Read+cleared at end of PortPushFrame to extend the visible hold for
- * climax freezes. */
-extern "C" int sPortContentionFlag = 0;
-
-/* Counter of additional hold frames remaining for the current climax
- * freeze. While > 0, PortPushFrame skips posting INTR_VRETRACE and just
- * paces a sleep — game logic does NOT advance during these frames, so
- * post-freeze visuals don't show catch-up motion. */
-static int sExtraHoldFramesRemaining = 0;
-
 /* Simulated N64 VI VBlank: propagates the queued framebuffer to "current"
  * so the scheduler's CheckReadyFramebuffer fnCheck can correctly stall a
  * gfx task when VI is still using the slot the game wants to draw into.
@@ -148,7 +137,6 @@ static void game_coroutine_entry(void *arg)
  * Called from osSpTaskStartGo (n64_stubs.c) when a GFX task is submitted.
  * Routes the N64 display list through Fast3D for rendering.
  */
-static int sDLSubmitCount = 0;
 static int sGbiTraceInitDone = 0;
 
 /* Per-DL gfx-task wall-clock cost estimator (Phase 3 of the freeze-frame
@@ -172,16 +160,12 @@ static int sLastDLTris = 0;
 static int sLastDLRectPx = 0;
 static int sLastDLLoadBytes = 0;
 
-/* Diag: per-opcode count for a single frame, dumped at end of submit. */
-static int sOpcodeHistogram[256] = {0};
-
 /* Thin C wrapper for the trace callback (matches GbiTraceCallbackFn signature) */
 static void gbi_trace_callback(uintptr_t w0, uintptr_t w1, int dl_depth)
 {
 	gbi_trace_log_cmd((unsigned long long)w0, (unsigned long long)w1, dl_depth);
 
 	uint8_t opcode = (uint8_t)((w0 >> 24) & 0xFFu);
-	sOpcodeHistogram[opcode]++;
 	switch (opcode) {
 	/* SSB64 ucode is F3DEX2 (gsp.fifo). Tri opcodes are 0x05/0x06/0x07,
 	 * NOT F3DEX's 0xBF/0xB1/0xB5 — confirmed by histogram showing 0x05
@@ -242,8 +226,9 @@ extern "C" int port_get_last_dl_defer_n(void)
 	if (sBudget < 0) {
 		/* Calibrated empirically against attract-mode DL cost histogram:
 		 * p99 ≈ 394k, p99.5 ≈ 397k, max observed = 415k. Setting the
-		 * budget at 400k means only the top ~0.1% of DLs trigger N=2,
-		 * giving a sparse climax-only freeze rather than uniform stutter.
+		 * budget at 400k means only the top ~0.1% of DLs trigger a
+		 * delayed completion, giving a sparse climax-only freeze rather
+		 * than uniform stutter.
 		 * See `docs/freeze_frame_rcp_clock_design_2026-04-26.md` for
 		 * the full design + tuning rationale. */
 		const char *env = std::getenv("SSB64_RCP_CYCLE_BUDGET");
@@ -259,20 +244,11 @@ extern "C" int port_get_last_dl_defer_n(void)
 	int cost = sLastDLTris * 75
 	         + sLastDLRectPx
 	         + sLastDLLoadBytes;
-	/* Heavy-DL deferral. Calibrated for the SwitchContext slot
-	 * machinery + frame-pacing: a heavy DL produces a visible held
-	 * frame TWO host frames after its submission (the heavy frame
-	 * renders, then frame+1 contention-fires + skips render → frame+1
-	 * is the held frame, displaying frame+0's render content).
-	 *
-	 * User feedback 2026-04-26: with defer=2 for heavy DLs, the held
-	 * frame lands one VI period earlier than the original game / LLE
-	 * emulator does — e.g. during the scene-card transition the freeze
-	 * fires while the outgoing fighter's banner is still partially
-	 * visible, where on hardware it fires after the outgoing banner has
-	 * fully cleared. Shifting heavy-DL deferral to N=3 pushes the
-	 * contention one more frame out, holding the next-frame render
-	 * content (= the post-heavy frame, which has the cleaner visual). */
+	/* Heavy-DL deferral. The port's coroutine scheduler observes the held
+	 * framebuffer one host frame after slot contention, so climax DLs need
+	 * one extra VI of synthetic RCP latency beyond the first visible stall.
+	 * This shifts all authored freezes together (portrait banners, fighter
+	 * poses, stage cuts) instead of patching scene timers individually. */
 	int n;
 	if (cost < sBudget) {
 		n = 1;
@@ -284,33 +260,13 @@ extern "C" int port_get_last_dl_defer_n(void)
 	return n;
 }
 
-/* Snapshot a debug summary of the last DL's cost, for the trace log. */
-extern "C" void port_log_last_dl_cost(void)
-{
-	int cost = sLastDLTris * 75 + sLastDLRectPx + sLastDLLoadBytes;
-	port_log("SSB64: dl_cost tris=%d rect_px=%d load_bytes=%d total=%d\n",
-	         sLastDLTris, sLastDLRectPx, sLastDLLoadBytes, cost);
-}
-
-extern "C" int port_get_display_submit_count(void)
-{
-	return sDLSubmitCount;
-}
-
-/* Per-VI-period gfx task submission counter — env-gated.
- * Exists only to test the hypothesis that climax-frame freezes on real
- * hw/emulator are caused by multi-pass draws submitting >1 gfx task per
- * VI period. PortPushFrame logs and resets this each frame. */
+/* Tracks whether this VI period submitted a rendered gfx task. On real N64,
+ * VI still scans out the current framebuffer when a period has no new task;
+ * the port mirrors that below by presenting the cached Fast3D framebuffer. */
 static int sDLSubmitsThisFrame = 0;
 
 extern "C" void port_submit_display_list(void *dl)
 {
-	sDLSubmitCount++;
-	sDLSubmitsThisFrame++;
-	if (sDLSubmitCount <= 60 || (sDLSubmitCount % 60 == 0)) {
-		port_log("SSB64: port_submit_display_list #%d dl=%p\n", sDLSubmitCount, dl);
-	}
-
 	/* Lazy-init the GBI trace system on first DL submit. Always install
 	 * the callback because Phase 3's per-DL cost model also runs through
 	 * it — gbi_trace_log_cmd is the no-op fast path when tracing is off. */
@@ -345,35 +301,20 @@ extern "C" void port_submit_display_list(void *dl)
 	/* Begin trace frame before Fast3D processes the display list */
 	gbi_trace_begin_frame();
 
-	/* Diagnostic: SSB64_FREEZE_TEST=N skips DrawAndRunGraphicsCommands
-	 * every Nth submit (so user can see if 0-submit frames actually
-	 * produce visible holds). 1 = skip every submit (full freeze).
-	 * 2 = skip every other (50% strobe). 0 / unset = disabled. */
-	{
-		static int sFreezeTestN = -1;
-		if (sFreezeTestN < 0) {
-			const char *env = std::getenv("SSB64_FREEZE_TEST");
-			sFreezeTestN = (env != nullptr) ? std::atoi(env) : 0;
-			port_log("SSB64: FREEZE_TEST=%d (0=disabled; N=skip every Nth render)\n", sFreezeTestN);
-		}
-		if (sFreezeTestN > 0 && (sDLSubmitCount % sFreezeTestN) == 0) {
-			gbi_trace_end_frame();
-			return;
-		}
-	}
-
 	std::unordered_map<Mtx *, MtxF> mtxReplacements;
 	try {
 		window->DrawAndRunGraphicsCommands(static_cast<Gfx *>(dl), mtxReplacements);
 	} catch (long hr) {
-		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX on DL #%d\n", hr, sDLSubmitCount);
+		port_log("SSB64: CAUGHT DX shader exception HRESULT=0x%08lX\n", hr);
 		gbi_trace_end_frame();
 		return;
 	} catch (...) {
-		port_log("SSB64: CAUGHT unknown exception on DL #%d\n", sDLSubmitCount);
+		port_log("SSB64: CAUGHT unknown exception while processing display list\n");
 		gbi_trace_end_frame();
 		return;
 	}
+
+	sDLSubmitsThisFrame++;
 
 	/* End trace frame after processing */
 	gbi_trace_end_frame();
@@ -384,30 +325,6 @@ extern "C" void port_submit_display_list(void *dl)
 	sLastDLTris = sFrameTriCount;
 	sLastDLRectPx = sFrameRectPx;
 	sLastDLLoadBytes = sFrameLoadBytes;
-
-	if (std::getenv("SSB64_TRACE_DL_COST") != nullptr) {
-		int cost = sLastDLTris * 75 + sLastDLRectPx + sLastDLLoadBytes;
-		port_log("SSB64: dl_cost #%d tris=%d rect_px=%d load=%d cost=%d\n",
-		         sDLSubmitCount, sLastDLTris, sLastDLRectPx, sLastDLLoadBytes, cost);
-	}
-
-	/* Opcode histogram dump on certain frames for calibration. */
-	if (std::getenv("SSB64_OPCODE_HISTOGRAM") != nullptr
-	    && (sDLSubmitCount == 60 || sDLSubmitCount == 200 || sDLSubmitCount == 800
-	        || sDLSubmitCount == 1500 || sDLSubmitCount == 2500)) {
-		port_log("SSB64: opcode_histogram frame=%d:\n", sDLSubmitCount);
-		for (int i = 0; i < 256; i++) {
-			if (sOpcodeHistogram[i] > 0) {
-				port_log("  0x%02x: %d\n", i, sOpcodeHistogram[i]);
-			}
-		}
-	}
-	for (int i = 0; i < 256; i++) sOpcodeHistogram[i] = 0;
-
-	if (sDLSubmitCount <= 60) {
-		port_log("SSB64: DrawAndRunGraphicsCommands returned OK (tris=%d rect_px=%d)\n",
-		         sLastDLTris, sLastDLRectPx);
-	}
 }
 
 /* ========================================================================= */
@@ -568,36 +485,6 @@ void PortPushFrame(void)
 			window->HandleEvents();
 		}
 	}
-
-	/* Climax-freeze extra hold: when a contention SwitchContext-fail
-	 * triggered N>1 hold frames, the FIRST hold frame ran the normal
-	 * PortPushFrame logic (skipped task_draw because of slot contention,
-	 * paced to 16.67ms). The remaining N-1 hold frames are processed
-	 * here: skip VRETRACE entirely so game logic doesn't tick, sleep
-	 * 16.67ms to maintain pacing, count down the remaining hold. The
-	 * effect: full N-frame whole-screen freeze (display still showing
-	 * the previous frame's content) with NO state advancement, matching
-	 * user's mental model of "everything stops" rather than the
-	 * authentic-but-confusing "screen held + animation continues
-	 * underneath" of real hw. */
-	if (sExtraHoldFramesRemaining > 0) {
-		sExtraHoldFramesRemaining--;
-		port_log("SSB64: CLIMAX FREEZE hold-frame remaining=%d (no VRETRACE, no game tic)\n",
-		         sExtraHoldFramesRemaining);
-		auto target = frameStart + std::chrono::microseconds(16667);
-		auto coarseTarget = target - std::chrono::microseconds(2000);
-		auto now = std::chrono::steady_clock::now();
-		if (now < coarseTarget) {
-			std::this_thread::sleep_for(coarseTarget - now);
-		}
-		while (std::chrono::steady_clock::now() < target) {
-			/* busy-wait */
-		}
-		sFrameCount++;
-		port_watchdog_note_frame_end();
-		return;  /* skip VRETRACE + thread resumes for this hold frame */
-	}
-
 	/* Propagate the previous frame's queued framebuffer (if any) to VI's
 	 * "current" slot. The scheduler's CheckReadyFramebuffer fnCheck reads
 	 * osViGetCurrent/NextFramebuffer to decide whether the slot the game
@@ -605,8 +492,8 @@ void PortPushFrame(void)
 	 * those getters would always report NULL and the scheduler would
 	 * never stall, so the intentional freeze frames during fighter
 	 * intros and the desk-to-stage transition would never appear. Run
-	 * this BEFORE posting INTR_VRETRACE so sySchedulerSwapBuffer and
-	 * the gfx-task fnCheck see the rotated state. */
+	 * this BEFORE posting INTR_VRETRACE so old gfx completions are
+	 * delivered before the next game tick can tear down scene memory. */
 	port_vi_simulate_vblank();
 
 	/* Post a VI retrace event to the scheduler's message queue. See
@@ -624,82 +511,44 @@ void PortPushFrame(void)
 
 	sFrameCount++;
 
-	/* Per-VI-period gfx task submission count — env-gated. Spikes >1
-	 * indicate multi-pass draws that on real hw/emulator would scheduler-
-	 * stall for one VI period (= the freeze frames the user observes). */
-	if (std::getenv("SSB64_TRACE_GFX_PER_VI") != nullptr) {
-		port_log("SSB64: gfx_per_vi frame=%d submits=%d\n",
-			sFrameCount, sDLSubmitsThisFrame);
-	}
-
-	/* Frame-pacing fix for the freeze-frame mechanism: when no gfx was
-	 * submitted this host frame (game thread blocked in SwitchContext or
-	 * skipped task_draw because slot contention), DrawAndRunGraphicsCommands
-	 * was never called — so SwapBuffersBegin/End never ran, which means
-	 * VSync was bypassed and PortPushFrame returned immediately. Without
-	 * this sleep the loop blasts through at unbounded rate, the game tic
-	 * runs much faster than 60Hz, and the user perceives "running fast"
-	 * rather than a held frame.
-	 *
-	 * Sleep ~16.67 ms (one VI period) here so the previous frame's image,
-	 * still on the host's front buffer because we never swapped, stays
-	 * visible for an extra VI = a real visible whole-screen freeze that
-	 * matches the original game's authored climax pacing.
-	 *
-	 * This sleep only happens on 0-submit frames; normal frames pace
-	 * through DrawAndRunGraphicsCommands -> SwapBuffersEnd's VSync wait.
-	 * Disable with SSB64_FREEZE_PACING=0 if it causes trouble. */
+	/* VI-style idle presentation: when no gfx task was submitted this VI,
+	 * original hardware still scans out the current RDRAM framebuffer.
+	 * Fast3D normally presents only from DrawAndRunGraphicsCommands(), so
+	 * 0-submit frames can otherwise hold an older swapchain image. Present
+	 * the cached game framebuffer texture through the normal GUI/window path
+	 * without re-running any display list or touching game memory. */
 	if (sDLSubmitsThisFrame == 0) {
+		bool idlePresented = false;
 		static int sFreezePacing = -1;
-		static int sFreezeHoldFrames = -1;
 		if (sFreezePacing < 0) {
 			const char *env = std::getenv("SSB64_FREEZE_PACING");
 			sFreezePacing = (env != nullptr) ? std::atoi(env) : 1;
-			const char *henv = std::getenv("SSB64_FREEZE_HOLD_FRAMES");
-			sFreezeHoldFrames = (henv != nullptr) ? std::atoi(henv) : 3;
-			if (sFreezeHoldFrames < 1) sFreezeHoldFrames = 1;
 		}
 		if (sFreezePacing) {
-			/* For contention-driven 0-submit frames (sPortContentionFlag
-			 * set by SwitchContext), schedule extra hold frames in which
-			 * we DON'T post VRETRACE. Without VRETRACE, the scheduler
-			 * doesn't tick clients, taskman doesn't get a game-tic msg,
-			 * and the game thread stays blocked at recvmesg(BLOCK). Game
-			 * LOGIC pauses too (not just rendering), avoiding the
-			 * "catch-up" visual where animation jumps ahead after the
-			 * held frame. The current frame already has its VI/VRETRACE
-			 * already done, so just sleep the remaining time. The next
-			 * (sFreezeHoldFrames - 1) frames are scheduled as VRETRACE
-			 * skips via sExtraHoldFramesRemaining. */
-			extern int sPortContentionFlag;
-			if (sPortContentionFlag && sFreezeHoldFrames > 1) {
-				sExtraHoldFramesRemaining = sFreezeHoldFrames - 1;
-				port_log("SSB64: CLIMAX FREEZE start — will hold %d total frames at host frame #%d\n",
-				         sFreezeHoldFrames, sFrameCount);
+			auto context = Ship::Context::GetInstance();
+			auto window = context
+				? std::dynamic_pointer_cast<Fast::Fast3dWindow>(context->GetWindow())
+				: nullptr;
+			if (window) {
+				idlePresented = window->PresentCurrentFramebuffer();
 			}
-			sPortContentionFlag = 0;
 
-			/* Pace this frame to one VI period (16.67ms). Use a
-			 * coarse sleep + tight busy-wait so jitter doesn't bleed. */
-			auto target = frameStart + std::chrono::microseconds(16667);
-			auto coarseTarget = target - std::chrono::microseconds(2000);
-			auto now = std::chrono::steady_clock::now();
-			if (now < coarseTarget) {
-				std::this_thread::sleep_for(coarseTarget - now);
+			if (!idlePresented) {
+				/* Fallback pace to one VI period if there is no cached
+				 * framebuffer yet. Normal idle presents pace through the
+				 * backend's SwapBuffers path. */
+				auto target = frameStart + std::chrono::microseconds(16667);
+				auto coarseTarget = target - std::chrono::microseconds(2000);
+				auto now = std::chrono::steady_clock::now();
+				if (now < coarseTarget) {
+					std::this_thread::sleep_for(coarseTarget - now);
+				}
+				while (std::chrono::steady_clock::now() < target) {
+					/* busy-wait */
+				}
 			}
-			while (std::chrono::steady_clock::now() < target) {
-				/* busy-wait */
-			}
-		} else {
-			extern int sPortContentionFlag;
-			sPortContentionFlag = 0;  /* freeze pacing disabled, drop flag */
 		}
 	}
-	/* Don't clear sPortContentionFlag on render frames — the held visible
-	 * frame typically lands on the NEXT host frame (the contention happens
-	 * in iter 1 of the game thread's loop, but iter 2 may submit a render
-	 * for the previous in-flight slot's now-completed task). The flag
-	 * persists until consumed by a 0-submit frame's hold logic. */
 	sDLSubmitsThisFrame = 0;
 
 	/* Tell the hang watchdog a frame completed. */
