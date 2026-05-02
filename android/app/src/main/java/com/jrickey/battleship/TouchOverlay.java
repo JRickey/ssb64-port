@@ -222,17 +222,30 @@ public final class TouchOverlay {
                 case MotionEvent.ACTION_DOWN:
                 case MotionEvent.ACTION_POINTER_DOWN:
                     setButton(sdlButton, true);
+                    setPressedVisuals(v, true);
                     return true;
                 case MotionEvent.ACTION_UP:
                 case MotionEvent.ACTION_POINTER_UP:
                 case MotionEvent.ACTION_CANCEL:
                     setButton(sdlButton, false);
+                    setPressedVisuals(v, false);
                     return true;
                 default:
                     return false;
             }
         });
         root.addView(btn);
+    }
+
+    /** Visual feedback on touch: 90% alpha + 92% scale. Restored on release. */
+    private static void setPressedVisuals(View v, boolean pressed) {
+        if (pressed) {
+            v.animate().scaleX(0.92f).scaleY(0.92f).alpha(0.7f)
+                       .setDuration(40).start();
+        } else {
+            v.animate().scaleX(1.0f).scaleY(1.0f).alpha(1.0f)
+                       .setDuration(80).start();
+        }
     }
 
     private static int dp(Context ctx, int dp) {
