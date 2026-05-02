@@ -5,9 +5,40 @@
 // output dir for SHARED libs and bundles them under jniLibs/<ABI>/ in the
 // APK automatically.
 
+import java.util.Properties
+
 plugins {
     id("com.android.application")
 }
+
+// Optional release signing config. Reads from keystore.properties (rooted
+// at android/keystore.properties, gitignored — see keystore.properties.example
+// for schema) first, then env vars for CI. Returns null if neither is
+// configured; the release buildType falls back to the debug signingConfig
+// in that case so `./gradlew assembleRelease` works locally without setup.
+//
+// Production releases:
+//   1. Generate keystore once:
+//        keytool -genkey -v -keystore release.jks \
+//                -alias ssb64-release -keyalg RSA -keysize 2048 -validity 10000
+//   2. Either set env vars in your shell:
+//        export SSB64_RELEASE_KEYSTORE=/path/to/release.jks
+//        export SSB64_RELEASE_KEYSTORE_PASSWORD=...
+//        export SSB64_RELEASE_KEY_ALIAS=ssb64-release
+//        export SSB64_RELEASE_KEY_PASSWORD=...
+//      or copy keystore.properties.example to keystore.properties and fill in.
+//   3. ./gradlew bundleRelease  → AAB at app/build/outputs/bundle/release/
+val keystoreProps = Properties()
+run {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) {
+        f.inputStream().use { keystoreProps.load(it) }
+    }
+}
+fun signingProp(key: String, env: String): String? =
+    keystoreProps.getProperty(key) ?: System.getenv(env)
+val haveReleaseKeystore: Boolean =
+    signingProp("storeFile", "SSB64_RELEASE_KEYSTORE") != null
 
 // Repo root = the outer git checkout, two levels up from the agent
 // worktree's android/app/build.gradle.kts:
@@ -61,10 +92,20 @@ val stageGameAssets = tasks.register<Copy>("stageGameAssets") {
     }
 }
 
-// Run the staging task before AGP's merge step.
+// Run the staging task before any AGP task that consumes assets. The
+// merge*Assets tasks are the obvious one; AGP 8 + Gradle 9 also tracks
+// asset inputs from the lint-vital-report-model task, so we have to
+// declare the dependency there too or `assembleRelease` fails with
+// "Reason: Task ':app:generateReleaseLintVitalReportModel' uses this
+// output of task ':app:stageGameAssets' without declaring an explicit
+// or implicit dependency."
 afterEvaluate {
-    tasks.matching { it.name.startsWith("merge") && it.name.endsWith("Assets") }
-         .configureEach { dependsOn(stageGameAssets) }
+    tasks.matching { task ->
+        (task.name.startsWith("merge") && task.name.endsWith("Assets"))
+        || task.name.contains("Lint")
+        || task.name.startsWith("packageDebug")
+        || task.name.startsWith("packageRelease")
+    }.configureEach { dependsOn(stageGameAssets) }
 }
 
 android {
@@ -116,6 +157,17 @@ android {
         }
     }
 
+    signingConfigs {
+        if (haveReleaseKeystore) {
+            create("release") {
+                storeFile     = file(signingProp("storeFile", "SSB64_RELEASE_KEYSTORE")!!)
+                storePassword = signingProp("storePassword", "SSB64_RELEASE_KEYSTORE_PASSWORD")
+                keyAlias      = signingProp("keyAlias",      "SSB64_RELEASE_KEY_ALIAS")
+                keyPassword   = signingProp("keyPassword",   "SSB64_RELEASE_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         getByName("debug") {
             isJniDebuggable = true
@@ -128,7 +180,15 @@ android {
         getByName("release") {
             isMinifyEnabled = false   // No Java code worth shrinking yet
             isShrinkResources = false
-            // R8 / shrinking can come in Phase 8 polish along with signing.
+            // Use the configured release keystore if present; otherwise the
+            // debug key. The latter still produces a runnable APK for local
+            // smoke-testing — it's just NOT distributable (Play Store
+            // rejects debug-keyed builds).
+            signingConfig = if (haveReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

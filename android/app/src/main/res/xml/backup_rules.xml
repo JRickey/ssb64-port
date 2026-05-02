@@ -17,15 +17,11 @@
 <full-backup-content>
     <!-- LUS routes saves through SDL_AndroidGetExternalStoragePath, which
          lands at getExternalFilesDir(NULL). That maps to domain="external"
-         in Android backup rules, not domain="file" (which is internal
-         filesDir). -->
-    <include domain="external" path="ssb64_save.bin" />
+         in Android backup rules, not domain="file" (internal filesDir).
 
-    <exclude domain="external" path="logs/" />
-    <exclude domain="external" path="cache/" />
-    <exclude domain="external" path="BattleShip.o2r" />
-    <exclude domain="external" path="f3d.o2r" />
-    <exclude domain="external" path="ssb64.o2r" />
-    <exclude domain="file" path="logs/" />
-    <exclude domain="file" path="cache/" />
+         When <include> elements are present, only the listed paths are
+         backed up — everything else is implicitly excluded. So we
+         enumerate exactly the save file and let .o2r / logs / cache stay
+         out of the backup automatically. -->
+    <include domain="external" path="ssb64_save.bin" />
 </full-backup-content>

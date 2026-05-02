@@ -15,27 +15,12 @@
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- Save lives in external app dir (getExternalFilesDir) per LUS
-             routing through SDL_AndroidGetExternalStoragePath. -->
+        <!-- <include> is whitelist-only — listed paths are backed up,
+             everything else is excluded by default. So the save file
+             rides up to Google Drive; .o2r / logs / cache stay local. -->
         <include domain="external" path="ssb64_save.bin" />
-        <exclude domain="external" path="logs/" />
-        <exclude domain="external" path="cache/" />
-        <exclude domain="external" path="BattleShip.o2r" />
-        <exclude domain="external" path="f3d.o2r" />
-        <exclude domain="external" path="ssb64.o2r" />
-        <exclude domain="file" path="logs/" />
-        <exclude domain="file" path="cache/" />
     </cloud-backup>
     <device-transfer>
-        <!-- Save lives in external app dir (getExternalFilesDir) per LUS
-             routing through SDL_AndroidGetExternalStoragePath. -->
         <include domain="external" path="ssb64_save.bin" />
-        <exclude domain="external" path="logs/" />
-        <exclude domain="external" path="cache/" />
-        <exclude domain="external" path="BattleShip.o2r" />
-        <exclude domain="external" path="f3d.o2r" />
-        <exclude domain="external" path="ssb64.o2r" />
-        <exclude domain="file" path="logs/" />
-        <exclude domain="file" path="cache/" />
     </device-transfer>
 </data-extraction-rules>

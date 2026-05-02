@@ -16,3 +16,6 @@ captures/
 # Generated keystore for debug builds (Gradle re-creates on demand)
 *.jks
 !debug.keystore
+
+# Release signing config — never check in (passwords + key path)
+keystore.properties
