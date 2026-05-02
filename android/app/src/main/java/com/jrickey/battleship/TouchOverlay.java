@@ -4,7 +4,11 @@ import android.app.Activity;
 import android.content.Context;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.input.InputManager;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -120,6 +124,64 @@ public final class TouchOverlay {
             new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
+
+        // Auto-hide overlay when a physical controller is paired. SDL2's
+        // SDLControllerManager reports those controllers to the native side
+        // independently of our virtual joystick, so when a real one is
+        // present the user gets two controllers visible to LUS — the
+        // virtual one (silent) plus the real one. Hiding the overlay
+        // visually preserves the right-thumb area for cinematic viewing
+        // and stops accidental touch events. (The virtual joystick still
+        // exists in SDL's joystick list; a future polish step can detach
+        // it to remove the duplicate from LUS's controller-config UI.)
+        installControllerWatcher(activity, root);
+    }
+
+    /**
+     * Toggle the {@code overlayRoot} visibility based on whether any
+     * Android InputDevice exposes SOURCE_GAMEPAD or SOURCE_JOYSTICK.
+     * Listens via {@link InputManager.InputDeviceListener} for hot-plug
+     * (Bluetooth pair, USB connect/disconnect).
+     */
+    private static void installControllerWatcher(Activity activity, View overlayRoot) {
+        Object svc = activity.getSystemService(Context.INPUT_SERVICE);
+        if (!(svc instanceof InputManager)) {
+            return;
+        }
+        final InputManager im = (InputManager) svc;
+        final Handler ui = new Handler(Looper.getMainLooper());
+
+        Runnable refresh = () -> {
+            boolean hasGamepad = countGamepads() > 0;
+            overlayRoot.setVisibility(hasGamepad ? View.GONE : View.VISIBLE);
+        };
+
+        // Initial visibility — race-safe even if the listener hasn't fired
+        // yet for an already-paired controller.
+        ui.post(refresh);
+
+        im.registerInputDeviceListener(new InputManager.InputDeviceListener() {
+            @Override public void onInputDeviceAdded(int id)   { ui.post(refresh); }
+            @Override public void onInputDeviceRemoved(int id) { ui.post(refresh); }
+            @Override public void onInputDeviceChanged(int id) { ui.post(refresh); }
+        }, ui);
+    }
+
+    /** Count physical gamepads / joysticks visible to Android's InputManager. */
+    private static int countGamepads() {
+        int count = 0;
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice dev = InputDevice.getDevice(id);
+            if (dev == null) continue;
+            int sources = dev.getSources();
+            boolean isGamepad =
+                (sources & InputDevice.SOURCE_GAMEPAD)  == InputDevice.SOURCE_GAMEPAD
+             || (sources & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK;
+            if (isGamepad) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
