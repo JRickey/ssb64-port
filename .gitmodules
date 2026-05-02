@@ -1,7 +1,7 @@
 [submodule "libultraship"]
 	path = libultraship
 	url = https://github.com/JRickey/libultraship.git
-	branch = ssb64
+	branch = ssb64-android
 [submodule "torch"]
 	path = torch
 	url = https://github.com/JRickey/Torch.git
