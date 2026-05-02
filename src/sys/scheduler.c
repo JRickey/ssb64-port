@@ -405,6 +405,12 @@ void sySchedulerApplyViMode(void)
 }
 
 // 0x80000F30
+#ifdef PORT
+/* libultraship/include/libultraship/bridge/gfxbridge.h — keep manually-declared
+ * since scheduler.c is decomp code and shouldn't pull in port-only headers. */
+extern void GfxSetNativeDimensions(unsigned int width, unsigned int height);
+#endif
+
 void sySchedulerUpdateViMode(u32 width, u32 height, u32 flags, s16 off_left, s16 off_right, s16 off_top, s16 off_bottom)
 {
     sb32 not_phi_v1;
@@ -416,6 +422,14 @@ void sySchedulerUpdateViMode(u32 width, u32 height, u32 flags, s16 off_left, s16
     s32 pos2;
 
     is_res_in_bounds = ((width > GS_SCREEN_WIDTH_DEFAULT) || (height > GS_SCREEN_HEIGHT_DEFAULT)) ? FALSE : TRUE;
+#ifdef PORT
+    /* Tell Fast3D the game's logical render target size so viewports / vertex
+     * positions in the requested resolution land where they should. The credits
+     * scene uses 640x480 but every other scene is 320x240; without this every
+     * scene is interpreted as 320x240 and the credits get squashed into the
+     * top-left quadrant. Fixes issue #55 + downstream "garbled" names. */
+    GfxSetNativeDimensions((unsigned int)width, (unsigned int)height);
+#endif
 
     if (flags & SYVIDEO_FLAG_SERRATE)
     {

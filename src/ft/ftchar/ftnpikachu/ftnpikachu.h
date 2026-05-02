@@ -8,7 +8,7 @@
 extern void *gFTDataNPikachuMain;
 extern void *gFTDataNPikachuSubMotion;
 extern void *gFTDataNPikachuModel;
-extern s32 gFTDataNPikachuParticleBankID;
+extern void *gFTDataNPikachuParticleBankID;
 extern s32 gFTDataNPikachuPad0x801310E0;
 
 #endif

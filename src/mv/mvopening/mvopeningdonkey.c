@@ -14,6 +14,8 @@
 extern u32 sySchedulerGetTicCount();
 #ifdef PORT
 extern void port_coroutine_yield(void);
+extern void port_log(const char *fmt, ...);
+extern char *getenv(const char *name);
 #endif
 
 // // // // // // // // // // // //
@@ -488,6 +490,18 @@ void mvOpeningDonkeyMakePosedWallpaperCamera(void)
 void mvOpeningDonkeyFuncRun(GObj *gobj)
 {
 	sMVOpeningDonkeyTotalTimeTics++;
+
+#ifdef PORT
+	if (getenv("SSB64_TRACE_INTRO_ANIM") && sMVOpeningDonkeyFighterGObj != NULL) {
+		FTStruct *fp = ftGetStruct(sMVOpeningDonkeyFighterGObj);
+		port_log("SSB64: mvOpeningDonkeyRun tic=%d status=0x%x motion=%d hitlag=%u fgobj_anim_frame=%f\n",
+			(int)sMVOpeningDonkeyTotalTimeTics,
+			fp ? (unsigned)fp->status_id : 0,
+			fp ? (int)fp->motion_id : -1,
+			fp ? (unsigned)fp->hitlag_tics : 0,
+			sMVOpeningDonkeyFighterGObj->anim_frame);
+	}
+#endif
 
 	if (scSubsysControllerGetPlayerTapButtons(A_BUTTON | B_BUTTON | START_BUTTON))
 	{
