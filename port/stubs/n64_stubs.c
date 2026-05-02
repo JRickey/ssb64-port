@@ -92,28 +92,24 @@ void port_resume_service_threads(void)
 	/* Resume threads in priority order (higher priority first).
 	 * Simple bubble: scheduler(120) > controller(115) > audio(110) > game(50)
 	 *
-	 * Game-thread cap (Option A for the freeze-frame fix): when the
-	 * SP/DP deferral creates SwitchContext slot contention, the game
-	 * thread blocks mid-tic (yielding the coroutine), the scheduler
-	 * runs in a later round and frees the slot, and without a cap the
-	 * game thread would resume in yet a later round and finish its
-	 * tic within the SAME host frame — defeating the visible freeze.
+	 * Game-thread cap (kept as opt-in safety net, default OFF). The
+	 * original freeze-frame work assumed the cap was necessary — without
+	 * it, the resume loop could let the game thread catch up within the
+	 * same host frame and erase the visible freeze. Empirical retest
+	 * 2026-05-01 disproved this: the SP/DP deferral alone is sufficient
+	 * because slot release fires from `port_vi_simulate_vblank`, which
+	 * only runs once per host frame. The blocked game tic literally
+	 * cannot finish until the next host frame regardless of cap state.
 	 *
-	 * With the cap, once the game thread has been resumed N times this
-	 * frame (default 1), we refuse to resume it again until the next
-	 * port_vi_simulate_vblank() / PortPushFrame. The blocked tic stays
-	 * blocked, no new gfx is submitted, the host backbuffer stays
-	 * unchanged, and the user sees a 1-frame whole-screen freeze —
-	 * exactly the authored intro-climax behavior.
-	 *
-	 * Env vars (read once, lazily):
-	 *   SSB64_GAME_THREAD_CAP_RESUMES=N  cap value (default 1, 0 = disable)
-	 *
-	 * Disabled cap matches the pre-fix port behavior. */
+	 * The cap was over-defensive and silently cost a frame of input
+	 * latency (game logic spread across multiple host frames instead of
+	 * completing within one), so the default is now 0. The env var stays
+	 * for diagnostics — set `SSB64_GAME_THREAD_CAP_RESUMES=1` to restore
+	 * the old behavior if a regression surfaces. */
 	static int sGameThreadCapResumes = -1;
 	if (sGameThreadCapResumes < 0) {
 		const char *env = getenv("SSB64_GAME_THREAD_CAP_RESUMES");
-		sGameThreadCapResumes = (env != NULL) ? atoi(env) : 1;
+		sGameThreadCapResumes = (env != NULL) ? atoi(env) : 0;
 		if (sGameThreadCapResumes < 0) sGameThreadCapResumes = 0;
 		port_log("SSB64: GAME_THREAD_CAP_RESUMES=%d (0=disabled)\n",
 		         (int)sGameThreadCapResumes);

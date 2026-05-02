@@ -223,6 +223,7 @@ extern "C" int port_get_last_dl_defer_n(void)
 {
 	static int sBudget = -1;
 	static int sForceN = -1;
+	static int sRectGate = -1;
 	if (sBudget < 0) {
 		/* Calibrated empirically against attract-mode DL cost histogram:
 		 * p99 ≈ 394k, p99.5 ≈ 397k, max observed = 415k. Setting the
@@ -236,8 +237,18 @@ extern "C" int port_get_last_dl_defer_n(void)
 		if (sBudget < 1000) sBudget = 1000;
 		const char *fenv = std::getenv("SSB64_RCP_FORCE_N");
 		sForceN = (fenv != NULL) ? std::atoi(fenv) : 0;
-		port_log("SSB64: RCP cost model — budget=%d cycles/VI, force_n=%d (0=cost-model, >=1=fixed)\n",
-		         sBudget, sForceN);
+		/* Fillrate gate: a DL must ALSO push significant rect_px (texrect /
+		 * fillrect coverage) before we treat it as an authored freeze.
+		 * Empirical observation 2026-05-01: high-tri fighter-model DLs in
+		 * the attract run-sequence cluster at cost 400–419k with rect_px
+		 * 148–167k (false positives), while authored-climax effect DLs
+		 * have rect_px ≥ 260k. The cost-only model couldn't distinguish.
+		 * Default 200k sits cleanly between the two distributions. */
+		const char *renv = std::getenv("SSB64_RCP_RECT_GATE");
+		sRectGate = (renv != NULL) ? std::atoi(renv) : 200000;
+		if (sRectGate < 0) sRectGate = 0;
+		port_log("SSB64: RCP cost model — budget=%d cycles/VI, force_n=%d (0=cost-model, >=1=fixed), rect_gate=%d\n",
+		         sBudget, sForceN, sRectGate);
 	}
 	if (sForceN >= 1) return sForceN;
 
@@ -251,6 +262,11 @@ extern "C" int port_get_last_dl_defer_n(void)
 	 * poses, stage cuts) instead of patching scene timers individually. */
 	int n;
 	if (cost < sBudget) {
+		n = 1;
+	} else if (sLastDLRectPx < sRectGate) {
+		/* Cost is over budget but the load is dominated by triangles, not
+		 * fillrate — looks like a fighter model render, not an authored
+		 * full-screen effect. Don't freeze. */
 		n = 1;
 	} else {
 		n = 3;

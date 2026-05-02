@@ -426,6 +426,48 @@ Calibration target: typical SSB64 gameplay/menu frames N=1 (no freeze); fighter-
 - `port/stubs/n64_stubs.c` — `osSpTaskStartGo` reads `sPortLastDLDeferN` instead of `getenv`.
 - `port/port_rcp_clock.{h,cpp}` (new) — cost coefficients + walker. Designed to live in libultraship via the existing trace-callback hook in Phase 3 (optional).
 
+## Phase 4 — Retune (shipped 2026-05-02)
+
+User testing on the re-land branch (`agent/freeze-frame-retune`) revealed two correctness issues with the originally-shipped Phase 1+2+3 defaults. Both are addressed without altering the underlying mechanism.
+
+### Finding 1: the game-thread cap was over-defensive
+
+The Phase 2 cap (default `SSB64_GAME_THREAD_CAP_RESUMES=1`) was added under the assumption that without it the resume loop would let the blocked game tic catch up within the same host frame, erasing the visible freeze. That assumption was wrong.
+
+The SP/DP interrupt deferral fires from `port_vi_simulate_vblank()`, which runs **once per host frame**. When a heavy DL defers slot release by N=3 VI periods, the slot literally cannot become available until ~3 host frames have elapsed, regardless of the resume loop's behavior. The cap added zero functional benefit but silently cost ~1 frame of input latency by spreading a tic's normal multi-resume work across multiple host frames.
+
+**Fix:** flip the default to `0` (cap off). Env var stays for diagnostics.
+
+### Finding 2: the cost model conflates RSP-bound and RDP-bound DLs
+
+In the attract chain *after* the character intros, the **fighter run sequence** triggered ~10 false-positive freezes per loop. Empirical 2026-05-01 trace:
+
+| Shape | Tris | Rect_px | Cost | What it is |
+|---|---|---|---|---|
+| A | 2497 | 148–167k | 400–419k | fighter-model draws (RSP-bound; should NOT freeze) |
+| B | 800–900 | 260–297k | 404–415k | full-screen effect / wallpaper (RDP-bound; SHOULD freeze) |
+
+The `cost = tris*75 + rect_px + load_bytes` sum gave both shapes nearly identical totals, so no single-budget threshold could exclude shape A while keeping shape B.
+
+**Fix:** add a fillrate gate. A DL only freezes if `cost ≥ budget` **and** `rect_px ≥ rect_gate`. Default `SSB64_RCP_RECT_GATE=200000` sits cleanly between the two distributions (max shape A rect_px = 167k; min shape B rect_px = 260k).
+
+### Final tunables
+
+- `SSB64_RCP_CYCLE_BUDGET=N` (default 400000) — total-cost threshold.
+- `SSB64_RCP_RECT_GATE=N` (default 200000) — fillrate floor; below this, a heavy DL stays N=1 even if cost crosses the budget.
+- `SSB64_RCP_FORCE_N=N` — bypass the cost model with a fixed N for all DLs.
+- `SSB64_GFX_DEFER_VI=N` — legacy alias for FORCE_N.
+- `SSB64_GAME_THREAD_CAP_RESUMES=N` (default **0** — flipped from 1) — set to 1+ to restore the old cap behavior for regression testing only.
+- `SSB64_FREEZE_HOLD_FRAMES=N` (default 3) — VI periods to extend each contention freeze.
+- `SSB64_FREEZE_PACING=0` — disable pacing-correction sleep.
+
+### Verification (user-tested on `agent/freeze-frame-retune`)
+
+- Run-sequence false-positive freezes: gone.
+- Climax freezes (banner end, Link/Samus intro climaxes, fighter poses): still fire.
+- Input lag: gone.
+- CSS / menu snappiness: clean (a separate confound — Winston Lowe's PR #26, merged 2026-05-01 in `ccbf9a1`+`c9bfa73` — was causing per-frame `ftManagerMakeFighter` churn; that's now fixed independently).
+
 ## Sources
 
 - ares N64 emulation architecture (DeepWiki) — https://deepwiki.com/ares-emulator/ares/3-nintendo-64-emulation
