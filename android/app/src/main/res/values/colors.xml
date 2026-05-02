@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Adaptive-icon background. Red — the SSB64 logo's primary color. -->
+    <color name="ic_launcher_background">#CC2233</color>
+</resources>

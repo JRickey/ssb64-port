@@ -29,6 +29,8 @@
 
     <application
         android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:hasCode="true"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"

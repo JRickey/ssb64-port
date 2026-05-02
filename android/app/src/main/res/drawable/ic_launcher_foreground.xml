@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive-icon foreground. The 108x108dp canvas has a 72dp visible
+    safe zone (the OS clips/animates the rest). We place a stylized "B"
+    inside that safe zone — recognisable, fighter-game-y, and doesn't
+    look out of place next to other system app icons.
+
+    The B is drawn from path data rather than a font glyph so the icon
+    renders identically on devices that don't ship the same fonts.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Visible 72dp safe zone is centered: 18..90 on each axis.
+         The B path lives roughly within 28..80 / 26..82. -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="
+            M 32 26
+            L 32 82
+            L 56 82
+            C 70 82 78 76 78 65
+            C 78 58 74 53 67 51
+            C 73 49 76 44 76 38
+            C 76 30 70 26 58 26
+            Z
+            M 42 35
+            L 56 35
+            C 62 35 65 37 65 42
+            C 65 46 62 49 56 49
+            L 42 49
+            Z
+            M 42 57
+            L 58 57
+            C 65 57 68 60 68 65
+            C 68 70 65 73 58 73
+            L 42 73
+            Z" />
+</vector>
