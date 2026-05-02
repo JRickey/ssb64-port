@@ -1047,11 +1047,23 @@ EFGroundData dEFGroundDatas[/* */] =
     },
 
     // Saffron City
-    { 
+    {
         ARRAY_COUNT(dEFGroundYamabukiParams),       // Number of param structs
         dEFGroundYamabukiParams,                    // Param struct array pointer
         llGRYamabukiMapDataStart,                // ???
         dEFGroundYamabukiEffectDescs                // Desc struct array pointer
+    },
+
+    // Mushroom Kingdom — no ambient ground effects (same pattern as Hyrule).
+    // Without this entry efGroundMakeAppearActor would index dEFGroundDatas[8]
+    // past the end of the array; on PORT the trailing bytes happen to look like
+    // a valid non-NULL effect_params pointer, so the existing != NULL guard
+    // doesn't save us and efGroundSetupRandomWeights dereferences garbage.
+    {
+        0,
+        NULL,
+        0x0,
+        NULL
     }
 };
 

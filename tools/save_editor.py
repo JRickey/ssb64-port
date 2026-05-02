@@ -406,14 +406,43 @@ def compute_checksum(body_bytes: bytes) -> int:
 # Default save-file path — mirrors port_save.cpp's resolveSavePath().
 # ---------------------------------------------------------------------------
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _is_portable_build() -> bool:
+    """Return True if the local CMake build was configured with
+    NON_PORTABLE=OFF — in which case the running binary writes
+    `ssb64_save.bin` to its cwd (the project root, when launched as
+    `build/BattleShip` from the repo) instead of the OS app-data dir.
+
+    This is the default for dev/in-tree CMake configures and is what
+    catches people out: the python script wrote to the macOS app-data
+    dir while the binary read from the repo root.
+    """
+    cache = _PROJECT_ROOT / "build" / "CMakeCache.txt"
+    if not cache.exists():
+        return False
+    try:
+        for line in cache.read_text(errors="replace").splitlines():
+            line = line.strip()
+            if line.startswith("NON_PORTABLE:") and "=" in line:
+                return line.split("=", 1)[1].strip().upper() == "OFF"
+    except OSError:
+        return False
+    return False
+
+
 def default_save_path() -> Path:
     """Resolve the save file path with the same precedence the running
     game uses (port_save.cpp::resolveSavePath):
 
       1. $SSB64_SAVE_PATH explicit override
       2. $SHIP_HOME (macOS / Linux only — matches LUS Context behavior)
-      3. NON_PORTABLE app-data dir (the default for release bundles)
-      4. cwd (portable / dev builds)
+      3. Project root if the local CMake build is NON_PORTABLE=OFF —
+         the dev-checkout default. The binary writes `./ssb64_save.bin`
+         relative to cwd, which is the repo root when launched as
+         `build/BattleShip` from there.
+      4. NON_PORTABLE app-data dir (the default for release bundles).
     """
     env = os.environ.get("SSB64_SAVE_PATH")
     if env:
@@ -423,6 +452,9 @@ def default_save_path() -> Path:
         ship_home = os.environ.get("SHIP_HOME")
         if ship_home:
             return Path(ship_home).expanduser() / "ssb64_save.bin"
+
+    if _is_portable_build():
+        return _PROJECT_ROOT / "ssb64_save.bin"
 
     if sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support" / "BattleShip"
