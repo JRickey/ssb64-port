@@ -285,6 +285,7 @@ void PortMenu::AddMenuSettings() {
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Gameplay", 1);
 
+    /*
     AddWidget(path, "Per-Port Enhancements", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Disable Tap Jump (P1)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::TapJumpCVarName(0))
@@ -304,7 +305,9 @@ void PortMenu::AddMenuSettings() {
         .CVar(enhancements::TapJumpCVarName(3))
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
+    */
 
+    // hitbox
     AddWidget(path, "Debug", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Hitbox View", WIDGET_CVAR_COMBOBOX)
         .CVar(enhancements::HitboxViewCVarName())
@@ -318,6 +321,59 @@ void PortMenu::AddMenuSettings() {
                               "invincible, blue=intangible).")
                      .ComboMap(kHitboxViewMap)
                      .DefaultIndex(0));
+
+        AddWidget(path, "Per-Port Enhancements", WIDGET_SEPARATOR_TEXT);
+
+        // --- Player 1 ---
+        AddWidget(path, "Player 1", WIDGET_SEPARATOR_TEXT);
+        AddWidget(path, "Disable Tap Jump (P1)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::TapJumpCVarName(0))
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Disables jumping by pushing up on the analog stick."));
+        AddWidget(path, "C-Stick Smash (P1)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::CStickSmashCVarName(0))
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Replaces C-Button inputs with instant smash attacks."));
+        AddWidget(path, "D-Pad to Jump (P1)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::DPadJumpCVarName(0))
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Translates N64 D-Pad inputs into C-Up (Jump)."));
+
+        // --- Player 2 ---
+        AddWidget(path, "Player 2", WIDGET_SEPARATOR_TEXT);
+        AddWidget(path, "Disable Tap Jump (P2)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::TapJumpCVarName(1))
+        .RaceDisable(false);
+        AddWidget(path, "C-Stick Smash (P2)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::CStickSmashCVarName(1))
+        .RaceDisable(false);
+        AddWidget(path, "D-Pad to Jump (P2)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::DPadJumpCVarName(1))
+        .RaceDisable(false);
+
+        // --- Player 3 ---
+        AddWidget(path, "Player 3", WIDGET_SEPARATOR_TEXT);
+        AddWidget(path, "Disable Tap Jump (P3)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::TapJumpCVarName(2))
+        .RaceDisable(false);
+        AddWidget(path, "C-Stick Smash (P3)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::CStickSmashCVarName(2))
+        .RaceDisable(false);
+        AddWidget(path, "D-Pad to Jump (P3)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::DPadJumpCVarName(2))
+        .RaceDisable(false);
+
+        // --- Player 4 ---
+        AddWidget(path, "Player 4", WIDGET_SEPARATOR_TEXT);
+        AddWidget(path, "Disable Tap Jump (P4)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::TapJumpCVarName(3))
+        .RaceDisable(false);
+        AddWidget(path, "C-Stick Smash (P4)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::CStickSmashCVarName(3))
+        .RaceDisable(false);
+        AddWidget(path, "D-Pad to Jump (P4)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::DPadJumpCVarName(3))
+        .RaceDisable(false);
 }
 
 void PortMenu::AddMenuWindows() {
