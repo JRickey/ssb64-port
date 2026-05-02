@@ -22,7 +22,7 @@
 #include "framebuffer_capture.h"
 
 #include <fast/Fast3dWindow.h>
-#include <fast/Interpreter.h>
+#include <fast/interpreter.h>
 #include <fast/backends/gfx_rendering_api.h>
 #include <ship/Context.h>
 
