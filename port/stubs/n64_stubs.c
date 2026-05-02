@@ -20,6 +20,11 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Decomp-style headers above don't bring stdlib.h cleanly into scope for
+ * this TU on every toolchain — declare the libc symbols we need directly. */
+extern char *getenv(const char *name);
+extern int atoi(const char *nptr);
+
 #include "port_log.h"
 
 /* ========================================================================= */
@@ -85,7 +90,32 @@ void port_resume_service_threads(void)
 	}
 
 	/* Resume threads in priority order (higher priority first).
-	 * Simple bubble: scheduler(120) > controller(115) > audio(110) > game(50) */
+	 * Simple bubble: scheduler(120) > controller(115) > audio(110) > game(50)
+	 *
+	 * Game-thread cap (kept as opt-in safety net, default OFF). The
+	 * original freeze-frame work assumed the cap was necessary — without
+	 * it, the resume loop could let the game thread catch up within the
+	 * same host frame and erase the visible freeze. Empirical retest
+	 * 2026-05-01 disproved this: the SP/DP deferral alone is sufficient
+	 * because slot release fires from `port_vi_simulate_vblank`, which
+	 * only runs once per host frame. The blocked game tic literally
+	 * cannot finish until the next host frame regardless of cap state.
+	 *
+	 * The cap was over-defensive and silently cost a frame of input
+	 * latency (game logic spread across multiple host frames instead of
+	 * completing within one), so the default is now 0. The env var stays
+	 * for diagnostics — set `SSB64_GAME_THREAD_CAP_RESUMES=1` to restore
+	 * the old behavior if a regression surfaces. */
+	static int sGameThreadCapResumes = -1;
+	if (sGameThreadCapResumes < 0) {
+		const char *env = getenv("SSB64_GAME_THREAD_CAP_RESUMES");
+		sGameThreadCapResumes = (env != NULL) ? atoi(env) : 0;
+		if (sGameThreadCapResumes < 0) sGameThreadCapResumes = 0;
+		port_log("SSB64: GAME_THREAD_CAP_RESUMES=%d (0=disabled)\n",
+		         (int)sGameThreadCapResumes);
+	}
+	int game_thread_resumes_this_frame = 0;
+
 	for (s32 round = 0; round < 8; round++) {
 		s32 progress = 0;
 		for (s32 i = 0; i < sServiceThreadCount; i++) {
@@ -93,6 +123,21 @@ void port_resume_service_threads(void)
 			if (t == NULL || t->port_coroutine == NULL) continue;
 			if (port_coroutine_is_finished((PortCoroutine *)t->port_coroutine)) continue;
 			if (t->state != OS_STATE_WAITING) continue;
+
+			/* Cap the game thread (id=5) to N resumes per host frame.
+			 * Other threads (scheduler, controller, audio) run normally. */
+			if (sGameThreadCapResumes > 0 && (int)t->id == 5
+			    && game_thread_resumes_this_frame >= sGameThreadCapResumes) {
+				if (getenv("SSB64_TRACE_SWITCH_CTX") != NULL) {
+					static int sCapHits = 0;
+					if (sCapHits < 5 || (sCapHits % 200) == 0) {
+						port_log("SSB64: game-thread cap engaged (hits=%d round=%d)\n",
+						         (int)sCapHits, (int)round);
+					}
+					sCapHits++;
+				}
+				continue;
+			}
 
 			/* Resume this thread — it will run until it yields again. */
 			t->state = OS_STATE_RUNNING;
@@ -103,6 +148,9 @@ void port_resume_service_threads(void)
 				t->state = OS_STATE_STOPPED;
 			} else {
 				t->state = OS_STATE_WAITING;
+			}
+			if ((int)t->id == 5) {
+				game_thread_resumes_this_frame++;
 			}
 			if (sResumeDebugCount <= 5) {
 				port_log("  round %d: resumed thread %d (finished=%d)\n",
@@ -387,6 +435,20 @@ void osViSetEvent(OSMesgQueue *mq, OSMesg msg, u32 retrace_count)
 static void *sPortViCurrentFB;
 static void *sPortViNextFB;
 
+/* Forward decls so port_vi_simulate_vblank can flush pending SP/DP
+ * "interrupts" tracked by osSpTaskStartGo (defined further down). */
+extern OSMesgQueue gSYSchedulerTaskMesgQueue;
+/* getenv/atoi declared at top of file. */
+#define PORT_INTR_SP_TASK_DONE 2
+#define PORT_INTR_DP_FULL_SYNC 3
+/* Two queues so SP/DP "interrupts" can be delayed by N VI periods
+ * (each entry in queue[i] fires on the i-th vblank from now).
+ * SSB64_GFX_DEFER_VI env var picks N at runtime: 1 (default), 2, ... */
+#define PORT_GFX_DEFER_MAX 4
+static int sPortPendingSPInts[PORT_GFX_DEFER_MAX];
+static int sPortPendingDPInts[PORT_GFX_DEFER_MAX];
+static int sPortGfxDeferN = -1;  /* lazy-init from env */
+
 void osViSwapBuffer(void *frameBufPtr)
 {
 	sPortViNextFB = frameBufPtr;
@@ -396,6 +458,28 @@ void port_vi_simulate_vblank(void)
 {
 	if (sPortViNextFB != NULL) {
 		sPortViCurrentFB = sPortViNextFB;
+	}
+
+	/* Standard delay-queue tick: shift queue down by one slot so
+	 * what was queue[1] becomes queue[0], then fire whatever now
+	 * sits at queue[0]. Order matters — "shift then fire" gives a
+	 * true N-VI delay; "fire then shift" would silently turn N=1
+	 * into a 2-VI delay because freshly-posted entries at queue[1]
+	 * would survive one extra tick before reaching slot 0. */
+	int i;
+	for (i = 0; i < PORT_GFX_DEFER_MAX - 1; i++) {
+		sPortPendingSPInts[i] = sPortPendingSPInts[i+1];
+		sPortPendingDPInts[i] = sPortPendingDPInts[i+1];
+	}
+	sPortPendingSPInts[PORT_GFX_DEFER_MAX - 1] = 0;
+	sPortPendingDPInts[PORT_GFX_DEFER_MAX - 1] = 0;
+	while (sPortPendingSPInts[0] > 0) {
+		osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)PORT_INTR_SP_TASK_DONE, OS_MESG_NOBLOCK);
+		sPortPendingSPInts[0]--;
+	}
+	while (sPortPendingDPInts[0] > 0) {
+		osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)PORT_INTR_DP_FULL_SYNC, OS_MESG_NOBLOCK);
+		sPortPendingDPInts[0]--;
 	}
 }
 
@@ -453,13 +537,43 @@ void osSpTaskLoad(OSTask *tp)
 }
 
 /* Scheduler queue — declared in scheduler.c, externed in scheduler.h */
-extern OSMesgQueue gSYSchedulerTaskMesgQueue;
-
-/* INTR values matching scheduler.c local defines */
-#define PORT_INTR_SP_TASK_DONE 2
-#define PORT_INTR_DP_FULL_SYNC 3
+/* gSYSchedulerTaskMesgQueue extern + PORT_INTR_* defines + pending
+ * counters live higher up so port_vi_simulate_vblank can flush them. */
 
 static s32 sTaskGoCount = 0;
+
+/* Pending SP/DP "interrupts" deferred from the previous host frame.
+ *
+ * On real N64, an RSP gfx task takes ~13 ms to render (≈ 1 VI period),
+ * so SP_TASK_DONE / DP_FULL_SYNC fire roughly one VI retrace AFTER the
+ * task is submitted via osSpTaskStartGo. Until those fire, the
+ * scheduler keeps `sSYSchedulerCurrentTaskGfx` pointing at the in-
+ * flight task, and any GfxEnd task processed during that window
+ * attaches its slot-release mq to the running gfx task — meaning the
+ * slot only frees when DP_FULL_SYNC eventually fires.
+ *
+ * SSB64 fighter intros set `tscene->contexts_num = 2`, so when the
+ * climax move submits an extra gfx task (effect / item draw) within
+ * one VI period, both slots are in flight at once and the next
+ * `syTaskmanSwitchContext` call blocks on `sSYTaskmanContextMesgQueue`
+ * until DP_FULL_SYNC fires for the oldest in-flight task. The game
+ * thread blocks → no game tic advances → screen holds the previous
+ * framebuffer → "whole-screen freeze with all systems" for ~1 frame.
+ *
+ * Without the deferral the port posts both interrupts synchronously
+ * inside osSpTaskStartGo, slots release in the same host frame they
+ * were taken, SwitchContext never blocks, and the climax freezes
+ * never appear. We model the 1-VI-period delay by accumulating
+ * pending counts here and flushing them in port_vi_simulate_vblank()
+ * at the start of the next host frame, just before the new VRETRACE
+ * tick is posted to the scheduler.
+ *
+ * Maximum useful queue depth is small — SSB64 submits ≤2 gfx tasks
+ * per VI period steady-state — but use a generous cap so we never
+ * silently drop a deferred interrupt.
+ *
+ * Counters declared at top of file alongside FB rotation state.
+ */
 
 void osSpTaskStartGo(OSTask *tp)
 {
@@ -479,10 +593,35 @@ void osSpTaskStartGo(OSTask *tp)
 		port_submit_display_list((void *)tp->t.data_ptr);
 	}
 
-	/* Simulate hardware completion: post SP_TASK_DONE and DP_FULL_SYNC
-	 * to the scheduler queue so it can process task completion. */
-	osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)PORT_INTR_SP_TASK_DONE, OS_MESG_NOBLOCK);
-	osSendMesg(&gSYSchedulerTaskMesgQueue, (OSMesg)PORT_INTR_DP_FULL_SYNC, OS_MESG_NOBLOCK);
+	/* Defer SP_TASK_DONE / DP_FULL_SYNC by N VI periods.
+	 *
+	 * Phase 3: N is selected per-DL by the cost model in
+	 * port/gameloop.cpp:port_get_last_dl_defer_n() — light DLs return
+	 * N=1 (no contention, smooth play); heavy climax DLs (Yoshi tongue,
+	 * Samus grapple, DK smash) return N=2 (slot release lags by one
+	 * extra VI, SwitchContext blocks, game-thread cap holds the host
+	 * frame, screen visibly freezes for one frame).
+	 *
+	 * Old SSB64_GFX_DEFER_VI env var still works as an override —
+	 * setting it forces a fixed N regardless of cost. Default = use
+	 * the cost model. */
+	extern int port_get_last_dl_defer_n(void);
+	int defer_n;
+	if (sPortGfxDeferN < 0) {
+		const char *env = getenv("SSB64_GFX_DEFER_VI");
+		sPortGfxDeferN = (env != NULL) ? atoi(env) : 0;  /* 0 = use cost model */
+		if (sPortGfxDeferN < 0) sPortGfxDeferN = 0;
+		if (sPortGfxDeferN > PORT_GFX_DEFER_MAX - 1) sPortGfxDeferN = PORT_GFX_DEFER_MAX - 1;
+	}
+	if (sPortGfxDeferN >= 1) {
+		defer_n = sPortGfxDeferN;
+	} else {
+		defer_n = port_get_last_dl_defer_n();
+		if (defer_n < 1) defer_n = 1;
+		if (defer_n > PORT_GFX_DEFER_MAX - 1) defer_n = PORT_GFX_DEFER_MAX - 1;
+	}
+	sPortPendingSPInts[defer_n]++;
+	sPortPendingDPInts[defer_n]++;
 }
 
 void osSpTaskYield(void)
