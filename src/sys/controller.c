@@ -4,6 +4,9 @@
 #include <sys/scheduler.h>
 #include <missing_libultra.h>
 #include <PR/os.h>
+#include "enhancements/enhancements.h"
+#include "sc/scmanager.h"
+#include "sc/sctypes.h"
 
 // 0x800450F0
 OSMesgQueue sSYControllerInitMesgQueue; // Queue for OS controller Init, Status, and Read
@@ -179,6 +182,15 @@ void syControllerUpdateGlobalData(void)
             gSYControllerDevices[i].button_update = sSYControllerDescs[i].unk08;
             gSYControllerDevices[i].stick_range.x = sSYControllerDescs[i].unk0E;
             gSYControllerDevices[i].stick_range.y = sSYControllerDescs[i].unk0F;
+
+            // only apply c-stick smash if we're in a game
+            if (gSCManagerBattleState != NULL && gSCManagerBattleState->players[i].fighter_gobj != NULL) {
+                // Apply C-Stick Smash
+                port_enhancement_c_stick_smash(i, &gSYControllerDevices[i].button_hold, &gSYControllerDevices[i].button_tap, &gSYControllerDevices[i].stick_range.x, &gSYControllerDevices[i].stick_range.y, sSYControllerDescs[i].unk04);
+
+                // Apply D-Pad Jump
+                port_enhancement_dpad_jump(i, &gSYControllerDevices[i].button_hold, &gSYControllerDevices[i].button_tap, sSYControllerDescs[i].unk04);
+            }
 
             sSYControllerDescs[i].unk04 = sSYControllerDescs[i].unk08 = sSYControllerDescs[i].unk0C = 0;
         }
