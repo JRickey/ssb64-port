@@ -5,7 +5,6 @@ extern void port_coroutine_yield(void);
 #include <gr/ground.h>
 #include <if/interface.h>
 #include <sc/scene.h>
-#include <sys/netinput.h>
 #include <sys/video.h>
 #include <sys/dma.h>
 #include <reloc_data.h>
@@ -622,7 +621,7 @@ SYTaskmanSetup dSC1PGameTaskmanSetup =
         2,                          // ???
         0xC000,                     // RDP Output Buffer Size
         sc1PGameFuncLights,         // Pre-render function
-        syNetInputFuncRead,         // Controller I/O function
+        syControllerFuncRead,       // Controller I/O function
     },
 
     0,                              // Number of GObjThreads
