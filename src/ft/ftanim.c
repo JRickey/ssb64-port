@@ -331,22 +331,10 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
                 break;
 
             case nGCAnimEvent16Block:
-#ifdef PORT
-                {
-                    u16 *raw16 = (u16*)root_dobj->anim_joint.event16;
-                    u32 raw32 = *(u32*)root_dobj->anim_joint.event16;
-                    port_log("SSB64: ftAnimParse BLOCK dobj=%p parent=%p raw16=[0x%04x 0x%04x 0x%04x 0x%04x] raw32=0x%08x pre_wait=%f pre_frame=%f\n",
-                        root_dobj, root_dobj->parent_gobj, raw16[0], raw16[1], raw16[2], raw16[3], raw32, root_dobj->anim_wait, root_dobj->anim_frame);
-                }
-#endif
                 if (AObjAnimAdvance(root_dobj->anim_joint.event16)->command.toggle)
                 {
                     root_dobj->anim_wait += AObjAnimAdvance(root_dobj->anim_joint.event16)->u;
                 }
-#ifdef PORT
-                port_log("SSB64: ftAnimParse BLOCK post_wait=%f event16_now=%p\n",
-                    root_dobj->anim_wait, root_dobj->anim_joint.event16);
-#endif
                 break;
 
             case nGCAnimEvent16SetValAfterBlock:
@@ -481,12 +469,6 @@ void ftAnimParseDObjFigatree(DObj *root_dobj)
                 break;
 
             case nGCAnimEvent32End:
-#ifdef PORT
-                port_log("SSB64: ftAnimParse END dobj=%p parent_gobj=%p prev_anim_wait=%f prev_anim_frame=%f is_anim_root=%d func_anim=%p\n",
-                    root_dobj, root_dobj->parent_gobj, root_dobj->anim_wait, root_dobj->anim_frame,
-                    (int)root_dobj->is_anim_root,
-                    root_dobj->parent_gobj ? (void*)root_dobj->parent_gobj->func_anim : NULL);
-#endif
                 current_aobj = root_dobj->aobj;
 
                 while (current_aobj != NULL)
