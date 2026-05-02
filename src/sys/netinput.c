@@ -14,10 +14,20 @@ SYNetInputSlot sSYNetInputSlots[MAXCONTROLLERS];
 SYNetInputFrame sSYNetInputHistory[MAXCONTROLLERS][SYNETINPUT_HISTORY_LENGTH];
 SYNetInputFrame sSYNetInputRemoteHistory[MAXCONTROLLERS][SYNETINPUT_HISTORY_LENGTH];
 SYNetInputFrame sSYNetInputSavedHistory[MAXCONTROLLERS][SYNETINPUT_HISTORY_LENGTH];
+SYNetInputReplayMetadata sSYNetInputReplayMetadata;
+u32 sSYNetInputTick;
+u32 sSYNetInputRecordedFrameCount;
+sb32 sSYNetInputIsRecording;
+sb32 sSYNetInputIsReplayMetadataValid;
 
 u32 syNetInputGetTick(void)
 {
-	return dSYTaskmanUpdateCount;
+	return sSYNetInputTick;
+}
+
+void syNetInputSetTick(u32 tick)
+{
+	sSYNetInputTick = tick;
 }
 
 sb32 syNetInputCheckPlayer(s32 player)
@@ -78,11 +88,31 @@ void syNetInputReset(void)
 	s32 player;
 	s32 i;
 
+	sSYNetInputTick = 0;
+	sSYNetInputRecordedFrameCount = 0;
+	sSYNetInputIsRecording = FALSE;
+	sSYNetInputIsReplayMetadataValid = FALSE;
+
+	sSYNetInputReplayMetadata.magic = SYNETINPUT_REPLAY_MAGIC;
+	sSYNetInputReplayMetadata.version = SYNETINPUT_REPLAY_VERSION;
+	sSYNetInputReplayMetadata.scene_kind = 0;
+	sSYNetInputReplayMetadata.player_count = 0;
+	sSYNetInputReplayMetadata.stage_kind = 0;
+	sSYNetInputReplayMetadata.stocks = 0;
+	sSYNetInputReplayMetadata.time_limit = 0;
+	sSYNetInputReplayMetadata.item_switch = 0;
+	sSYNetInputReplayMetadata.item_toggles = 0;
+
 	for (player = 0; player < MAXCONTROLLERS; player++)
 	{
 		sSYNetInputSlots[player].source = nSYNetInputSourceLocal;
 		syNetInputClearFrame(&sSYNetInputSlots[player].last_confirmed);
 		syNetInputClearFrame(&sSYNetInputSlots[player].last_published);
+		sSYNetInputReplayMetadata.player_kinds[player] = 0;
+		sSYNetInputReplayMetadata.fighter_kinds[player] = 0;
+		sSYNetInputReplayMetadata.costumes[player] = 0;
+		sSYNetInputReplayMetadata.teams[player] = 0;
+		sSYNetInputReplayMetadata.handicaps[player] = 0;
 
 		for (i = 0; i < SYNETINPUT_HISTORY_LENGTH; i++)
 		{
@@ -91,6 +121,11 @@ void syNetInputReset(void)
 			syNetInputClearFrame(&sSYNetInputSavedHistory[player][i]);
 		}
 	}
+}
+
+void syNetInputStartVSSession(void)
+{
+	syNetInputReset();
 }
 
 void syNetInputSetSlotSource(s32 player, SYNetInputSource source)
@@ -272,6 +307,50 @@ u32 syNetInputGetHistoryChecksum(s32 player, u32 tick_begin, u32 frame_count)
 	return checksum;
 }
 
+void syNetInputSetRecordingEnabled(sb32 is_enabled)
+{
+	sSYNetInputIsRecording = is_enabled;
+
+	if (is_enabled != FALSE)
+	{
+		sSYNetInputRecordedFrameCount = 0;
+	}
+}
+
+sb32 syNetInputGetRecordingEnabled(void)
+{
+	return sSYNetInputIsRecording;
+}
+
+u32 syNetInputGetRecordedFrameCount(void)
+{
+	return sSYNetInputRecordedFrameCount;
+}
+
+void syNetInputSetReplayMetadata(const SYNetInputReplayMetadata *metadata)
+{
+	if (metadata != NULL)
+	{
+		sSYNetInputReplayMetadata = *metadata;
+		sSYNetInputReplayMetadata.magic = SYNETINPUT_REPLAY_MAGIC;
+		sSYNetInputReplayMetadata.version = SYNETINPUT_REPLAY_VERSION;
+		sSYNetInputIsReplayMetadataValid = TRUE;
+	}
+}
+
+sb32 syNetInputGetReplayMetadata(SYNetInputReplayMetadata *out_metadata)
+{
+	if (sSYNetInputIsReplayMetadataValid == FALSE)
+	{
+		return FALSE;
+	}
+	if (out_metadata != NULL)
+	{
+		*out_metadata = sSYNetInputReplayMetadata;
+	}
+	return TRUE;
+}
+
 void syNetInputFuncRead(void)
 {
 	SYNetInputFrame frame;
@@ -287,4 +366,10 @@ void syNetInputFuncRead(void)
 		syNetInputPublishFrame(player, &frame);
 	}
 	syNetInputPublishMainController();
+
+	if (sSYNetInputIsRecording != FALSE)
+	{
+		sSYNetInputRecordedFrameCount++;
+	}
+	sSYNetInputTick++;
 }

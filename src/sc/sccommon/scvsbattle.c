@@ -141,6 +141,8 @@ void scVSBattleStartBattle(void)
 	FTDesc desc;
 	SYColorRGBA color;
 
+	syNetInputStartVSSession();
+
 	gSCManagerSceneData.is_reset = FALSE;
 	gSCManagerSceneData.is_suddendeath = FALSE;
 
