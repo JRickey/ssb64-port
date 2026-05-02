@@ -49,6 +49,9 @@ CMakeLists.txt
 - **SDL2** — windowing, input, audio backend
 - Reference ports: HarbourMasters/Starship (Star Fox 64), HarbourMasters/SpaghettiKart (Mario Kart 64)
 
+## Related Architecture Notes
+- `docs/netplay_architecture.md` — netplay input staging, prediction, saved input history, and the rollback input boundary
+
 ## What NOT to Include in Port
 - `src/ovl8/` — Debug overlay (developer tools)
 - `src/db/` — Debug battle/menu testing
