@@ -1116,6 +1116,9 @@ void mnPlayersVSMakeGate(s32 player)
 	mnPlayersVSMakePlayerKindSelect(player);
 
 	sMNPlayersVSSlots[player].name_emblem_gobj = gobj = gcMakeGObjSPAfter(0, NULL, 22, GOBJ_PRIORITY_DEFAULT);
+#ifdef PORT
+	sMNPlayersVSSlots[player].name_emblem_fkind = nFTKindNull;
+#endif
 	gcAddGObjDisplay(gobj, lbCommonDrawSObjAttr, 28, GOBJ_PRIORITY_DEFAULT, ~0);
 
 	mnPlayersVSUpdateNameAndEmblem(player);
@@ -1652,6 +1655,9 @@ void mnPlayersVSMakeFighter(GObj *fighter_gobj, s32 player, s32 fkind, s32 costu
 		desc.shade = sMNPlayersVSSlots[player].shade;
 		desc.figatree_heap = sMNPlayersVSSlots[player].figatree_heap;
 		desc.player = player;
+#ifdef PORT
+		desc.is_skip_shadow_setup = TRUE;
+#endif
 		fighter_gobj = ftManagerMakeFighter(&desc);
 
 		sMNPlayersVSSlots[player].player = fighter_gobj;
@@ -2351,6 +2357,9 @@ void mnPlayersVSUpdateFighter(s32 player)
 	sb32 is_skip_fighter = FALSE;
 	GObj *fighter_gobj = sMNPlayersVSSlots[player].player;
 
+	#ifdef PORT
+	s32 costume;
+#endif
 	if (fighter_gobj != NULL)
 	{
 		if (sMNPlayersVSSlots[player].pkind == nFTPlayerKindNot)
@@ -2368,6 +2377,30 @@ void mnPlayersVSUpdateFighter(s32 player)
 	{
 		sMNPlayersVSSlots[player].shade = mnPlayersVSGetShade(player);
 
+		#ifdef PORT
+		costume = mnPlayersVSGetFreeCostume(sMNPlayersVSSlots[player].fkind, player);
+
+		if (
+			(fighter_gobj != NULL) &&
+			(ftGetStruct(fighter_gobj)->fkind == sMNPlayersVSSlots[player].fkind))
+		{
+			if (sMNPlayersVSSlots[player].costume != costume)
+			{
+				sMNPlayersVSSlots[player].costume = costume;
+				ftParamInitAllParts(fighter_gobj, costume, sMNPlayersVSSlots[player].shade);
+			}
+			fighter_gobj->flags = GOBJ_FLAG_NONE;
+		}
+		else
+		{
+			mnPlayersVSMakeFighter
+			(
+				sMNPlayersVSSlots[player].player,
+				player,
+				sMNPlayersVSSlots[player].fkind, costume
+			);
+		}
+#else
 		mnPlayersVSMakeFighter
 		(
 			sMNPlayersVSSlots[player].player,
@@ -2375,6 +2408,7 @@ void mnPlayersVSUpdateFighter(s32 player)
 			sMNPlayersVSSlots[player].fkind,
 			mnPlayersVSGetFreeCostume(sMNPlayersVSSlots[player].fkind, player)
 		);
+#endif
 		sMNPlayersVSSlots[player].is_status_selected = FALSE;
 	}
 }
@@ -2420,7 +2454,15 @@ void mnPlayersVSUpdateNameAndEmblem(s32 player)
 	else
 	{
 		sMNPlayersVSSlots[player].name_emblem_gobj->flags = GOBJ_FLAG_NONE;
+#ifdef PORT
+		if (sMNPlayersVSSlots[player].name_emblem_fkind != sMNPlayersVSSlots[player].fkind)
+		{
+			sMNPlayersVSSlots[player].name_emblem_fkind = sMNPlayersVSSlots[player].fkind;
+			mnPlayersVSMakeNameAndEmblem(sMNPlayersVSSlots[player].name_emblem_gobj, player, sMNPlayersVSSlots[player].fkind);
+		}
+#else
 		mnPlayersVSMakeNameAndEmblem(sMNPlayersVSSlots[player].name_emblem_gobj, player, sMNPlayersVSSlots[player].fkind);
+#endif
 	}
 }
 
