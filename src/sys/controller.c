@@ -183,6 +183,17 @@ void syControllerUpdateGlobalData(void)
             gSYControllerDevices[i].stick_range.x = sSYControllerDescs[i].unk0E;
             gSYControllerDevices[i].stick_range.y = sSYControllerDescs[i].unk0F;
 
+            // NRage-style per-axis stick remap. Runs unconditionally (also in
+            // menus / CSS) because the formula is the user's chosen stick
+            // shaping. No-op when the per-player toggle is off — LUS's stock
+            // octagon-clamped output flows through unchanged in that case.
+            // Must come BEFORE c_stick_smash so the synthetic ±80 values that
+            // c_stick_smash writes into stick_range are not subsequently
+            // re-rescaled by our deadzone/range formula.
+            port_enhancement_analog_remap(i,
+                &gSYControllerDevices[i].stick_range.x,
+                &gSYControllerDevices[i].stick_range.y);
+
             // Apply input remap enhancements only during gameplay. The
             // BattleState->players[] array is only valid in VS / 1P scenes;
             // it's NULL in menus / CSS / opening / staffroll, and we must

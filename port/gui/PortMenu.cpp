@@ -339,67 +339,71 @@ void PortMenu::AddMenuSettings() {
                      .ComboMap(kHitboxViewMap)
                      .DefaultIndex(0));
 
-    AddWidget(path, "Per-Port Enhancements", WIDGET_SEPARATOR_TEXT);
+    // --- Controls sidebar: per-player input remapping ---
+    path.sidebarName = "Controls";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Controls", 1);
 
-    // --- Player 1 ---
-    AddWidget(path, "Player 1", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Disable Tap Jump (P1)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(0))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Disables jumping by pushing up on the analog stick."));
-    AddWidget(path, "C-Stick Smash (P1)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::CStickSmashCVarName(0))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Replaces C-Button inputs with instant smash attacks."));
-    AddWidget(path, "D-Pad to Jump (P1)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::DPadJumpCVarName(0))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Translates N64 D-Pad inputs into C-Up (Jump)."));
+    for (int p = 0; p < PORT_ENHANCEMENT_MAX_PLAYERS; ++p) {
+        const std::string playerLabel = fmt::format("Player {}", p + 1);
+        AddWidget(path, playerLabel, WIDGET_SEPARATOR_TEXT);
 
-    // --- Player 2 ---
-    AddWidget(path, "Player 2", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Disable Tap Jump (P2)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(1))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
-    AddWidget(path, "C-Stick Smash (P2)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::CStickSmashCVarName(1))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
-    AddWidget(path, "D-Pad to Jump (P2)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::DPadJumpCVarName(1))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
+        AddWidget(path, fmt::format("Disable Tap Jump (P{})", p + 1), WIDGET_CVAR_CHECKBOX)
+            .CVar(enhancements::TapJumpCVarName(p))
+            .RaceDisable(false)
+            .Options(CheckboxOptions().Tooltip("Disables jumping by pushing up on the analog stick."));
 
-    // --- Player 3 ---
-    AddWidget(path, "Player 3", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Disable Tap Jump (P3)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(2))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
-    AddWidget(path, "C-Stick Smash (P3)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::CStickSmashCVarName(2))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
-    AddWidget(path, "D-Pad to Jump (P3)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::DPadJumpCVarName(2))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
+        AddWidget(path, fmt::format("C-Stick Smash (P{})", p + 1), WIDGET_CVAR_CHECKBOX)
+            .CVar(enhancements::CStickSmashCVarName(p))
+            .RaceDisable(false)
+            .Options(CheckboxOptions().Tooltip("Replaces C-Button inputs with instant smash attacks."));
 
-    // --- Player 4 ---
-    AddWidget(path, "Player 4", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Disable Tap Jump (P4)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(3))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
-    AddWidget(path, "C-Stick Smash (P4)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::CStickSmashCVarName(3))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
-    AddWidget(path, "D-Pad to Jump (P4)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::DPadJumpCVarName(3))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
+        AddWidget(path, fmt::format("D-Pad to Jump (P{})", p + 1), WIDGET_CVAR_CHECKBOX)
+            .CVar(enhancements::DPadJumpCVarName(p))
+            .RaceDisable(false)
+            .Options(CheckboxOptions().Tooltip("Translates N64 D-Pad inputs into C-Up (Jump)."));
+
+        AddWidget(path, fmt::format("NRage Analog Stick Remap (P{})", p + 1), WIDGET_CVAR_CHECKBOX)
+            .CVar(enhancements::AnalogRemapCVarName(p))
+            .RaceDisable(false)
+            .Options(CheckboxOptions().Tooltip(
+                "When ON: replaces libultraship's stick processing with the NRage per-axis "
+                "deadzone+range formula (no octagonal gate, no radial deadzone, no notch snap). "
+                "When OFF: libultraship's stock pipeline runs unchanged. Both schemes coexist; "
+                "this toggle picks which one runs for this player."));
+
+        const char* deadzoneCVar = enhancements::AnalogRemapDeadzoneCVarName(p);
+        const char* enableCVar   = enhancements::AnalogRemapCVarName(p);
+        AddWidget(path, fmt::format("Remap Deadzone (P{})", p + 1), WIDGET_CVAR_SLIDER_FLOAT)
+            .CVar(deadzoneCVar)
+            .RaceDisable(false)
+            .PreFunc([enableCVar](WidgetInfo& info) {
+                if (!CVarGetInteger(enableCVar, 0)) {
+                    info.options->disabled = true;
+                    info.options->disabledTooltip = "Enable NRage Analog Stick Remap to adjust this.";
+                }
+            })
+            .Options(FloatSliderOptions()
+                         .Min(0.0f).Max(0.99f).DefaultValue(0.10f)
+                         .IsPercentage()
+                         .Tooltip("Per-axis deadzone (0–99%). Inputs inside this fraction of "
+                                  "max deflection on each axis read as 0."));
+
+        const char* rangeCVar = enhancements::AnalogRemapRangeCVarName(p);
+        AddWidget(path, fmt::format("Remap Range (P{})", p + 1), WIDGET_CVAR_SLIDER_FLOAT)
+            .CVar(rangeCVar)
+            .RaceDisable(false)
+            .PreFunc([enableCVar](WidgetInfo& info) {
+                if (!CVarGetInteger(enableCVar, 0)) {
+                    info.options->disabled = true;
+                    info.options->disabledTooltip = "Enable NRage Analog Stick Remap to adjust this.";
+                }
+            })
+            .Options(FloatSliderOptions()
+                         .Min(0.5f).Max(1.5f).DefaultValue(1.0f)
+                         .IsPercentage()
+                         .Tooltip("Output scale (50–150%). 100% caps at the N64's natural max."));
+    }
 }
 
 void PortMenu::AddMenuWindows() {

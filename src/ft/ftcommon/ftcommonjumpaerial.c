@@ -1,5 +1,9 @@
 #include <ft/fighter.h>
 
+#ifdef PORT
+#include <enhancements/enhancements.h>
+#endif
+
 // // // // // // // // // // // //
 //                               //
 //       INITIALIZED DATA        //
@@ -263,7 +267,13 @@ sb32 ftCommonJumpAerialMultiCheckJumpButtonHold(FTStruct *fp)
 // 0x80140150
 s32 ftCommonJumpAerialMultiGetJumpInputType(FTStruct *fp)
 {
-    if (fp->input.pl.stick_range.y >= FTCOMMON_JUMPAERIAL_STICK_RANGE_MIN)
+#ifdef PORT
+    sb32 tap_jump_disabled = port_enhancement_tap_jump_disabled(fp->player);
+#else
+    sb32 tap_jump_disabled = FALSE;
+#endif
+
+    if (!tap_jump_disabled && (fp->input.pl.stick_range.y >= FTCOMMON_JUMPAERIAL_STICK_RANGE_MIN))
     {
         return FTCOMMON_JUMPAERIAL_INPUT_TYPE_STICK;
     }

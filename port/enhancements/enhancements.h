@@ -39,6 +39,15 @@ void port_enhancement_c_stick_smash(int player_index, unsigned short* button_hol
 // `tap_pre_remap` has the same meaning as above.
 void port_enhancement_dpad_jump(int player_index, unsigned short* button_hold, unsigned short* button_tap, unsigned short tap_pre_remap);
 
+// Per-player NRage-style analog-stick remap. When the per-player toggle is on,
+// rewrites *stick_x/*stick_y from libultraship's raw per-direction axis values
+// using the verbatim per-axis deadzone+range formula from
+// Ownasaurus/USBtoN64v2 (usbh_xpad.c), bypassing libultraship's circular
+// deadzone, octagonal-gate clamp, and notch snap. When the toggle is off this
+// is a no-op and libultraship's stock pipeline output flows through unchanged
+// — both schemes coexist, the toggle picks which runs.
+void port_enhancement_analog_remap(int player_index, signed char* stick_x, signed char* stick_y);
+
 #ifdef __cplusplus
 }
 
@@ -49,6 +58,9 @@ const char* HitboxViewCVarName();
 const char* StageClearFrozenWallpaperCVarName();
 const char* CStickSmashCVarName(int playerIndex);
 const char* DPadJumpCVarName(int playerIndex);
+const char* AnalogRemapCVarName(int playerIndex);
+const char* AnalogRemapDeadzoneCVarName(int playerIndex);
+const char* AnalogRemapRangeCVarName(int playerIndex);
 }
 }
 #endif
