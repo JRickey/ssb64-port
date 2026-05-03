@@ -20,7 +20,7 @@
 #   5. Runs `cmake -B build` (configure only; add --build to also compile).
 #
 # Resulting worktree is fully editable:
-#   - Edit any file in src/, port/, libultraship/, torch/
+#   - Edit any file in decomp/src/, decomp/include/, port/, libultraship/, torch/
 #   - Commit normally inside libultraship/ / torch/, then push to the fork
 #   - In the outer worktree: `git add libultraship && git commit` bumps the
 #     submodule pointer; push that commit up when merging back to main.
@@ -130,7 +130,7 @@ python3 "$WT_DIR/tools/generate_reloc_stubs.py"
 
 step "Encoding credits text"
 (
-    cd "$WT_DIR/src/credits"
+    cd "$WT_DIR/decomp/src/credits"
     for f in staff.credits.us.txt titles.credits.us.txt; do
         python3 "$WT_DIR/tools/creditsTextConverter.py" "$f" > /dev/null
     done
