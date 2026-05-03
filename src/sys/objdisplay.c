@@ -180,10 +180,25 @@ static void gcRenderDiagDescribePointer(const void *ptr, u32 *file_id, uintptr_t
     }
 }
 
+/* SSB64_RENDER_DIAG is a one-shot diagnostic, never toggled mid-run. Cache the
+ * enabled state so the per-MObj fast path doesn't take the macOS getenv
+ * unfair-lock + linear __environ walk on every call. With 4 fighters in a busy
+ * scene that's hundreds of locked env walks per frame for an opt-out check
+ * that nearly always returns "off". */
+static bool gcRenderDiagEnabled(void)
+{
+    static int sCached = -1;
+    if (sCached == -1)
+    {
+        const char *enabled = getenv("SSB64_RENDER_DIAG");
+        sCached = (enabled != NULL && enabled[0] != '\0' && enabled[0] != '0') ? 1 : 0;
+    }
+    return sCached != 0;
+}
+
 static void gcRenderDiagLogMObj(DObj *dobj, MObj *mobj, u16 flags, void *current_sprite, u32 current_sprite_token,
                                 void *next_sprite, u32 next_sprite_token, void *palette_data, u32 palette_token)
 {
-    const char *enabled = getenv("SSB64_RENDER_DIAG");
     bool matches;
     u32 cur_file;
     u32 next_file;
@@ -198,7 +213,7 @@ static void gcRenderDiagLogMObj(DObj *dobj, MObj *mobj, u16 flags, void *current
     const char *pal_path;
     const char *dl_path;
 
-    if ((enabled == NULL) || (enabled[0] == '\0') || (enabled[0] == '0') || (sGCMObjRenderDiagCount >= gcRenderDiagLimit()))
+    if (!gcRenderDiagEnabled() || (sGCMObjRenderDiagCount >= gcRenderDiagLimit()))
     {
         return;
     }

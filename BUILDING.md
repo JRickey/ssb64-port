@@ -79,6 +79,17 @@ Run:
 ./build-cmake/BattleShip
 ```
 
+Build Release:
+
+Ninja is single-config, so the build type is fixed at configure time. Use a separate build directory:
+
+```bash
+cmake -S . -B build-release -GNinja -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release
+```
+
+Run: `./build-release/BattleShip`
+
 ## Asset Targets
 
 Generate generated headers / codegen inputs:

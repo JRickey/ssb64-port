@@ -449,6 +449,19 @@ void PortShutdown(void) {
 	// Otherwise their shared_ptrs survive into __cxa_finalize_ranges and
 	// Ship::IResource::~IResource() lands on a shut-down spdlog.
 	portAudioShutdownAssets();
+	// Stop any in-flight controller rumble while Context + ControlDeck +
+	// gamepads + SDL are all still alive. SDLRumbleMapping::StopRumble walks
+	// back through Context::GetInstance(), so this MUST run before
+	// sContext.reset() — destructor re-entry through the Context singleton
+	// has its own SIGSEGV trap. Issue #82: on Linux/evdev, the last
+	// SDL_GameControllerRumble call uploads an FF effect with
+	// SDL_MAX_RUMBLE_DURATION_MS (~32s); without an explicit stop, the
+	// kernel runs the effect to completion after the process exits.
+	if (sContext) {
+		if (auto cd = sContext->GetControlDeck()) {
+			cd->StopAllRumble();
+		}
+	}
 	sContext.reset();
 	port_log_close();
 }

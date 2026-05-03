@@ -22,6 +22,23 @@ int port_enhancement_hitbox_display_override(int current_mode);
 // where the GPU-readback bridge is unavailable or unreliable.
 int port_enhancement_stage_clear_frozen_wallpaper_enabled(void);
 
+// C-Stick → smash/aerial attack remap. When enabled for a player, the C-button
+// directional inputs are translated into the corresponding smash/aerial attack
+// inputs (mirroring later Smash games' right-stick behaviour) instead of the
+// stock jump assignments. Active only during gameplay so CSS palette cycling
+// with C buttons is unaffected.
+//
+// `tap_pre_remap` is a snapshot of `*button_tap` taken BEFORE this helper
+// rewrites it, so callees can still ask "was this C-button tapped this frame
+// (rising edge)?" after the C-bit has been cleared from the working tap mask.
+// The caller passes the same value it copies into `*button_tap`.
+void port_enhancement_c_stick_smash(int player_index, unsigned short* button_hold, unsigned short* button_tap, signed char* stick_x, signed char* stick_y, unsigned short tap_pre_remap);
+
+// D-Pad → C-button remap. Companion to the C-Stick smash option for players
+// who also have tap-jump disabled and would otherwise lose their jump input.
+// `tap_pre_remap` has the same meaning as above.
+void port_enhancement_dpad_jump(int player_index, unsigned short* button_hold, unsigned short* button_tap, unsigned short tap_pre_remap);
+
 #ifdef __cplusplus
 }
 
@@ -30,6 +47,8 @@ namespace enhancements {
 const char* TapJumpCVarName(int playerIndex);
 const char* HitboxViewCVarName();
 const char* StageClearFrozenWallpaperCVarName();
+const char* CStickSmashCVarName(int playerIndex);
+const char* DPadJumpCVarName(int playerIndex);
 }
 }
 #endif
