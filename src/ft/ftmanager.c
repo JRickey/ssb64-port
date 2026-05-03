@@ -682,7 +682,19 @@ void ftManagerInitFighter(GObj *fighter_gobj, FTDesc *desc)
              * polygon-Kirby on 1P stage 12 uses real Kirby's AI attack table and
              * fires neutral-B at any nearby polygon, so its eat path also reads
              * copy[fkind] — must be fixed up even when the player isn't Kirby.
-             * Idempotent via sStructU16Fixups. */
+             * Idempotent via sStructU16Fixups.
+             *
+             * NULL guard: the FTKirbyCopy table lives in Kirby's main-motion file,
+             * which is only loaded under `gFTDataKirbyMainMotion` when real Kirby
+             * is on the stage.  N-Kirby's FTData loads the same physical file but
+             * stores it under `gFTDataNKirbySubMotion` instead, so on stages with
+             * polygon Kirby and no real Kirby (e.g. Race to the Finish randomly
+             * picking N-Kirby as one of the three polygon enemies) the lookup
+             * returns NULL+0=NULL.  Skip the fixup in that case — the eat-path
+             * consumer in ftkirbyspecialn.c reads from the same NULL global so
+             * polygon Kirby cannot actually invoke the inhale code path there
+             * either; the N64 build relies on the same precondition. */
+            if (copy != NULL)
             {
                 s32 i;
                 for (i = 0; i < nFTKindEnumCount; i++)
