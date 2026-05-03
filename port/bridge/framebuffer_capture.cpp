@@ -12,8 +12,10 @@
  *
  * This shim bridges the gap by reading the live GPU game framebuffer
  * back to a CPU buffer (via GfxRenderingAPI::ReadFramebufferToCPU) and
- * box-downsampling to N64 native resolution (320x240), with a Y-flip
- * for OpenGL since glReadPixels uses bottom-left origin.
+ * box-downsampling to N64 native resolution (320x240). All three
+ * backends (OpenGL / D3D11 / Metal) deliver pixels in N64 top-down
+ * order, so no row flip is needed; see the orientation comment around
+ * the readback below for the OpenGL specifics.
  *
  * Cost: a single GPU->CPU readback per call. Only invoked at scene-
  * boundary moments (stage clear init, transition setup), not per-frame.
@@ -26,7 +28,6 @@
 #include <fast/backends/gfx_rendering_api.h>
 #include <ship/Context.h>
 
-#include <cstring>
 #include <vector>
 
 static uint16_t sCaptureBuf[PORT_FB_CAPTURE_W * PORT_FB_CAPTURE_H];
@@ -136,13 +137,16 @@ extern "C" int port_capture_game_framebuffer(void) {
     std::vector<uint16_t> src(static_cast<size_t>(srcW) * srcH);
     interp->mRapi->ReadFramebufferToCPU(fbId, srcW, srcH, src.data());
 
-    /* OpenGL's glReadPixels has its origin at bottom-left while N64
-     * framebuffers store top-down; D3D11/Metal already match N64. */
-    bool flipY = false;
-    const char *apiName = interp->mRapi->GetName();
-    if (apiName != nullptr && std::strcmp(apiName, "OpenGL") == 0) {
-        flipY = true;
-    }
+    /* Row order is N64 top-down on every backend after this readback.
+     * D3D11 / Metal already store textures top-left so their CopyResource /
+     * compute-shader paths return row 0 = top of image. OpenGL's glReadPixels
+     * returns row 0 = bottom in raw GL memory order, but mGameFb is created
+     * with invertY=true (interpreter.cpp:5893), which negates vertex Y at
+     * draw time so the framebuffer's OGL-bottom row IS the N64 top row. The
+     * MSAA-resolved target follows the same effective convention through the
+     * resolve step. Verified empirically: A/B-tested all three flip rules
+     * (always-flip-on-OpenGL / no-flip / per-FB-invertY) on OGL — only the
+     * no-flip variant produced an upright stage-clear wallpaper. */
 
     /* Nearest-neighbor box downsample. Acceptable for a wallpaper that
      * only shows once at scene boundaries; bilinear would smear the
@@ -156,9 +160,6 @@ extern "C" int port_capture_game_framebuffer(void) {
      * for the matching `BE16SWAP` in the GBI-driven readback path.) */
     for (uint32_t dy = 0; dy < PORT_FB_CAPTURE_H; dy++) {
         uint32_t sy = (dy * srcH) / PORT_FB_CAPTURE_H;
-        if (flipY) {
-            sy = srcH - 1 - sy;
-        }
         const uint16_t *srcRow = src.data() + static_cast<size_t>(sy) * srcW;
         uint16_t *dstRow = sCaptureBuf + static_cast<size_t>(dy) * PORT_FB_CAPTURE_W;
         for (uint32_t dx = 0; dx < PORT_FB_CAPTURE_W; dx++) {
