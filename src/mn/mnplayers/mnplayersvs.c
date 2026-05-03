@@ -4641,6 +4641,23 @@ void mnPlayersVSInitPlayer(s32 player)
 	sMNPlayersVSSlots[player].p_sfx = NULL;
 	sMNPlayersVSSlots[player].sfx_id = 0;
 	sMNPlayersVSSlots[player].player = NULL;
+#ifdef PORT
+	/* Issue #103: the original decomp clears `player` and the secondary GObj
+	 * pointers above but leaves the seven primary GObj fields below pointing
+	 * at the previous CSS scene's GObjs. On N64 the old GObj pool is reset
+	 * before re-entry so those addresses are harmless; on the port the pool
+	 * lives in the prior scene's arena which taskman.c now frees, so any
+	 * stale pointer here is a freed-arena deref next time something reads it.
+	 * Clear them on every slot init. */
+	sMNPlayersVSSlots[player].cursor = NULL;
+	sMNPlayersVSSlots[player].puck = NULL;
+	sMNPlayersVSSlots[player].type_button = NULL;
+	sMNPlayersVSSlots[player].name_emblem_gobj = NULL;
+	sMNPlayersVSSlots[player].panel_doors = NULL;
+	sMNPlayersVSSlots[player].panel = NULL;
+	sMNPlayersVSSlots[player].type = NULL;
+	sMNPlayersVSSlots[player].figatree_heap = NULL;
+#endif
 	sMNPlayersVSSlots[player].fkind = gSCManagerTransferBattleState.players[player].fkind;
 
 	if ((gSCManagerTransferBattleState.players[player].pkind == nFTPlayerKindMan) && (sMNPlayersVSControllerOrders[player] == -1))

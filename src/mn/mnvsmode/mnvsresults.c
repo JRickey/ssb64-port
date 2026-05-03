@@ -3334,6 +3334,21 @@ void mnVSResultsFuncStart(void)
 	LBRelocSetup rl_setup;
 	s32 i;
 
+#ifdef PORT
+	/* Issue #103: sMNVSResultsFighterGObjs and sMNVSResultsFigatreeHeaps are
+	 * static (BSS) arrays that survive scene transitions. The previous
+	 * results-screen instance left them holding pointers into that scene's
+	 * arena, which taskman.c now frees at the next scene transition — any
+	 * read before mnVSResultsMakeFighter rewrites the slot at line 993
+	 * dereferences freed host memory. Clear them here before any other
+	 * results-scene state is set up. */
+	for (i = 0; i < ARRAY_COUNT(sMNVSResultsFighterGObjs); i++)
+	{
+		sMNVSResultsFighterGObjs[i] = NULL;
+		sMNVSResultsFigatreeHeaps[i] = NULL;
+	}
+#endif
+
 	rl_setup.table_addr = (uintptr_t)&lLBRelocTableAddr;
 	rl_setup.table_files_num = (u32)llRelocFileCount;
 	rl_setup.file_heap = NULL;

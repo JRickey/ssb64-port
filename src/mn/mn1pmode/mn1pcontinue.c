@@ -1191,6 +1191,15 @@ void mnPlayers1PGameContinueFuncStart(void)
     s32 unused;
     LBRelocSetup rl_setup;
 
+#ifdef PORT
+    /* Issue #103: sMN1PContinueFighterGObj and sMN1PContinueFigatreeHeap are
+     * static globals that survive scene transitions; the previous instance
+     * left them holding pointers into a now-freed scene arena. Clear before
+     * mnPlayers1PGameContinueFuncRun assigns the new fighter at line 348. */
+    sMN1PContinueFighterGObj = NULL;
+    sMN1PContinueFigatreeHeap = NULL;
+#endif
+
     rl_setup.table_addr = (uintptr_t)&lLBRelocTableAddr;
     rl_setup.table_files_num = (u32)llRelocFileCount;
     rl_setup.file_heap = NULL;

@@ -939,6 +939,23 @@ void scManagerRunLoop(sb32 arg)
 #ifdef PORT
 		port_log("SSB64: scManagerRunLoop — entering scene %d\n",
 		         (int)gSCManagerSceneData.scene_curr);
+
+		/* Issue #103 defence: clear cross-scene GObj pointers in the three
+		 * persistent battle-state structs before dispatching the next scene.
+		 * `fighter_gobj` is the only field in SCPlayerData that holds a host
+		 * pointer; it's set at fighter spawn (ftparam.c:197 in movie scenes,
+		 * and via FTStruct linkage in the regular battle path), survives the
+		 * battle scene's arena, and is read across scenes in callbacks like
+		 * ftshadow.c:107 and ftcomputer.c:5623. With taskman.c's prev-arena
+		 * free in place those reads now SIGSEGV at the read site instead of
+		 * hitting plausible-looking stale data. NULL the slot at the scene
+		 * boundary so the read just yields NULL (which the consumers already
+		 * gate on, e.g. controller.c:208). */
+		for (s32 _p = 0; _p < GMCOMMON_PLAYERS_MAX; _p++) {
+			gSCManager1PGameBattleState.players[_p].fighter_gobj = NULL;
+			gSCManagerVSBattleState.players[_p].fighter_gobj = NULL;
+			gSCManagerTransferBattleState.players[_p].fighter_gobj = NULL;
+		}
 #endif
 		switch (gSCManagerSceneData.scene_curr)
 		{

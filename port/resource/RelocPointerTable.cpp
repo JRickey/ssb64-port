@@ -8,22 +8,32 @@
  * Flat array mapping token index → pointer.
  * Index 0 is reserved (NULL token). Valid indices start at 1.
  *
- * Tokens include an 8-bit generation in the high byte. This prevents a stale
- * token from an old scene from resolving to a new scene's pointer after reset.
+ * Token layout: [12 bits generation][20 bits index]
+ *   - 4096 generations before wrap (vs the previous 128, which a long
+ *     classic-mode session can blow through in under an hour — at which
+ *     point a stale token whose generation byte coincidentally re-matches
+ *     resolves through the current table and returns whatever pointer
+ *     happens to live at that index now). 4096 generations is days of
+ *     continuous play — effectively infinite for real users.
+ *   - 1M indices per scene. Old layout allowed 16M; real measurements
+ *     show typical usage well under 100K, so 1M leaves 10x headroom.
+ *     Anything that registers >1M tokens in a single scene needs a real
+ *     conversation about why before we widen this back.
  *
- * Initial capacity: 256K entries (~2 MB). Grows by doubling if needed.
- * Typical usage per scene is well under 100K tokens.
+ * Initial capacity: 256K entries (~2 MB). Grows by doubling if needed,
+ * capped at TOKEN_INDEX_MASK (1M).
  */
 
 static void **sPointerTable = nullptr;
 static uint32_t sNextIndex = 1;
 static uint32_t sCapacity = 0;
-static uint32_t sGeneration = 0x80;
+static uint32_t sGeneration = 0x080;
 
 static constexpr uint32_t INITIAL_CAPACITY = 256 * 1024;
-static constexpr uint32_t TOKEN_GENERATION_SHIFT = 24;
-static constexpr uint32_t TOKEN_INDEX_MASK = 0x00FFFFFF;
-static constexpr uint32_t TOKEN_GENERATION_MIN = 0x80;
+static constexpr uint32_t TOKEN_GENERATION_SHIFT = 20;
+static constexpr uint32_t TOKEN_INDEX_MASK = 0x000FFFFF;     // 20 bits = 1M-1
+static constexpr uint32_t TOKEN_GENERATION_MAX = 0xFFF;      // 12 bits
+static constexpr uint32_t TOKEN_GENERATION_MIN = 0x080;
 
 static void ensureCapacity(void)
 {
@@ -101,13 +111,13 @@ void *portRelocResolvePointerDebug(uint32_t token, const char *file, int line)
 		if (file != nullptr)
 		{
 			spdlog::error("RelocPointerTable: invalid/stale token 0x{:08X} "
-			              "(generation=0x{:02X}, max_index={}, caller={}:{})",
+			              "(generation=0x{:03X}, max_index={}, caller={}:{})",
 			              token, sGeneration, sNextIndex - 1, file, line);
 		}
 		else
 		{
 			spdlog::error("RelocPointerTable: invalid/stale token 0x{:08X} "
-			              "(generation=0x{:02X}, max_index={})",
+			              "(generation=0x{:03X}, max_index={})",
 			              token, sGeneration, sNextIndex - 1);
 		}
 		return nullptr;
@@ -131,7 +141,7 @@ void portRelocResetPointerTable(void)
 {
 	sNextIndex = 1;
 	sGeneration++;
-	if (sGeneration > 0xFF)
+	if (sGeneration > TOKEN_GENERATION_MAX)
 	{
 		sGeneration = TOKEN_GENERATION_MIN;
 	}
