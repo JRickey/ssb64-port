@@ -256,6 +256,28 @@ static int PortInitImpl(int argc, char* argv[]) {
 		cv->SetFloat("gAdvancedResolution.AspectRatioX", 4.0f);
 		cv->SetFloat("gAdvancedResolution.AspectRatioY", 3.0f);
 		cv->SetInteger("gAdvancedResolution.Enabled", 1);
+
+		/* Issue #96 migration. v0.7-beta stored the per-player NRage
+		 * analog-remap enable flag at gEnhancements.AnalogRemap.PX —
+		 * the same JSON path that PX.Deadzone / PX.Range hang off of.
+		 * That made PX both a scalar and a parent, and Config::Save's
+		 * unflatten() threw json::type_error.313 the first time the
+		 * Deadzone or Range slider moved, truncating the file to
+		 * empty before the throw. The enable cvar is now stored at
+		 * gEnhancements.AnalogRemap.PX.Enabled (sibling of Deadzone
+		 * / Range). Migrate any legacy scalar by copying its value
+		 * to the new key and clearing the old key, otherwise the
+		 * legacy entry would re-introduce the conflict on next save. */
+		for (int p = 0; p < 4; ++p) {
+			char legacy[64];
+			char modern[64];
+			std::snprintf(legacy, sizeof(legacy), "gEnhancements.AnalogRemap.P%d", p + 1);
+			std::snprintf(modern, sizeof(modern), "gEnhancements.AnalogRemap.P%d.Enabled", p + 1);
+			if (auto var = cv->Get(legacy); var && var->Type == Ship::ConsoleVariableType::Integer) {
+				cv->SetInteger(modern, var->Integer);
+				cv->ClearVariable(legacy);
+			}
+		}
 	}
 
 #ifdef __APPLE__

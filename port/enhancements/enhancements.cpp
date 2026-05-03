@@ -42,11 +42,17 @@ constexpr const char* kDPadJumpCVars[PORT_ENHANCEMENT_MAX_PLAYERS] = {
 // magnitudes via the per-axis formula in
 // usbh_xpad.c (Ownasaurus/USBtoN64v2). Disabled by default; the LUS pipeline
 // (circular deadzone + octagonal gate + notch snap) runs unchanged when off.
+// Enable key has to live UNDER PX (as a sibling of Deadzone/Range), not AT PX.
+// The config layer stores cvars in flattened JSON-pointer form and unflattens
+// on every save; if PX were both a scalar (the enable flag) and a parent of
+// PX.Deadzone / PX.Range, nlohmann's unflatten throws type_error.313 on the
+// next save and Config::Save truncates the file to empty before serializing,
+// wiping the user's settings (issue #96).
 constexpr const char* kAnalogRemapEnableCVars[PORT_ENHANCEMENT_MAX_PLAYERS] = {
-    "gEnhancements.AnalogRemap.P1",
-    "gEnhancements.AnalogRemap.P2",
-    "gEnhancements.AnalogRemap.P3",
-    "gEnhancements.AnalogRemap.P4",
+    "gEnhancements.AnalogRemap.P1.Enabled",
+    "gEnhancements.AnalogRemap.P2.Enabled",
+    "gEnhancements.AnalogRemap.P3.Enabled",
+    "gEnhancements.AnalogRemap.P4.Enabled",
 };
 constexpr const char* kAnalogRemapDeadzoneCVars[PORT_ENHANCEMENT_MAX_PLAYERS] = {
     "gEnhancements.AnalogRemap.P1.Deadzone",
