@@ -325,6 +325,13 @@ void PortMenu::AddMenuSettings() {
             "(sub-millisecond cost) so the prior gameplay frame is preserved across the "
             "scene transition. Disable to revert to a solid black background.")
                      .DefaultValue(true));
+    AddWidget(path, "Disable Stage Hazards", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::StageHazardsDisabledCVarName())
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip(
+            "Disables stage specific hazards such as moving platforms, tornadoes, Arwings, wind, etc."
+            "Does not take effect mid-battle, only between battles.")
+                     .DefaultValue(false));
     AddWidget(path, "Debug", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Hitbox View", WIDGET_CVAR_COMBOBOX)
         .CVar(enhancements::HitboxViewCVarName())
