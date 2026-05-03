@@ -1318,9 +1318,24 @@ void syTaskmanStartTask(SYTaskmanSetup *tsetup)
 	 * symbols. In the host port those symbols are ordinary globals, so their
 	 * relative addresses are not a valid heap on any platform. Use a fresh
 	 * scene heap instead; this keeps scene memory ownership explicit instead
-	 * of relying on host linker layout or allocator reuse. */
+	 * of relying on host linker layout or allocator reuse.
+	 *
+	 * Free the previous scene's arena before allocating a new one. Without
+	 * this each scene transition leaks 16MB to libc and old arenas stay
+	 * mapped (and READABLE) for the rest of the process lifetime — which
+	 * means stale pointers from prior scenes still resolve to plausible-
+	 * looking memory instead of segfaulting at the moment of misuse.
+	 *
+	 * Suspected root cause for issue #103-family crashes: a long-lived
+	 * structure (CSS slot, fighter persistence) holds a pointer or token
+	 * referring to scene-N's arena; scene N+1 reads through it and gets
+	 * stale GBI command bytes or a bogus vertex pointer instead of a clean
+	 * NULL/SIGSEGV that we could trace. Freeing the prev arena turns
+	 * dangling-reference reads into hard faults at the dangling site,
+	 * which is far easier to triage. */
 	{
 		static const size_t kPortHeapSize = 16 * 1024 * 1024;
+		static void *sPrevHeap = NULL;
 		void *heap = malloc(kPortHeapSize);
 		if (heap == NULL)
 		{
@@ -1331,6 +1346,12 @@ void syTaskmanStartTask(SYTaskmanSetup *tsetup)
 		port_log("SSB64: syTaskmanStartTask — decomp arena_start=%p arena_size=0x%llx (ignored on PORT)\n",
 		         tsetup->scene_setup.arena_start,
 		         (unsigned long long)tsetup->scene_setup.arena_size);
+		if (sPrevHeap != NULL)
+		{
+			port_log("SSB64: syTaskmanStartTask — freeing prev PORT heap=%p (16MiB)\n", sPrevHeap);
+			free(sPrevHeap);
+		}
+		sPrevHeap = heap;
 		tsetup->scene_setup.arena_start = heap;
 		tsetup->scene_setup.arena_size = (u32)kPortHeapSize;
 		port_log("SSB64: syTaskmanStartTask — using fresh PORT heap arena_start=%p arena_size=0x%llx\n",
