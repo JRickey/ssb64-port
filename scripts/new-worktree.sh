@@ -93,7 +93,13 @@ ln -sf "$ROM_SRC" "$WT_DIR/baserom.us.$ROM_EXT"
 # Instead: clone from the main tree's working submodule (git follows the
 # .git gitfile → .git/modules/<name>), then reset origin to the real SSH
 # upstream so pushes from the worktree go to GitHub.
-for sm in libultraship torch; do
+for sm in libultraship torch decomp; do
+    # `decomp` may not yet be a submodule on `main` (added on agent/decomp-submodule).
+    # Skip silently if the main tree doesn't track this submodule yet.
+    if [[ -z "$(git -C "$ROOT" config -f .gitmodules "submodule.$sm.path" 2>/dev/null)" ]]; then
+        printf '\033[33m  Skipping submodule %s (not configured in main tree's .gitmodules)\033[0m\n' "$sm"
+        continue
+    fi
     pinned_sha="$(git -C "$ROOT" rev-parse "HEAD:$sm")"
     # Prefer the main tree's configured origin (often SSH) over .gitmodules URL
     # (often HTTPS) so the worktree inherits whatever auth method the user has
