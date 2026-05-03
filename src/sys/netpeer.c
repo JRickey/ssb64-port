@@ -5,6 +5,7 @@
 #include <sc/scmanager.h>
 #include <sys/netinput.h>
 #include <sys/netreplay.h>
+#include <sys/netsync.h>
 #include <sys/utils.h>
 
 #ifdef PORT
@@ -24,10 +25,12 @@ extern void port_log(const char *fmt, ...);
 #endif
 
 #define SYNETPEER_MAGIC 0x53534E50 // SSNP
-#define SYNETPEER_VERSION 1
-#define SYNETPEER_MAX_PACKET_FRAMES 4
+#define SYNETPEER_VERSION 2
+#define SYNETPEER_MAX_PACKET_FRAMES 16
 #define SYNETPEER_FRAME_BYTES 8
-#define SYNETPEER_PACKET_BYTES (4 + 2 + 2 + 4 + 4 + 1 + 1 + 1 + 1 + (SYNETPEER_MAX_PACKET_FRAMES * SYNETPEER_FRAME_BYTES) + 4)
+#define SYNETPEER_INPUT_HEADER_BYTES (4 + 2 + 2 + 4 + 4 + 4 + 1 + 1 + 1 + 1)
+#define SYNETPEER_PACKET_BYTES ((SYNETPEER_INPUT_HEADER_BYTES) + ((SYNETPEER_MAX_PACKET_FRAMES) * (SYNETPEER_FRAME_BYTES)) + 4)
+#define SYNETPEER_VALIDATION_INPUT_WINDOW 120
 #define SYNETPEER_METADATA_BYTES (11 * 4 + 8 + (MAXCONTROLLERS * 7))
 #define SYNETPEER_BOOTSTRAP_PACKET_BYTES (4 + 2 + 2 + 4 + SYNETPEER_METADATA_BYTES + 4)
 #define SYNETPEER_CONTROL_PACKET_BYTES (4 + 2 + 2 + 4 + 4)
@@ -71,6 +74,16 @@ u32 sSYNetPeerFramesStaged;
 u32 sSYNetPeerLateFrames;
 u32 sSYNetPeerInputChecksum;
 u32 sSYNetPeerLastLogTick;
+u32 sSYNetPeerSendSeq;
+u32 sSYNetPeerRecvSeqHighWater;
+sb32 sSYNetPeerRecvSeqInitialized;
+u32 sSYNetPeerSeqGaps;
+u32 sSYNetPeerSeqDuplicates;
+u32 sSYNetPeerSeqOutOfOrder;
+u32 sSYNetPeerLastPeerAckTick;
+u32 sSYNetPeerLastPacketOldestTick;
+u32 sSYNetPeerLastPacketNewestTick;
+sb32 sSYNetPeerLastPacketTicksValid;
 sb32 sSYNetPeerBootstrapIsEnabled;
 sb32 sSYNetPeerBootstrapIsHost;
 sb32 sSYNetPeerBootstrapMetadataApplied;
@@ -113,7 +126,7 @@ u32 syNetPeerChecksumAccumulateFrame(u32 checksum, const SYNetPeerPacketFrame *f
 	return checksum;
 }
 
-u32 syNetPeerChecksumPacket(u32 session_id, u32 ack_tick, u8 player, u8 frame_count, const SYNetPeerPacketFrame *frames)
+u32 syNetPeerChecksumPacket(u32 session_id, u32 ack_tick, u32 packet_seq, u8 player, u8 frame_count, const SYNetPeerPacketFrame *frames)
 {
 	u32 checksum = 2166136261U;
 	s32 i;
@@ -123,6 +136,7 @@ u32 syNetPeerChecksumPacket(u32 session_id, u32 ack_tick, u8 player, u8 frame_co
 	checksum = syNetPeerChecksumAccumulateU32(checksum, SYNETPEER_PACKET_INPUT);
 	checksum = syNetPeerChecksumAccumulateU32(checksum, session_id);
 	checksum = syNetPeerChecksumAccumulateU32(checksum, ack_tick);
+	checksum = syNetPeerChecksumAccumulateU32(checksum, packet_seq);
 	checksum = syNetPeerChecksumAccumulateU32(checksum, player);
 	checksum = syNetPeerChecksumAccumulateU32(checksum, frame_count);
 
@@ -853,6 +867,14 @@ void syNetPeerStartVSSession(void)
 	sSYNetPeerLateFrames = 0;
 	sSYNetPeerInputChecksum = 2166136261U;
 	sSYNetPeerLastLogTick = 0;
+	sSYNetPeerSendSeq = 0;
+	sSYNetPeerRecvSeqInitialized = FALSE;
+	sSYNetPeerRecvSeqHighWater = 0;
+	sSYNetPeerSeqGaps = 0;
+	sSYNetPeerSeqDuplicates = 0;
+	sSYNetPeerSeqOutOfOrder = 0;
+	sSYNetPeerLastPeerAckTick = 0;
+	sSYNetPeerLastPacketTicksValid = FALSE;
 	sSYNetPeerIsActive = TRUE;
 	sSYNetPeerBattleBarrierEnabled = sSYNetPeerBootstrapIsEnabled;
 	sSYNetPeerBattleLocalReady = sSYNetPeerBattleBarrierEnabled;
@@ -929,6 +951,7 @@ void syNetPeerBuildPacket(u8 *buffer, u32 *out_size)
 	(
 		sSYNetPeerSessionID,
 		sSYNetPeerHighestRemoteTick,
+		sSYNetPeerSendSeq,
 		(u8)sSYNetPeerLocalPlayer,
 		(u8)frame_count,
 		frames
@@ -939,6 +962,7 @@ void syNetPeerBuildPacket(u8 *buffer, u32 *out_size)
 	syNetPeerWriteU16(&cursor, 0);
 	syNetPeerWriteU32(&cursor, sSYNetPeerSessionID);
 	syNetPeerWriteU32(&cursor, sSYNetPeerHighestRemoteTick);
+	syNetPeerWriteU32(&cursor, sSYNetPeerSendSeq);
 	syNetPeerWriteU8(&cursor, (u8)sSYNetPeerLocalPlayer);
 	syNetPeerWriteU8(&cursor, (u8)frame_count);
 	syNetPeerWriteU8(&cursor, (u8)sSYNetPeerLocalPlayer);
@@ -973,6 +997,7 @@ void syNetPeerSendLocalInput(void)
 	           (struct sockaddr*)&sSYNetPeerPeerAddress, sizeof(sSYNetPeerPeerAddress)) == (ssize_t)size)
 	{
 		sSYNetPeerPacketsSent++;
+		sSYNetPeerSendSeq++;
 	}
 #endif
 }
@@ -984,6 +1009,7 @@ void syNetPeerHandlePacket(const u8 *buffer, s32 size)
 	u32 magic;
 	u32 session_id;
 	u32 ack_tick;
+	u32 packet_seq;
 	u32 checksum;
 	u32 expected_checksum;
 	u16 version;
@@ -1013,6 +1039,7 @@ void syNetPeerHandlePacket(const u8 *buffer, s32 size)
 	(void)syNetPeerReadU16(&cursor);
 	session_id = syNetPeerReadU32(&cursor);
 	ack_tick = syNetPeerReadU32(&cursor);
+	packet_seq = syNetPeerReadU32(&cursor);
 	player = syNetPeerReadU8(&cursor);
 	frame_count = syNetPeerReadU8(&cursor);
 	packet_local_player = syNetPeerReadU8(&cursor);
@@ -1035,7 +1062,7 @@ void syNetPeerHandlePacket(const u8 *buffer, s32 size)
 		frames[i].stick_y = (s8)syNetPeerReadU8(&cursor);
 	}
 	checksum = syNetPeerReadU32(&cursor);
-	expected_checksum = syNetPeerChecksumPacket(session_id, ack_tick, player, frame_count, frames);
+	expected_checksum = syNetPeerChecksumPacket(session_id, ack_tick, packet_seq, player, frame_count, frames);
 
 	if (checksum != expected_checksum)
 	{
@@ -1043,6 +1070,51 @@ void syNetPeerHandlePacket(const u8 *buffer, s32 size)
 		return;
 	}
 	sSYNetPeerPacketsReceived++;
+
+	if (sSYNetPeerRecvSeqInitialized == FALSE)
+	{
+		sSYNetPeerRecvSeqHighWater = packet_seq;
+		sSYNetPeerRecvSeqInitialized = TRUE;
+	}
+	else
+	{
+		if (packet_seq > sSYNetPeerRecvSeqHighWater)
+		{
+			sSYNetPeerSeqGaps += packet_seq - sSYNetPeerRecvSeqHighWater - 1U;
+			sSYNetPeerRecvSeqHighWater = packet_seq;
+		}
+		else if (packet_seq == sSYNetPeerRecvSeqHighWater)
+		{
+			sSYNetPeerSeqDuplicates++;
+		}
+		else
+		{
+			sSYNetPeerSeqOutOfOrder++;
+		}
+	}
+	sSYNetPeerLastPeerAckTick = ack_tick;
+
+	if (frame_count > 0)
+	{
+		u32 oldest_tick_bundle = frames[0].tick;
+		u32 newest_tick_bundle = frames[0].tick;
+
+		for (i = 1; i < frame_count; i++)
+		{
+			if (frames[i].tick < oldest_tick_bundle)
+			{
+				oldest_tick_bundle = frames[i].tick;
+			}
+			if (frames[i].tick > newest_tick_bundle)
+			{
+				newest_tick_bundle = frames[i].tick;
+			}
+		}
+		sSYNetPeerLastPacketOldestTick = oldest_tick_bundle;
+		sSYNetPeerLastPacketNewestTick = newest_tick_bundle;
+		sSYNetPeerLastPacketTicksValid = TRUE;
+	}
+	else sSYNetPeerLastPacketTicksValid = FALSE;
 
 	for (i = 0; i < frame_count; i++)
 	{
@@ -1092,6 +1164,61 @@ void syNetPeerReceiveRemoteInput(void)
 #endif
 }
 
+#ifdef PORT
+void syNetPeerLogNetSyncValidation(u32 tick)
+{
+	u32 checksums[MAXCONTROLLERS];
+	u32 inp_all = 0;
+	u32 fighter_hash;
+	u32 win_begin = 0;
+	u32 win_length = tick;
+
+	if ((sSYNetPeerIsActive == FALSE) || (syNetPeerCheckBattleExecutionReady() == FALSE))
+	{
+		return;
+	}
+	if (tick >= SYNETPEER_VALIDATION_INPUT_WINDOW)
+	{
+		win_begin = tick - SYNETPEER_VALIDATION_INPUT_WINDOW;
+		win_length = SYNETPEER_VALIDATION_INPUT_WINDOW;
+	}
+	syNetInputGetHistoryInputValueChecksumWindow(win_begin, win_length, checksums, &inp_all);
+
+	fighter_hash = syNetSyncHashBattleFighters();
+
+	port_log(
+		"SSB64 NetSync: role=%s lp=%d rp=%d tick=%u hist_win=[%u,%u) all=0x%08X p0=0x%08X p1=0x%08X p2=0x%08X p3=0x%08X figh=0x%08X snd_next=%u rcv_hw=%u gap=%u dup=%u ooo=%u puck=%u pko=%u pkn=%u sent=%u recv=%u dropped=%u stg=%u hr=%u late=%u inpchk=0x%08X pkt_valid=%d\n",
+		(sSYNetPeerBootstrapIsHost != FALSE) ? "host" : "client",
+		sSYNetPeerLocalPlayer,
+		sSYNetPeerRemotePlayer,
+		tick,
+		win_begin,
+		win_begin + win_length,
+		inp_all,
+		checksums[0],
+		checksums[1],
+		checksums[2],
+		checksums[3],
+		fighter_hash,
+		sSYNetPeerSendSeq,
+		sSYNetPeerRecvSeqHighWater,
+		sSYNetPeerSeqGaps,
+		sSYNetPeerSeqDuplicates,
+		sSYNetPeerSeqOutOfOrder,
+		sSYNetPeerLastPeerAckTick,
+		(sSYNetPeerLastPacketTicksValid != FALSE) ? sSYNetPeerLastPacketOldestTick : (~(u32)0),
+		(sSYNetPeerLastPacketTicksValid != FALSE) ? sSYNetPeerLastPacketNewestTick : (~(u32)0),
+		sSYNetPeerPacketsSent,
+		sSYNetPeerPacketsReceived,
+		sSYNetPeerPacketsDropped,
+		sSYNetPeerFramesStaged,
+		sSYNetPeerHighestRemoteTick,
+		sSYNetPeerLateFrames,
+		sSYNetPeerInputChecksum,
+		sSYNetPeerLastPacketTicksValid);
+}
+#endif
+
 void syNetPeerLogStats(void)
 {
 #ifdef PORT
@@ -1103,13 +1230,18 @@ void syNetPeerLogStats(void)
 	}
 	sSYNetPeerLastLogTick = tick;
 
-	port_log("SSB64 NetPeer: role=%s local=%d remote=%d barrier=%d execution_ready=%d tick=%u sent=%u recv=%u dropped=%u staged=%u highest_remote=%u late=%u checksum=0x%08X\n",
+	port_log("SSB64 NetPeer: role=%s local=%d remote=%d barrier=%d execution_ready=%d tick=%u sent=%u recv=%u dropped=%u staged=%u highest_remote=%u late=%u snd_next=%u rcv_hw=%u seq_gap=%u seq_dup=%u seq_ooo=%u peer_ack=%u inpchk=0x%08X\n",
 	         (sSYNetPeerBootstrapIsHost != FALSE) ? "host" : "client",
 	         sSYNetPeerLocalPlayer, sSYNetPeerRemotePlayer,
 	         sSYNetPeerBattleBarrierReleased, syNetPeerCheckBattleExecutionReady(), tick,
 	         sSYNetPeerPacketsSent, sSYNetPeerPacketsReceived, sSYNetPeerPacketsDropped,
 	         sSYNetPeerFramesStaged, sSYNetPeerHighestRemoteTick, sSYNetPeerLateFrames,
+	         sSYNetPeerSendSeq, sSYNetPeerRecvSeqHighWater, sSYNetPeerSeqGaps,
+	         sSYNetPeerSeqDuplicates, sSYNetPeerSeqOutOfOrder,
+	         sSYNetPeerLastPeerAckTick,
 	         sSYNetPeerInputChecksum);
+
+	syNetPeerLogNetSyncValidation(tick);
 #endif
 }
 

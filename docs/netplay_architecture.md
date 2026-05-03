@@ -13,6 +13,7 @@ This keeps the first netplay boundary at the controller layer:
 - netplay-only input policy lives in `src/sys/netinput.c`
 - debug replay file I/O lives in `src/sys/netreplay.c`
 - debug UDP P2P transport and match bootstrap live in `src/sys/netpeer.c`
+- narrow gameplay-state hashing for diagnostics lives in `src/sys/netsync.c`
 
 ## Current Integration
 
@@ -122,6 +123,8 @@ For full-match debug replay files, `netinput.c` also keeps a separate replay fra
 | `syNetInputGetPublishedFrame()` | Read the latest published input for a player. |
 | `syNetInputGetHistoryChecksum()` | Produce a lightweight checksum over resolved input history for validation. |
 | `syNetInputGetHistoryInputChecksum()` | Produce a source-independent checksum over published buttons/sticks for replay validation. |
+| `syNetInputGetHistoryInputValueChecksumForPlayer()` | Source-independent checksum for one player across a contiguous tick span in `sSYNetInputHistory`. |
+| `syNetInputGetHistoryInputValueChecksumWindow()` | Per-player checksums plus a folded combined checksum for a tick window. |
 | `syNetInputSetRecordingEnabled()` | Enable or disable recording of resolved VS input frames. |
 | `syNetInputGetRecordingEnabled()` | Inspect whether resolved VS input recording is enabled. |
 | `syNetInputGetRecordedFrameCount()` | Read the number of VS ticks recorded since recording was enabled. |
@@ -211,6 +214,28 @@ Match metadata sync, input tick start sync, and VS execution sync are separate l
 
 The execution gate is intentionally shaped as a reusable readiness query. Future runtime pacing, peer advertised ticks, and rollback readiness checks should build on this boundary instead of adding more one-off checks to the VS scene.
 
+Bootstrap P2P input packets (`INPUT`, wire version `SYNETPEER_VERSION` 2):
+
+- Carry a strictly increasing UDP send `packet_seq`, included in the packet checksum and surfaced as cumulative `gap` / `dup` / `ooo` counters when sequence jumps repeat, advance with holes, or arrive behind the observed high watermark.
+- Bundle the last 16 simulated local frames (`SYNETPEER_MAX_PACKET_FRAMES`), each with delayed tick + buttons/stick, serialized explicitly (not raw struct casts).
+- Still embed `ack_tick`: the sender’s tracked `sSYNetPeerHighestRemoteTick` advertised to the peer (see `peer_ack=` / `puck=` lines in logs).
+
+Operational desync instrumentation (logged only when UDP netplay is active and bootstrap execution is released):
+
+| Log prefix | Approx. cadence | Use |
+| ---------- | ----------------- | --- |
+| `SSB64 NetPeer:` | Every 120 sim ticks (`SYNETPEER_LOG_INTERVAL`) | Transport counters, sequence diagnostics, staged frames, cumulative remote-input fingerprint (`inpchk`). |
+| `SSB64 NetSync:` | Same ticks as NetPeer summaries | **`hist_win=[begin,end)`** — half-open `[begin,end)` VS tick range hashed from **resolved published history only** (`sSYNetInputHistory`) using the same logical fields as replay validation (player id + tick + buttons + sticks). **`all`** / **`p0..p3`** show combined and per-slot checksums. **`figh`** is `syNetSyncHashBattleFighters()` over active fighter `FTStruct` scalars plus selected velocities and `coll_data.pos_prev` using IEEE754 bit reinterpretation — order-independent across controller ports. **`pko`/`pkn`** are oldest/newest frame ticks bundled in the most recent validated remote `INPUT` packet (or sentinel `4294967295` when **`pkt_valid=0`**). **`gap`/`dup`/`ooo`** track inferred sequence anomalies. |
+
+Debug workflow:
+
+1. After metadata bootstrap and execution gate, confirm **`SSB64 NetSync`** lines appear on matching ticks across host/client logs.
+2. If **`hist_win`** checksum columns diverge first, prioritize packet redundancy, deserialization, staging order, tick assignment, or prediction quirks before rewriting rollback.
+3. If input windows match while **`figh`** diverges, widen or narrow deterministic gameplay hashes before blaming UDP pacing.
+4. If both stay aligned but observers still perceive drift, escalate to pacing / telemetry using the same instrumentation hooks.
+
+`cmake` discovers `src/sys/*.c` through `file(GLOB_RECURSE …)`; adding a netplay sys source requires re-running CMake configuration (for example `cmake -B build`) so the glob refreshes before the next build.
+
 ## Validation Path
 
 Before adding sockets or rollback state restoration, use the saved-input path to validate deterministic VS input replay:
@@ -231,7 +256,7 @@ This module does not yet implement:
 - STUN/TURN, NAT traversal, or relay fallback
 - game-state snapshot/restore
 - framebuffer rollback
-- full determinism hashing of fighter/world state
+- exhaustive determinism hashing of fighter/world state (only narrow diagnostic hashes ship today via `netsync.c`)
 - wall-clock input scheduling, rollback prediction windows, or resimulation
 - netplay support for 1P Game, Training Mode, Bonus 1 Practice, or Bonus 2 Practice
 

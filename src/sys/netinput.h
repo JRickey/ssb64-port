@@ -73,6 +73,9 @@ extern sb32 syNetInputGetHistoryFrame(s32 player, u32 tick, SYNetInputFrame *out
 extern sb32 syNetInputGetPublishedFrame(s32 player, SYNetInputFrame *out_frame);
 extern u32 syNetInputGetHistoryChecksum(s32 player, u32 tick_begin, u32 frame_count);
 extern u32 syNetInputGetHistoryInputChecksum(u32 frame_count);
+extern u32 syNetInputGetHistoryInputValueChecksumForPlayer(s32 player, u32 tick_begin, u32 frame_count);
+extern void syNetInputGetHistoryInputValueChecksumWindow(u32 tick_begin, u32 frame_count, u32 *out_checksums,
+                                                       u32 *out_combined_checksum);
 extern void syNetInputSetRecordingEnabled(sb32 is_enabled);
 extern sb32 syNetInputGetRecordingEnabled(void);
 extern u32 syNetInputGetRecordedFrameCount(void);
