@@ -8,6 +8,8 @@
 
 Runs natively on macOS (Apple Silicon), Linux, and Windows.
 
+Android is planned and work-in-progress.
+
 ## No copyrighted assets are included in this repository
 
 **None of Nintendo's assets (code, textures, audio, models, text, ROM data) are checked into this repo or distributed with builds.** The port is a pure C/C++ source tree; every byte of Nintendo-owned data is extracted at build time from a ROM that *you* supply. If you do not own a legal copy of Super Smash Bros. for the Nintendo 64, you cannot build or run this project.
@@ -21,65 +23,48 @@ The required ROM is **NTSC-U v1.0** (game code `NALE`, internal name `SMASH BROT
 
 If your dump does not match those hashes, it will not work.
 
+## Features
+
+### Toggleable Port Specific Enhancements
+
+- Tap Jump
+- C-Stick Smash
+- D-Pad Jump
+- Hitbox Visual Mode
+- Nrage Stick Config with Customizable Ranges
+
+## Controls
+
+- Controller and Rumble Support Powered by SDL 2
+- Native Ralphnet Support up to 4 Channels Through Hidapi
+
+## Rendering
+
+All Powered by LibultraShip
+
+- Resolution scaling
+- Anti Aliasing
+- Tri Point Texture Filtering
+
+## Rollback Netcode and Online Play (WORK IN PROGRESS)
+
 ## Author's notes
 
 ### About the project
 
-This is a 100% AI-generated modern port — meaning the code my agents wrote on top of the existing [decomp](https://github.com/VetriTheRetri/ssb-decomp-re), [libultraship](https://github.com/Kenix3/libultraship), and [torch](https://github.com/HarbourMasters/Torch) modules (see [Credits & licensing](#credits--licensing) for full attribution of the work this port stands on). It took a little over 25 days to get to v0.1, with me, Opus 4.6, Opus 4.7, and GPT 5.5 as the only contributors. As of 4/28, there are no >2 day gaps in development. At many points, agents were dispatched and worked to build and test autonomously while I did other things.
+This is a work in progress port that I started and developed alone with Claude until the v0.3-beta release. It took a little over a month of night and day work to get to the first beta release, and a massive 4 day long sprint working all day resolving bugs from v0.3-beta to v0.7-beta. As of now, this is no longer a pure AI project. Many people have offered their time playtesting, their knowledge of the game, or their experience with modding or competitive play; to bring improvements, bug fixes, new feature suggestions, and additions. Without them, the project would not be what it is today.
 
-I wanted to do this project for two reasons.
+If you find anything that you would like to see improved, create an issue on Github. I'll fix it.
 
-**First, to personally get experience with developing software in C/C++ and learning the motions of how to develop software (git, worktrees, cmake, macros, etc).** I am not a software developer at my job, nor was I educated in computer science. C is a hobby for me, since I only write Python and TypeScript at work. So part of the motivation was to learn how things are actually made in C. How the sausage is made, if you will.
+This port was started when the original decomp was 96% complete code only. The remaining 4% is the internal debug menu and Libultra functions that aren't necessary to port the game. The relocatable data was also not decompiled at the time. The port was designed with this in mind, and it is why certain design decisions had to have been made. I like to move fast, obviously.
 
-I have been using AI for a long time at this point. I started with Sonnet 3.5 and 3.7 to rewrite my Python code in graduate school to structure it better. I've been through all the motions: pasting files into chat on the web, copying responses, prompting *continue*, then everything breaking because the model couldn't output the whole file in a single prompt. As you probably know, a lot of things have changed since then — and that leads me to the second reason.
+This project uses a heavily modified LibUltraShip and Torch, those two modules obviously don't work with every n64 game out of the box and a lot of game specific things needed to be implemented. The original game is quite unique and uses rendering techniques and n64 hardware tricks in ways other LUS projects did not need to account for.
 
-**Second, as a proof of concept that AI can be used for a task of this magnitude.** That is not to say that I gave AI an N64 cartridge and got a PC port out of it — years of work from many people went into the decomp, the 3D engine, asset extraction, and everything else this port stands on. The point I am trying to make is that there are tons of cases like this that are low-hanging fruit and can be done with a little bit of your time using AI.
+This is a passion project for me. Not out of nostalgia, but to actually make something. I don't have too much nostalgia for the original game, considering I didn't own a copy as a kid, but I remember playing it at a friend's house a handful of times. What motivates me to work on this is because I can. Because it's hard, because it hasn't been done before (at least not open source). It's required a ton of my personal time, even using AI. It's forced me to get creative, to design custom tools, to force the agents into certain boxes.
 
-I am not sponsored or endorsed by OpenAI or Anthropic — in fact I've spent ~$500 in subscription fees and extra usage on this project. I want it to serve as proof that the barrier to making really cool things is incredibly low. Humans have always progressed our knowledge and capabilities by expanding on the work of others. Agentic coding is the newest frontier of that principle. I hope this project serves as inspiration for other people to learn by doing, make something for themselves, and give it freely to others.
+People may not like it because I used AI, and that's okay. I'm not going to argue with your opinion or try to say that my way is the correct way of doing things. It works for me and that's what matters to me. My code is open source, it's free, it's MIT Licensed, and everyone can learn from it. That's what should matter to you.
 
----
-
-### Working with AI on a project like this
-
-#### Timeline
-
-First boot and scaffolding took 2 days. Rendering took about 20 and was the most difficult part of the project. Audio fell in nicely after the agents finally had a good grasp of the common pitfalls. Opus did the vast majority of the work, but GPT 5.5 takes credit for a few big bug fixes, and sole credit for audio.
-
-Before working on the port I tried my hand at assisting the decomp. Multiple failed attempts there built a lot of working knowledge for the agents on IDO / MIPS specific quirks and issues that paid off later. We tore into the decomp and the IDO decomp a lot. Failures there gave me inspiration to working on a port instead.
-
-#### Proper dev tools
-
-I did not use a debugger once. Instead all the debugging kit was written by the agents, for the agents to use:
-
-- **`gbi_trace` + `m64p_trace_plugin` + `gbi_diff`** was the workhorse when developing rendering. These allowed the agents to compare the display list in our port vs the game running on an emulator. Instructions on how to use the debug tools were also written by the agents and dropped in `docs/`. `CLAUDE.md` steered them to reach for these tools when appropriate instead of static analysis.
-- **`acmd_trace` + `acmd_diff` + `m64p_audio_dump_plugin` + `adpcm_diff`** are the audio analogues to the rendering tools.
-- **`rom_disasm/decode_bitfields.py` + `disasm.py`** compile a snippet with IDO, disassemble with rabbitizer, and read off the actual bit positions. This is how every bitfield rewrite under `#ifdef PORT` was verified instead of guessed.
-- **`sprite_deswizzle.py`** is a standalone TMEM-swizzle reference implementation, used to visually verify the LUS-side swizzle fixes in an independent environment instead of in the renderer that was being debugged.
-- **`reloc_extract`** pulls relocatable-data layouts from the ROM for verifying the Torch factory output.
-
-The lesson here is to never debug the port in isolation. Every truly difficult issue was eventually solved by capturing the same signal from the emulator, diffing the two, then looking at the first divergence. This workflow was exceptionally performant and enabled unsupervised development.
-
-#### Documentation as a workflow primitive
-
-The main strategy I used to actually do this was to force the agents to document all bug patterns whenever they made a fix, and to document how they resolved it. These are all indexed through their respective `CLAUDE.md` and `AGENTS.md` files. This workflow was invaluable for gaining momentum and fixing stray issues as they came down the line later. `HANDOFF.md` files were also used by agents to carry context across multiple debugging sessions.
-
-#### Bug highlights
-
-What follows are bug highlights as per Claude. Some may appear a bit silly, but part of the point is to document this entire project. Yes, if I was more experienced with C I would have seen these issues coming. Yes, if I knew more about N64 porting, I might not have made these mistakes. That is all true but not the point — the point is to teach how to avoid these pitfalls for any brave person who wants to do something similar.
-
-1. **Endianness — halfswap on loaded data blocks (9 bugs).** The decomp's halfswap files are halfswapped at load; any pointer reached through them needs a per-stream un-halfswap. Recurred across animation events, splines, vertex data, sprite TMEM, and collision data.
-2. **LP64 pointer truncation (9 bugs).** The single most expensive lesson: `-Wno-implicit-function-declaration` was silently truncating 64-bit pointer returns to 32-bit `int`. Fingerprint: a fault address < 4 GiB, or weird patterns like `0xAAA000000BBB` from adjacent reloc-token pairs.
-3. **IDO BE bitfield physical layout (4 bugs).** IDO packs small bitfields MSB-first into preceding `u16` pad gaps; modern compilers don't. The bug always came back if patched in game-code reads instead of the struct layout itself — codified into a standing rule.
-4. **Fast3D unimplemented stubs (13 rendering bugs total).** `gDPSetPrimDepth` was a `TODO Implement` upstream — every 2D sprite using `G_ZS_PRIM` rendered at z=0 (front). The pattern "grep `TODO Implement` in `libultraship/src/fast/interpreter.cpp` when rendering looks wrong" is now a memory entry.
-5. **LUS-vs-decomp typename shadowing (2 bugs, big blast radius).** libultraship redefines `OSContPad`, `OSMesg`, `OSContStatus` with larger layouts than the decomp; `sizeof()` in a C++ stub overran the C caller's buffer and zeroed unrelated state. Caused the menu double-input bug.
-
-#### Closing
-
-The load-bearing fix isn't always where you think. It's very helpful to turn down the reasoning ability on these agents and prompt them to get a big-picture view first.
-
-And with that, I hope you enjoy playing the game, finding bugs that I missed, and that you might've learned something about what is possible today.
-
-Take it away, Claude:
+I hope you enjoy the project.
 
 ---
 
