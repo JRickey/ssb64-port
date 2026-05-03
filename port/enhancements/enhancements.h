@@ -50,6 +50,8 @@ void port_enhancement_dpad_jump(int player_index, unsigned short* button_hold, u
 // — both schemes coexist, the toggle picks which runs.
 void port_enhancement_analog_remap(int player_index, signed char* stick_x, signed char* stick_y);
 
+int port_cheat_unlock_all_active(void);
+
 #ifdef __cplusplus
 }
 

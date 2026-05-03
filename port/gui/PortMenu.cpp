@@ -293,28 +293,6 @@ void PortMenu::AddMenuSettings() {
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Gameplay", 1);
 
-    /*
-    AddWidget(path, "Per-Port Enhancements", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Disable Tap Jump (P1)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(0))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip(
-            "When enabled, pushing up on the analog stick no longer triggers a jump for player 1. "
-            "Jump buttons (X, Y, C-up, etc.) still work."));
-    AddWidget(path, "Disable Tap Jump (P2)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(1))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 2."));
-    AddWidget(path, "Disable Tap Jump (P3)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(2))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 3."));
-    AddWidget(path, "Disable Tap Jump (P4)", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::TapJumpCVarName(3))
-        .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip("Same as P1, applied to player 4."));
-    */
-
     AddWidget(path, "1P Stage Clear: Frozen Frame Background", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::StageClearFrozenWallpaperCVarName())
         .RaceDisable(false)
@@ -418,6 +396,27 @@ void PortMenu::AddMenuSettings() {
                          .IsPercentage()
                          .Tooltip("Output scale (50–150%). 100% caps at the N64's natural max."));
     }
+
+    // --- Cheats ---
+    path.sidebarName = "Cheats";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Cheats", 1);
+
+    AddWidget(path, "Master Unlocks", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Unlock Everything", WIDGET_CVAR_CHECKBOX)
+    .CVar("gCheats.UnlockAll")
+    .RaceDisable(false);
+
+    AddWidget(path, "Individual Characters", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Unlock Captain Falcon", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockCaptain").RaceDisable(false);
+    AddWidget(path, "Unlock Jigglypuff", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockPurin").RaceDisable(false);
+    AddWidget(path, "Unlock Luigi", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockLuigi").RaceDisable(false);
+    AddWidget(path, "Unlock Ness", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockNess").RaceDisable(false);
+
+    AddWidget(path, "Individual Features", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Unlock Mushroom Kingdom", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockInishie").RaceDisable(false);
+    AddWidget(path, "Unlock Item Switch Menu", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockItemSwitch").RaceDisable(false);
+    AddWidget(path, "Unlock Sound Test Menu", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockSoundTest").RaceDisable(false);
 }
 
 void PortMenu::AddMenuWindows() {
