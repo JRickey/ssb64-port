@@ -86,6 +86,12 @@ SYTaskmanSetup dSCVSBattleTaskmanSetup =
 // 0x8018D0C0
 void scVSBattleFuncUpdate(void)
 {
+	syNetPeerUpdateBattleGate();
+
+	if (syNetPeerCheckBattleExecutionReady() == FALSE)
+	{
+		return;
+	}
 	ifCommonBattleUpdateInterfaceAll();
 	syNetReplayUpdate();
 	syNetPeerUpdate();

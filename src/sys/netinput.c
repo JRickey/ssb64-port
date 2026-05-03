@@ -1,5 +1,6 @@
 #include <sys/netinput.h>
 
+#include <sys/netpeer.h>
 #include <sys/taskman.h>
 
 typedef struct SYNetInputSlot
@@ -365,6 +366,58 @@ u32 syNetInputGetHistoryInputChecksum(u32 frame_count)
 	return checksum;
 }
 
+u32 syNetInputGetHistoryInputValueChecksumForPlayer(s32 player, u32 tick_begin, u32 frame_count)
+{
+	SYNetInputFrame frame;
+	u32 checksum = 2166136261U;
+	u32 i;
+
+	for (i = 0; i < frame_count; i++)
+	{
+		if (syNetInputGetHistoryFrame(player, tick_begin + i, &frame) != FALSE)
+		{
+			checksum = syNetInputAccumulateInputChecksum(checksum, player, &frame);
+		}
+	}
+	return checksum;
+}
+
+void syNetInputGetHistoryInputValueChecksumWindow(u32 tick_begin, u32 frame_count, u32 *out_checksums,
+                                                  u32 *out_combined_checksum)
+{
+	SYNetInputFrame frame;
+	u32 checksum = 2166136261U;
+	u32 tick_limit;
+	u32 tick;
+	s32 player;
+
+	tick_limit = tick_begin + frame_count;
+
+	for (player = 0; player < MAXCONTROLLERS; player++)
+	{
+		u32 player_checksum = 2166136261U;
+
+		for (tick = tick_begin; tick < tick_limit; tick++)
+		{
+			if (syNetInputGetHistoryFrame(player, tick, &frame) != FALSE)
+			{
+				player_checksum = syNetInputAccumulateInputChecksum(player_checksum, player, &frame);
+			}
+		}
+		checksum ^= player_checksum;
+		checksum *= 16777619U;
+
+		if (out_checksums != NULL)
+		{
+			out_checksums[player] = player_checksum;
+		}
+	}
+	if (out_combined_checksum != NULL)
+	{
+		*out_combined_checksum = checksum;
+	}
+}
+
 void syNetInputSetRecordingEnabled(sb32 is_enabled)
 {
 	sSYNetInputIsRecording = is_enabled;
@@ -503,5 +556,10 @@ void syNetInputFuncRead(void)
 		}
 	}
 	syNetInputPublishMainController();
+
+	if (syNetPeerCheckStartBarrierReleased() == FALSE)
+	{
+		return;
+	}
 	sSYNetInputTick++;
 }
