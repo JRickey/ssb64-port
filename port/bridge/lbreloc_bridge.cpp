@@ -385,6 +385,13 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	// the prior scene's wallpaper. See docs/dk_intro_wallpaper_*.md
 	extern void portTextureCacheDeleteRange(const void *base, size_t size);
 	portTextureCacheDeleteRange(ram_dst, copySize);
+	// Evict cached packed-DL widenings whose source pointer falls in the
+	// range we're about to overwrite. Without this, the widening cache
+	// hands back a vector with stale fileBase/fileSize, segment-0E sub-DL
+	// references resolve to the prior file's address window, and the
+	// interpreter walks garbage — fingerprint of issue #103/#128.
+	extern void portPackedDisplayListCacheDeleteRange(const void *base, size_t size);
+	portPackedDisplayListCacheDeleteRange(ram_dst, copySize);
 	portRelocEvictFileRangesInRange(ram_dst, copySize);
 	memcpy(ram_dst, relocFile->Data.data(), copySize);
 
