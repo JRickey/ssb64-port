@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import struct
 import subprocess
 import sys
@@ -324,14 +325,20 @@ def main() -> int:
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
 
-    # Compile .c → .o
+    # Compile .c → .o.
+    # NamedTemporaryFile on Windows holds an exclusive lock until close, so
+    # we use mkstemp + explicit close — gives clang an unlocked path to
+    # write to on every platform.
     if args.obj_out is not None:
         args.obj_out.parent.mkdir(parents=True, exist_ok=True)
         obj_path = args.obj_out
         compile_to_elf(args.src, obj_path, args.clang, args.include_dir)
+        cleanup_obj = False
     else:
-        with tempfile.NamedTemporaryFile(suffix=".o", delete=False) as f:
-            obj_path = Path(f.name)
+        fd, tmp_name = tempfile.mkstemp(suffix=".o")
+        os.close(fd)
+        obj_path = Path(tmp_name)
+        cleanup_obj = True
         try:
             compile_to_elf(args.src, obj_path, args.clang, args.include_dir)
         except Exception:
@@ -401,7 +408,7 @@ def main() -> int:
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(blob)
 
-    if args.obj_out is None:
+    if cleanup_obj:
         obj_path.unlink(missing_ok=True)
 
     print(f"emitted {args.output} "
