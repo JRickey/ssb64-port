@@ -109,8 +109,15 @@ def missing_inc_c(c_path: Path, inc_c_dir: Path) -> bool:
     return False
 
 
+# M3.P15 partial cutover — FTAttributes and MPGroundData byte-equivalence
+# verified via tools/struct_byteswap_tables.py + the build_reloc_resource.py
+# struct-aware byteswap pass. WPAttributes and ITAttributes still skipped:
+# the WPAttributes .c files declare a 52-byte struct but Torch's resources
+# are 64 bytes for several files (12 bytes of trailing per-file data the .c
+# source doesn't yet declare); ITAttributes initializers also need source-
+# level review for trailing field mismatches.
 _BITFIELD_TYPE_RE = re.compile(
-    r"\b(FTAttributes|WPAttributes|ITAttributes|MPGroundData)\s+\w+\s*=", re.M)
+    r"\b(WPAttributes|ITAttributes)\s+\w+\s*=", re.M)
 
 # Macros only defined in headers upstream's `make extract` generates
 # (e.g. build/<v>/src/relocData/motiondesc_offsets.h). MainMotion files

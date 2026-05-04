@@ -235,12 +235,185 @@ def parse_reloc(reloc_path: Path, symbols: dict[str, dict]
 
 # ───────────────────────────── chain encoding ─────────────────────────────
 
-def byteswap_u32(buf: bytearray) -> bytearray:
-    """Swap every aligned u32 in-place (LE↔BE). Length must be /4."""
+def byteswap_u32(buf: bytearray, skip: set[int] | None = None) -> bytearray:
+    """Swap every aligned u32 in-place (LE↔BE). Length must be /4.
+
+    `skip`, if given, is a set of byte offsets — words starting at those
+    offsets are left untouched (used by the per-struct field-byteswap pass
+    to exclude already-handled u16/u8 fields from the global LE→BE swap).
+    """
+    if skip is None:
+        skip = set()
     n = len(buf) - (len(buf) % 4)
     for i in range(0, n, 4):
+        if i in skip:
+            continue
         buf[i:i+4] = bytes(reversed(buf[i:i+4]))
     return buf
+
+
+_STRUCT_DECL_RE_CACHE: dict[str, re.Pattern[str]] = {}
+
+
+def _struct_decl_re(type_name: str) -> re.Pattern[str]:
+    pat = _STRUCT_DECL_RE_CACHE.get(type_name)
+    if pat is None:
+        # Match `<TYPE> <name>...= {`. Tolerates whitespace, attribute-like
+        # qualifiers, and array decls (e.g. `T name[]`). The type must be a
+        # whole-word match.
+        pat = re.compile(
+            rf"\b{re.escape(type_name)}\s+([A-Za-z_]\w*)\s*(?:\[\s*\w*\s*\])?\s*="
+        )
+        _STRUCT_DECL_RE_CACHE[type_name] = pat
+    return pat
+
+
+def find_struct_regions(c_text: str, sym_table: dict[str, dict],
+                        fixup_tables: dict[str, list[tuple[str, int]]],
+                        size_table: dict[str, int]
+                        ) -> list[tuple[str, str, int, int]]:
+    """Returns a list of (struct_type, sym_name, element_base_off, struct_size)
+    — ONE entry per array element (so per-field rules apply to every element
+    of an `FTSkeleton arr[33]` declaration, not just the first).
+
+    Walks the .c source for declarations of any struct type whose fixups
+    are in `fixup_tables`. Each declaration's symbol is looked up in the
+    ELF symbol table; the symbol's total byte size must be a multiple of
+    the struct's declared single-element size (catches struct-layout drift
+    between port headers and these tables).
+    """
+    from struct_byteswap_tables import SYMBOL_NAME_TYPE_OVERRIDES
+
+    regions: list[tuple[str, str, int, int]] = []
+    matched_names: set[str] = set()
+    for type_name in fixup_tables:
+        pat = _struct_decl_re(type_name)
+        for m in pat.finditer(c_text):
+            name = m.group(1)
+            sym = sym_table.get(name)
+            if sym is None:
+                continue
+            matched_names.add(name)
+            _emit_region(regions, type_name, name, sym, size_table)
+
+    # Generic u8[] arrays — every such declaration in the .c source holds
+    # raw bytes (commonly from a `#include <...inc.c>` of ROM-extracted
+    # data, but also explicit u8 literals like color/SFX byte arrays).
+    # Torch ships ROM bytes verbatim; clang emits the same raw bytes. So
+    # the global LE→BE bswap32 must NOT touch these — same treatment as
+    # MPItemWeights, just by source-text type rather than type-name.
+    for m in _U8_ARRAY_DECL_RE.finditer(c_text):
+        name = m.group(1)
+        if name in matched_names:
+            continue
+        sym = sym_table.get(name)
+        if sym is None:
+            continue
+        matched_names.add(name)
+        regions.append(("__u8_array__", name, sym["offset"], sym["size"]))
+
+    # Symbol-name-based overrides: apply when the .c declares the symbol with
+    # a primitive type (e.g. `u8 dXXX_item_weights[20]`) rather than the
+    # struct type. Skip symbols already matched by a type-based regex above.
+    for name, sym in sym_table.items():
+        if name in matched_names:
+            continue
+        for name_pat, type_name in SYMBOL_NAME_TYPE_OVERRIDES:
+            if name_pat.search(name) and type_name in fixup_tables:
+                _emit_region(regions, type_name, name, sym, size_table)
+                break
+    return regions
+
+
+# Match `u8 <name>[<size>] = ` at the start of a line (any whitespace before).
+# Captures the symbol name. Tolerates multiple lines after the `=`.
+_U8_ARRAY_DECL_RE = re.compile(
+    r"^\s*u8\s+([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=", re.MULTILINE)
+
+
+def _emit_region(regions: list[tuple[str, str, int, int]],
+                 type_name: str, name: str, sym: dict,
+                 size_table: dict[str, int]) -> None:
+    base_off = sym["offset"]
+    total_size = sym["size"]
+    expected = size_table.get(type_name)
+    if expected is None:
+        regions.append((type_name, name, base_off, total_size))
+        return
+    if total_size % expected != 0:
+        raise RuntimeError(
+            f"{name}: ELF symbol size {total_size} is not a multiple "
+            f"of sizeof({type_name})={expected}. Struct layout drift "
+            f"between port headers and tools/struct_byteswap_tables.py "
+            f"— cross-check decomp/src/.../*types.h _Static_assert.")
+    n_elements = total_size // expected
+    for i in range(n_elements):
+        regions.append((type_name, f"{name}[{i}]",
+                        base_off + i * expected, expected))
+
+
+def apply_struct_aware_bswap(data: bytearray, regions: list[tuple[str, str, int, int]],
+                             fixup_tables: dict[str, list[tuple[str, int]]]
+                             ) -> set[int]:
+    """Apply per-struct field byteswaps to the data section. Returns the
+    set of byte offsets that were touched here and should be excluded from
+    the subsequent global LE→BE bswap32 pass.
+
+    Rules (from struct_byteswap_tables.py docstring):
+      "rotate16"    — u16-pair word: bswap16 each u16 half [a b c d] → [b a d c],
+                      then exclude this slot from the global LE→BE pass. Result
+                      on disk matches Torch's BE-stored u16 pair; runtime pass1
+                      + fixup_rotate16 produce correct LE pair in memory.
+      "raw_u8"      — u8[4] (RGBA, raw filler): leave bytes as clang emitted
+                      AND exclude from the global LE→BE pass. u8 has no
+                      endianness so Torch and clang both emit the same bytes;
+                      our job is just to keep them out of the global swap.
+      "raw_u8_all"  — apply raw_u8 to every aligned word in the symbol's
+                      footprint (rounded up to 4-byte boundary). Used for
+                      flex-array u8 structs like MPItemWeights where the
+                      size varies per-symbol.
+    """
+    skip: set[int] = set()
+    for type_name, _name, base_off, size in regions:
+        if type_name == "__u8_array__":
+            # Synthesised "type" for any `u8 NAME[]` declaration discovered
+            # by find_struct_regions's source scan. Every word in the
+            # symbol's footprint is raw u8.
+            rules: list[tuple[str, int]] = [
+                ("raw_u8", i) for i in range((size + 3) // 4)
+            ]
+        else:
+            # Expand "raw_u8_all" rules into per-word raw_u8 entries based
+            # on this symbol's footprint. Footprint is rounded up to the
+            # next 4-byte boundary because clang aligns the next symbol
+            # there and trailing padding bytes belong to this symbol's slot.
+            rules = []
+            for kind, word_off in fixup_tables[type_name]:
+                if kind == "raw_u8_all":
+                    num_words = (size + 3) // 4
+                    rules.extend(("raw_u8", word_off + i)
+                                 for i in range(num_words))
+                else:
+                    rules.append((kind, word_off))
+
+        for kind, word_off in rules:
+            byte_off = base_off + word_off * 4
+            if byte_off + 4 > len(data):
+                raise RuntimeError(
+                    f"struct {type_name} word offset 0x{word_off:x} "
+                    f"at byte 0x{byte_off:x} extends past data section size "
+                    f"0x{len(data):x}; check tools/struct_byteswap_tables.py.")
+            slot = data[byte_off:byte_off + 4]
+            if kind == "rotate16":
+                data[byte_off:byte_off + 4] = bytes(
+                    [slot[1], slot[0], slot[3], slot[2]])
+            elif kind == "raw_u8":
+                pass  # leave bytes as clang emitted; just skip global pass
+            else:
+                raise RuntimeError(
+                    f"unknown struct fixup kind {kind!r} for {type_name}")
+            skip.add(byte_off)
+    return skip
 
 
 def write_chain(data: bytearray, entries: list[tuple[int, int, str]]
@@ -265,6 +438,32 @@ def write_chain(data: bytearray, entries: list[tuple[int, int, str]]
 
 # ───────────────────────────── compile + emit ─────────────────────────────
 
+# Reverses the 22 `is_have_*` positional bitfield init lines so that LE
+# clang fills the LE-declared field order (which is BE order reversed) with
+# the values intended for BE order. Without this, e.g. the value for
+# `is_have_attack11` lands on `is_have_voice` instead. The runtime reads bits
+# at fixed positions, so getting the values into the right *fields* is what
+# matters — bit positions handled by the LE branch of the struct definition.
+_BITFIELD_REVERSE_RE = re.compile(
+    r'((?:[ \t]*[01],[ \t]*/\* is_have_\w+ \*/[ \t]*\n){22})',
+    re.MULTILINE)
+
+
+def preprocess_le_bitfield_inits(c_text: str) -> str:
+    def reverse_block(m: re.Match[str]) -> str:
+        block = m.group(1)
+        # Last line may not end in newline; capture trailing newlines to put
+        # back after reversing the lines.
+        lines = block.split('\n')
+        if lines[-1] == '':
+            lines = lines[:-1]
+            trailer = '\n'
+        else:
+            trailer = ''
+        return '\n'.join(reversed(lines)) + trailer
+    return _BITFIELD_REVERSE_RE.sub(reverse_block, c_text)
+
+
 def compile_to_elf(src: Path, output: Path, clang: str,
                    include_dirs: list[Path]) -> None:
     """
@@ -284,6 +483,13 @@ def compile_to_elf(src: Path, output: Path, clang: str,
         "-DREGION_US=1",
         "-target", "i686-pc-linux-gnu",
         "-ffreestanding", "-nostdlib",
+        # Force all-zero arrays into .data instead of .bss. The pipeline
+        # only reads .data + applies the runtime byteswap layout to it; an
+        # all-NULL array in .bss has no bytes, so its file offset gets
+        # silently dropped from the emitted resource (e.g. fighter
+        # modelparts_container[25] = {NULL,...}). Torch ships the zero
+        # bytes from ROM, so byte-equivalence requires us to too.
+        "-fno-zero-initialized-in-bss",
         "-Wno-pointer-to-int-cast",
         "-Wno-incompatible-pointer-types",
         "-Wno-int-conversion",
@@ -342,6 +548,33 @@ def main() -> int:
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
 
+    # Pre-process the .c source for LE-clang quirks (FTAttributes bitfield
+    # init order). Skip the preprocess step when the file doesn't contain
+    # the bitfield region — preprocess_le_bitfield_inits is a no-op for
+    # those files anyway, but we still write a temp .c file. Cheap enough
+    # to do unconditionally.
+    src_text = args.src.read_text()
+    src_text_pp = preprocess_le_bitfield_inits(src_text)
+    if src_text_pp != src_text:
+        # Need a temp .c file with the same #include search path as the
+        # original. Place next to the obj-out (or in /tmp) and pass to clang
+        # with -I including the original .c's parent (so any local includes
+        # like relocdata_types.h resolve).
+        if args.obj_out is not None:
+            args.obj_out.parent.mkdir(parents=True, exist_ok=True)
+            pp_src = args.obj_out.with_suffix(".pp.c")
+        else:
+            fd, pp_name = tempfile.mkstemp(suffix=".pp.c")
+            os.close(fd)
+            pp_src = Path(pp_name)
+        pp_src.write_text(src_text_pp)
+        compile_src = pp_src
+        cleanup_pp = (args.obj_out is None)
+    else:
+        compile_src = args.src
+        cleanup_pp = False
+        pp_src = None
+
     # Compile .c → .o.
     # NamedTemporaryFile on Windows holds an exclusive lock until close, so
     # we use mkstemp + explicit close — gives clang an unlocked path to
@@ -349,18 +582,33 @@ def main() -> int:
     if args.obj_out is not None:
         args.obj_out.parent.mkdir(parents=True, exist_ok=True)
         obj_path = args.obj_out
-        compile_to_elf(args.src, obj_path, args.clang, args.include_dir)
+        # If we're compiling a pre-processed temp file, it doesn't sit in
+        # the original include path. Add the original .c's parent directory
+        # to the include path so relative includes (e.g. relocdata_types.h)
+        # resolve.
+        include_dirs = list(args.include_dir)
+        if compile_src != args.src:
+            include_dirs.insert(0, args.src.parent)
+        compile_to_elf(compile_src, obj_path, args.clang, include_dirs)
         cleanup_obj = False
     else:
         fd, tmp_name = tempfile.mkstemp(suffix=".o")
         os.close(fd)
         obj_path = Path(tmp_name)
         cleanup_obj = True
+        include_dirs = list(args.include_dir)
+        if compile_src != args.src:
+            include_dirs.insert(0, args.src.parent)
         try:
-            compile_to_elf(args.src, obj_path, args.clang, args.include_dir)
+            compile_to_elf(compile_src, obj_path, args.clang, include_dirs)
         except Exception:
             obj_path.unlink(missing_ok=True)
+            if cleanup_pp and pp_src:
+                pp_src.unlink(missing_ok=True)
             raise
+
+    if cleanup_pp and pp_src:
+        pp_src.unlink(missing_ok=True)
 
     elf = Elf32(obj_path.read_bytes())
     sym_table = elf.symtab()
@@ -370,9 +618,20 @@ def main() -> int:
         raise RuntimeError(f"{args.src.name}: no .data section in compiled .o")
     data = bytearray(elf.section_bytes(data_sec))
 
+    # Per-struct field-aware byteswap for typed structs (FTAttributes,
+    # WPAttributes, MPGroundData) whose runtime fixup helpers in
+    # port/bridge/lbreloc_byteswap.cpp rotate u16-pair words and bswap
+    # u8[4] color quads. The global LE→BE pass below skips slots already
+    # handled here. See tools/struct_byteswap_tables.py for the rationale.
+    from struct_byteswap_tables import STRUCT_FIELD_FIXUPS, STRUCT_SIZE
+    c_text = args.src.read_text()
+    regions = find_struct_regions(c_text, sym_table,
+                                  STRUCT_FIELD_FIXUPS, STRUCT_SIZE)
+    pre_skip = apply_struct_aware_bswap(data, regions, STRUCT_FIELD_FIXUPS)
+
     # Byte-swap LE→BE before chain encoding. Runtime byteswap will reverse
-    # this on load.
-    byteswap_u32(data)
+    # this on load. Slots already handled by the per-struct pass are skipped.
+    byteswap_u32(data, skip=pre_skip)
 
     intern_entries, extern_entries = parse_reloc(args.reloc, sym_table)
 
