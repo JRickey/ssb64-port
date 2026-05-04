@@ -79,7 +79,14 @@ ExternalProject_Add(TorchExternal
 
 ExternalProject_Get_Property(TorchExternal install_dir)
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/$<CONFIGURATION>/torch.exe)
+    # Torch is built via ExternalProject_Add and inherits the parent generator.
+    # Multi-config generators (Visual Studio) place the binary under <CONFIG>/;
+    # single-config generators (Ninja, NMake) drop it directly in the build dir.
+    if(CMAKE_CONFIGURATION_TYPES)
+        set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/$<CONFIG>/torch.exe)
+    else()
+        set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/torch.exe)
+    endif()
     set(TORCH_SIDECAR_NAME torch.exe)
 else()
     set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/torch)
