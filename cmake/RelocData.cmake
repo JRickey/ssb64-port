@@ -110,6 +110,28 @@ endfunction()
 # Pack step: gathers all .relo outputs from add_reloc_resource calls into a
 # single .o2r archive at the resource paths the runtime expects. The pack
 # manifest is a Python-readable text file the pack tool consumes.
+function(add_passthrough_resource file_id resource_path)
+    set(out ${RELOC_FROMSOURCE_DIR}/${file_id}.relo)
+    add_custom_command(
+        OUTPUT ${out}
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/passthrough_reloc.py
+            --battleship-o2r ${_battleship_o2r}
+            --reloc-table ${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp
+            --file-id ${file_id}
+            --output ${out}
+        DEPENDS ${_battleship_o2r}
+                ${CMAKE_SOURCE_DIR}/tools/passthrough_reloc.py
+        COMMENT "Passthrough reloc resource ${file_id} (${resource_path})"
+        VERBATIM
+    )
+
+    list(APPEND SSB64_RELOC_FROMSOURCE_OUTPUTS ${out})
+    list(APPEND SSB64_RELOC_FROMSOURCE_PATHS "${file_id}|${resource_path}")
+    set(SSB64_RELOC_FROMSOURCE_OUTPUTS "${SSB64_RELOC_FROMSOURCE_OUTPUTS}" CACHE INTERNAL "")
+    set(SSB64_RELOC_FROMSOURCE_PATHS "${SSB64_RELOC_FROMSOURCE_PATHS}" CACHE INTERNAL "")
+endfunction()
+
+
 function(finalize_battleship_from_source archive_output)
     set(manifest ${CMAKE_BINARY_DIR}/reloc_fromsource_manifest.txt)
     set(manifest_lines "")
