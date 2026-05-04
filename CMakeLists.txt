@@ -79,7 +79,14 @@ ExternalProject_Add(TorchExternal
 
 ExternalProject_Get_Property(TorchExternal install_dir)
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/$<CONFIGURATION>/torch.exe)
+    # Multi-config generators (Visual Studio, Xcode) put torch.exe under a
+    # per-config subdir; single-config generators (Ninja, Makefiles) put it at
+    # the build root. CMAKE_CONFIGURATION_TYPES is only set on multi-config.
+    if (CMAKE_CONFIGURATION_TYPES)
+        set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/$<CONFIG>/torch.exe)
+    else()
+        set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/torch.exe)
+    endif()
     set(TORCH_SIDECAR_NAME torch.exe)
 else()
     set(TORCH_EXECUTABLE ${install_dir}/src/TorchExternal-build/torch)
