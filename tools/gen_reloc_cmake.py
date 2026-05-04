@@ -146,9 +146,9 @@ def main() -> int:
             skipped["uses_bitfield_init"].append(fid)
             continue
 
-        if uses_generated_macros(c_path):
-            skipped["uses_generated_macros"].append(fid)
-            continue
+        # Note: previously skipped files using ftMotionCommand* / aobjEvent32End
+        # macros. After the submodule's ftdef.h was restored to upstream's full
+        # macro set (M3.P12), those files compile straight through.
 
         eligible.append((fid, c_path.name, table[fid]))
 
