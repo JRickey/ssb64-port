@@ -1,89 +1,44 @@
-# M3.P15 — Source-Compile Bitfield-Init RelocData Files (Follow-up)
+# M3.P15 — Source-compile bitfield-init relocData files
 
-**Status:** Open. Currently covered by passthrough (Torch bytes verbatim) — game runs, but no source-edit path for these files. Modders editing fighter / weapon / ground attributes don't see changes via the source-compile pipeline yet.
+**Status as of 2026-05-04:** 66 of 76 originally-skipped files now byte-identical and source-compiled (FTAttributes 27/27, MPGroundData 39/41). 10 deferred: WPAttributes (8) + 2 MPGroundData edge cases. See `tools/struct_byteswap_tables.py` for the per-struct field-byteswap tables that drive this; mirrors the runtime helpers in `port/bridge/lbreloc_byteswap.cpp`.
 
-**Scope:** 76 files in `decomp/src/relocData/` whose top-level initializers use IDO-style positional bitfield syntax against structs the port has rewritten under `#ifdef PORT` to use explicit `u32` words:
+## What landed
 
-| Struct | Files | Modder use case |
-|---|---:|---|
-| `FTAttributes` | 27 | Fighter tuning — speed, jump heights, hit knockback |
-| `MPGroundData` | 41 | Stage collision / surface properties |
-| `WPAttributes` | 8 | Projectile attributes (Mario fireball, Samus missile, etc.) |
-| `ITAttributes` | 0 | (rewritten in 2026-04-24, already passthrough-clean) |
+Build-side per-struct byteswap pass (`tools/build_reloc_resource.py`'s `apply_struct_aware_bswap`) runs before the global LE→BE pass and handles fields whose bytes don't match the bswap32-uniform contract. Three rule kinds:
 
-## Why passthrough is the wrong long-term answer
+- `rotate16` — bswap16 each u16 half (for u16-pair words like `dead_fgm_ids`, `camera_bound_*`, `deadup_sfx`)
+- `raw_u8` — leave clang's bytes alone, skip the global pass (for u8 RGBA quads, raw filler bytes from `.data.inc.c`)
+- `raw_u8_all` — apply raw_u8 to every word in the symbol's footprint (for variable-length flex-array u8 structs like `MPItemWeights`)
 
-Currently each of these files ships in `BattleShip.fromsource.o2r` via `add_passthrough_resource()` — bytes copied verbatim from `BattleShip.o2r`. That works for *running* the game but doesn't enable the modder loop:
+Plus two additional pipeline fixes that were prerequisites:
 
-```
-edit decomp/src/relocData/203_MarioMain.c → cmake --build → see change in-game
-```
+- `-fno-zero-initialized-in-bss` clang flag — forces all-NULL pointer arrays into `.data` so they actually get emitted (otherwise modelparts_container[25] = {NULL,...} silently dropped).
+- LE-bitfield positional-init reversal — preprocesses the .c source to reverse the 22-line `is_have_*` init block, because the LE struct declares those fields in reverse order vs BE and positional init fills declaration-order.
 
-Edits to a passthrough file are ignored — the source-compile pipeline never touches it. A modder tweaking Mario's `walk_initial_speed` would have no effect; the runtime serves Torch's ROM-extracted bytes.
+Tables now exist for: `FTAttributes`, `FTSkeleton`, `FTModelPart`, `FTCommonPart`, `FTCommonPartContainer`, `FTTexturePartContainer`, `MPGroundData`, `MPItemWeights`. Plus generic u8[] array detection from .c source text.
 
-## The core problem
+## Remaining work — 10 files
 
-IDO 7.1 (MIPS BE) packs small bitfields into struct pad gaps **MSB-first**. clang i686 (LE) packs **LSB-first** into the same containing word. The PORT-guarded structs flatten bitfields to a single `u32` and code reads them with explicit shift/mask at the IDO bit positions. So:
+### WPAttributes (8 files) — `204_MarioSpecial1`, `210_FoxSpecial1`, `218_SamusSpecial1`, `222_LuigiSpecial1`, `226_LinkSpecial1`, `240_NessSpecial1`, `244_PikachuSpecial1`, `251_ITCommonData`
 
-| Struct definition | Initializer | Packed u32 layout the runtime expects |
-|---|---|---|
-| Upstream (IDO bitfield) | `s32 angle:10; s32 init_y:10; ...` | MSB-first: `(angle << 22) \| (init_y << 12) \| ...` |
-| PORT (explicit u32) | `u32 packed_word_0x4;` | Code reads `(packed_word_0x4 >> 22) & 0x3FF` for angle |
+**Blocker:** the .c sources declare a single 52-byte `WPAttributes` struct, but Torch's resources are 64 bytes (12 bytes of trailing per-file data the .c doesn't declare). For `244` and `251` the trailing tail is 8 bytes. So the file is missing ~12 bytes of real ROM data.
 
-If we naively compile the upstream `.c` with clang i686, the bitfields pack LSB-first. The runtime extracts at MSB-first positions → wrong values.
+**Fix:** extend each WPAttributes .c with an explicit trailing declaration that captures whatever those bytes are. Without ROM disassembly to identify the trailing field's purpose, the simplest portable form is `u8 dXXX_pad_after_attr[12] = { #include <XXX/pad_after_attr.data.inc.c> };` and let `extract_inc_c.py` generate the bytes from `BattleShip.o2r`. Then the file becomes byte-equivalent without any new struct knowledge.
 
-## Solution sketch — source-compile pre-processor
+The `sfx:10` truncation warning observed during early compilation was a red herring — clang's LE bitfield struct definition is correct; the warning fires for legal values that exceed 10 bits when fed to a byte-sized init slot. Not a blocker for byte-equivalence.
 
-Add `tools/pack_bitfield_init.py` that:
+### MPGroundData (2 files) — `264_GRYamabukiMap`, `295_GRBonus3Map`
 
-1. **Knows each struct's bit layout.** Hand-derived from the upstream struct definition, verified against the audit procedure in `docs/debug_ido_bitfield_layout.md` (compile the upstream `.c` with IDO + rabbitizer-disassemble the resulting `.data` section to confirm exact bit positions per field). Encode as a Python table:
-   ```python
-   FT_ATTRIBUTES_LAYOUT = {
-     "walk_initial_speed":      Field(off=0x0, size=4, kind="f32"),
-     "angle":                   Field(off=0x4, bit=22, width=10, kind="s32"),
-     "init_jump_y_velocity":    Field(off=0x4, bit=12, width=10, kind="s32"),
-     ...
-   }
-   ```
+**Blocker:** these files declare `u32 dXXX_AttackEvents[8] = { #include <...inc.c> };` but the inc.c contains u8 hex bytes (`0x00, 0x5A, 0x47, 0x80, ...`). clang interprets each comma-separated value as one full u32 element, taking only the first 8 values into the array. The intended pack-4-u8s-per-u32 layout is silently lost.
 
-2. **Parses `.c` bitfield initializers.** Extracts `<TYPE> <name> = { <field>=<value>, ... };` from the file. Tolerates positional inits too — the upstream `.c`s mix designated and positional.
+**Fix:** the cleaner direction is fixing `tools/extract_inc_c.py` so that when the declaration's element type is `u32`, it emits comma-separated `0xAABBCCDD` hex u32 values (4 bytes each), not individual `0xAA, 0xBB, ...` u8 sequences. Alternatively, change the .c source to declare these as `u8[32]` rather than `u32[8]` — same on-disk bytes either way.
 
-3. **Emits a packed-u32 initializer.** Pre-processor writes a sibling `<name>.packed.c` that contains the same data laid out as the PORT struct expects:
-   ```c
-   FTAttributes dMarioMainAttributes = {
-       0.5f,           /* walk_initial_speed */
-       0xb6464000,     /* packed word at +0x04 — MSB-first bit-packed */
-       ...
-   };
-   ```
+### Wider question — should this go upstream?
 
-4. **CMake hooks it before `build_reloc_resource.py`.** New eligibility branch in `tools/gen_reloc_cmake.py`: files in `uses_bitfield_init` route to `add_reloc_resource()` with `--src` pointing at the pre-processor output instead of the original `.c`.
+The decomp build runs IDO MIPS BE, where MSB-first bitfield packing matches the runtime. The port runs clang LE, which packs LSB-first. Our LE struct branches in `decomp/src/ft/fttypes.h` etc. already reverse field order to compensate for bit positions, but they require positional-init reversal at the source-compile step. A future cleanup: convert the .c initializers from positional to designated form (`{ .is_have_attack11 = 1, ... }`) — would be unconditionally correct on both BE and LE and remove the .c source preprocess step.
 
-## Implementation order (per struct, biggest leverage first)
+## How to make further progress
 
-1. **FTAttributes (27 files)** — fighter tuning has the highest modder value. Field count ~80 per file; multiple bitfield-packed words.
-2. **MPGroundData (41 files)** — large file count but per-file field set is smaller (~10 fields).
-3. **WPAttributes (8 files)** — smallest count; projectile attributes.
-
-## Deliverables for P15
-
-- `tools/pack_bitfield_init.py` — pre-processor (~300 LOC).
-- `tools/bitfield_layouts/{FTAttributes,WPAttributes,MPGroundData}.py` — per-struct layout tables.
-- One-page audit doc per struct in `docs/audit_bitfield_<struct>_2026-MM-DD.md` documenting how each bit position was verified (rabbitizer disasm output snippet).
-- `tools/gen_reloc_cmake.py` change: eligibility filter routes bitfield-init files through the pre-processor instead of skipping them.
-- Validation: each transitioned file passes `tools/validate_reloc_archives.py` byte-for-byte against Torch's bytes (or documented exception list).
-
-## Verification gate for P15-done
-
-1. All 76 files transition from `add_passthrough_resource` to `add_reloc_resource` in the generated cmake.
-2. `tools/validate_reloc_archives.py` reports byte-identical or layout-shifted-but-runtime-equivalent for each.
-3. Smoke test: pick one fighter (Mario), edit `walk_initial_speed` from 0.5f to 1.5f in `203_MarioMain.c`, rebuild, confirm in-game Mario walks visibly faster.
-4. Smoke test: same for one stage's MPGroundData and one weapon's WPAttributes.
-
-## Why not just port upstream's bitfield-aware extractor?
-
-Upstream doesn't have one — their build is IDO MIPS BE and bitfield positions are whatever IDO emits. The port's PORT-guarded struct rewrites are what created this divergence in the first place. The fix has to live on our side.
-
-## Tracking
-
-Reference memory: `[Prefer struct rewrite over game-logic override](feedback_struct_rewrite_over_overrides.md)` — established that struct-layout rewrites under PORT are the correct answer for cross-LE-target compatibility. P15 is the build-side complement: keep upstream's bitfield-init `.c` files compilable into the PORT layout via a pre-processor, rather than rewriting every initializer by hand.
+1. **WPAttributes byte-extension:** for each of the 8 files, extract the 8 or 12 trailing bytes from `BattleShip.o2r` and either inline-init them in the .c or add a `#include` of a generated `.inc.c`. Then drop `WPAttributes` from `_BITFIELD_TYPE_RE` in `tools/gen_reloc_cmake.py`.
+2. **u32[N] inc.c fix:** rework the `data` format emitter in `tools/extract_inc_c.py` to honour the declared element type. Then re-validate Yamabuki and Bonus3.
+3. **Designated init migration (optional, upstream-friendly):** for each FTAttributes / WPAttributes init in `decomp/src/relocData/`, replace positional-with-trailing-comment-form with designated-init form. Removes the LE preprocess step and is also easier for modders to read.
