@@ -36,7 +36,7 @@ If your dump does not match those hashes, it will not work.
 ## Controls
 
 - Controller and Rumble Support Powered by SDL 2
-- Native Ralphnet Support up to 4 Channels Through Hidapi
+- Native Raphnet Support up to 4 Channels Through Hidapi
 
 ## Rendering
 
@@ -47,6 +47,11 @@ All Powered by LibultraShip
 - Tri Point Texture Filtering
 
 ## Rollback Netcode and Online Play (WORK IN PROGRESS)
+
+## Mod Loader and Toolkit (WORK IN PROGRESS)
+
+- Modding Toolkit is available as a submodule [Battle-ShipYard](https://github.com/JRickey/Battle-ShipYard)
+- Mod loader is Work in Progress
 
 ## Author's notes
 
@@ -78,7 +83,7 @@ The port has three layers and they are kept deliberately separate:
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  decompiled game code  (src/)                                │
+│  decompiled game code  (decomp/src/)                         │
 │  Unmodified C produced by the decomp project. Talks to the   │
 │  N64 the same way the original ROM did: GBI display lists,   │
 │  ALSeqPlayer audio, OS threads, OSContPad input.             │
@@ -100,7 +105,7 @@ The port has three layers and they are kept deliberately separate:
 
 `baserom.us.z64` is never read at runtime. At build time, **Torch** walks the ROM with the YAMLs under `yamls/us/` and emits `BattleShip.o2r` — a zip-format archive of typed resources (textures, sequences, sample banks, animations, reloc files). At launch, libultraship's resource manager mounts `BattleShip.o2r` + `f3d.o2r` and the port code requests resources by path. This is the same pipeline used by Ship of Harkinian, Starship, SpaghettiKart, etc.
 
-The relocatable-data files (fighter tables, item tables, effects, sprites) are SSB64-specific and required custom factories on the Torch side and a custom loader (`port/resource/RelocFileFactory.cpp`) on the runtime side.
+The relocatable-data files (fighter tables, item tables, effects, sprites) are SSB64-specific and required custom factories on the Torch side and a custom loader (`port/resource/RelocFileFactory.cpp`) on the runtime side. They can also be built straight from decomp source — the [Battle-ShipYard](https://github.com/JRickey/Battle-ShipYard) submodule recompiles `decomp/src/relocData/*.c` end-to-end (i686 cross-compile → ELF/COFF parse → byteswap to BE → reloc-chain encoding → LUS RelocFile resource emit) into a parallel `BattleShip.fromsource.o2r` archive that the runtime loads ahead of the Torch-extracted bytes when `SSB64_RELOC_FROMSOURCE=1` is set, shadowing matching entries via LUS's FIFO ArchiveManager lookup. Both archives feed the same `RelocFileFactory.cpp` loader. See the **Modding** section below.
 
 ### Build-time codegen
 
@@ -111,6 +116,8 @@ A small amount of generated code lives outside the source tree (gitignored) and 
 - `port/resource/RelocFileTable.cpp` — the runtime symbol table
 
 If you ever see "undefined reference to `dFooBarReloc`" you regenerated the table without rebuilding, or vice versa.
+
+When a clang or MSVC toolchain is on the build host, the [Battle-ShipYard](https://github.com/JRickey/Battle-ShipYard) submodule additionally produces `BattleShip.fromsource.o2r` at build time — 1,870 source-compiled relocData files plus 262 passthroughs, runtime-equivalent to the Torch-extracted bytes (verified by the toolkit's symbol-aligned equivalence validator). The archive is optional: with no toolchain available the build proceeds with Torch-extracted reloc data only and the runtime is unchanged.
 
 ---
 
@@ -126,7 +133,7 @@ Every meaningful change to a decomp source file is wrapped in `#ifdef PORT` / `#
 
 ### Decomp preservation: behavior, not bytes
 
-The repo follows a single principle for changes to `src/`:
+The repo follows a single principle for changes to `decomp/src/`:
 
 > **Accuracy to game behavior > accuracy to ROM bytes.**
 
@@ -200,20 +207,38 @@ Both forks live as submodules so their history stays their own and so upstream c
 
 ---
 
+## Modding
+
+Source-level modding is supported via the [Battle-ShipYard](https://github.com/JRickey/Battle-ShipYard) submodule — a CMake-driven toolkit that recompiles `decomp/src/relocData/*.c` (fighter attributes, animations, stage data, particle effects, weapon hitboxes — anything the runtime relocates from a per-file body) into a sideloadable `BattleShip.fromsource.o2r`. Drop the archive next to your `BattleShip.exe` and launch with `SSB64_RELOC_FROMSOURCE=1` in the environment to load it ahead of the ROM-extracted data.
+
+Either toolchain works:
+
+- **clang** (any host) — `winget install LLVM.LLVM` on Windows, ships with Xcode CLI tools on macOS, `apt install clang` on Linux.
+- **MSVC** (Windows only) — VS 2017+ or Build Tools with the *Desktop development with C++* workload. Auto-detected via `vswhere`; the toolkit captures `vcvars32` once at configure time and runs `cl.exe` through a generated env wrapper, so no Developer Shell launch is required.
+
+Both backends produce runtime-equivalent archives across the full 1,870-file eligible-set — verified by the modkit's symbol-aligned equivalence validator. The remaining ~262 files (JP-only overlays, files needing upstream `.inc.c` extracts, IDO bitfield-init structs) are passed through unchanged from the Torch-extracted bytes.
+
+A mod loader for installing and managing multiple mods at runtime is planned but not yet implemented; for now, sideloading is one-archive-at-a-time via the env var. See the [Battle-ShipYard README](https://github.com/JRickey/Battle-ShipYard#readme) for the full toolkit reference, per-tool docs, and the build flow for both standalone and submodule usage.
+
+---
+
 ## Repo layout
 
 ```
-src/          decompiled C source (largely unchanged game logic)
-  sys/        main loop, DMA, scheduling, audio, controllers, threading
-  ft/         fighters (ftmario/, ftkirby/, ftfox/, …)
-  sc/ gm/ gr/ scene / game modes / stage rendering
-  mn/ it/ ef/ menus / items / effects
-  …
 port/         modern C++ port layer — Ship::Context, resource factories,
               endian fixups, bridges between decomp code and libultraship
 include/      headers (some generated: reloc_data.h)
+decomp/       submodule — decompiled SSB64 C source (largely unchanged
+              game logic). Major subdirs inside the submodule:
+                src/sys/        main loop, DMA, scheduling, audio,
+                                controllers, threading
+                src/ft/         fighters (ftmario/, ftkirby/, ftfox/, …)
+                src/sc/ gm/ gr/ scene / game modes / stage rendering
+                src/mn/ it/ ef/ menus / items / effects
+                src/relocData/  reloc data sources (Battle-ShipYard input)
 libultraship/ submodule — PC-native render / audio / input / resource mgr
-torch/        submodule — asset extractor
+torch/        submodule — asset extractor (ROM → BattleShip.o2r)
+Battle-ShipYard/  submodule — modding toolkit (decomp source → BattleShip.fromsource.o2r)
 yamls/us/     Torch YAML extraction configs (some generated)
 tools/        Python helpers: reloc stubs, YAML gen, credits encoder
 docs/         architecture notes, bug write-ups, debugging guides
@@ -250,7 +275,7 @@ PRs are welcome but please don't be offended if responses are slow — this is a
 - Asset pipeline: [Torch](https://github.com/HarbourMasters/Torch) (Harbour Masters).
 - Menu fonts: [Montserrat](https://github.com/JulietaUla/Montserrat) and [Inconsolata](https://github.com/cyrealtype/Inconsolata), both bundled under the [SIL Open Font License 1.1](https://openfontlicense.org). License texts ship alongside the font files in [`assets/custom/fonts/`](assets/custom/fonts/).
 - Reference ports I learned from: [Starship](https://github.com/HarbourMasters/Starship) (SF64), [SpaghettiKart](https://github.com/HarbourMasters/SpaghettiKart) (MK64).
-- Port work: me ([JRickey](https://github.com/JRickey)), with an enormous amount of help from [Claude](https://claude.com/claude-code).
+- Port work: me ([JRickey](https://github.com/JRickey)), with an enormous amount of help, debugging, and feature suggestions from contributors in our Discord server.
 
 This project is **not affiliated with, endorsed by, or authorized by Nintendo.** It is a personal, non-commercial research and preservation effort. Do not upload ROMs, extracted `.o2r` archives, or any other Nintendo-owned data to issues or pull requests.
 
@@ -258,10 +283,11 @@ This project is **not affiliated with, endorsed by, or authorized by Harbour Mas
 
 ## License
 
-Source code in this repository (everything outside `libultraship/`, `torch/`, and `src/` decomp content carrying its own attribution) is released under the [MIT License](LICENSE) — free to use, modify, and redistribute, with no warranty and no liability. See [`LICENSE`](LICENSE) for the full text.
+Source code in this repository (everything outside the `decomp/`, `libultraship/`, `torch/`, and `Battle-ShipYard/` submodules — each of which carries its own attribution) is released under the [MIT License](LICENSE) — free to use, modify, and redistribute, with no warranty and no liability. See [`LICENSE`](LICENSE) for the full text.
 
 The MIT grant covers only the port-specific code (the `port/` layer, build scripts, tools, docs). It does **not** extend to:
 - Game assets, code, audio, textures, models, or any other content owned by Nintendo / HAL Laboratory — none of which is in this repository.
-- The decompilation in `src/`, which carries its own license from the [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) project.
+- The decompilation in the `decomp/` submodule, which carries its own license from the [VetriTheRetri/ssb-decomp-re](https://github.com/VetriTheRetri/ssb-decomp-re) project.
 - The `libultraship` and `torch` submodules, which carry their own upstream licenses.
+- The `Battle-ShipYard` modkit submodule, which is MIT-licensed under its own [LICENSE](https://github.com/JRickey/Battle-ShipYard/blob/main/LICENSE).
 - The bundled menu fonts under `assets/custom/fonts/`, which are licensed under the SIL Open Font License 1.1 (per-font license files in that directory).
