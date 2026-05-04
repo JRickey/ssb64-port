@@ -493,3 +493,30 @@ add_custom_target(GeneratePortO2R
     COMMAND ${TORCH_EXECUTABLE} pack ${CMAKE_SOURCE_DIR}/assets ${CMAKE_SOURCE_DIR}/ssb64.o2r o2r
     COMMENT "Packing port-specific assets into ssb64.o2r"
 )
+
+################################################################################
+# RelocData compile-from-source pipeline (Battle-ShipYard modkit)
+#
+# When a compatible toolchain is available (LLVM/clang or VS x86 cl.exe via
+# vcvars32), builds BattleShip.fromsource.o2r alongside the executable.
+# Loaded ahead of BattleShip.o2r at runtime when SSB64_RELOC_FROMSOURCE=1,
+# shadowing Torch entries for matching paths. With no toolchain the entire
+# subsystem is skipped — runtime falls back to Torch-extracted reloc data
+# exactly as before.
+#
+# The pipeline lives in the Battle-ShipYard submodule
+# (https://github.com/JRickey/Battle-ShipYard). Bumping the submodule
+# pointer is how we ship modkit changes; nothing in this repo's CMakeLists
+# needs to change for routine modkit updates. The contract is the variables
+# set below — DECOMP_DIR for the source tree, RELOC_TABLE for the file_id
+# mapping. Compiler discovery, eligible-set generation, per-file build
+# rules, and finalize_battleship_from_source all live in the submodule.
+################################################################################
+
+set(RELOCDATA_DECOMP_DIR  "${CMAKE_SOURCE_DIR}/decomp")
+set(RELOCDATA_RELOC_TABLE "${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp")
+include(Battle-ShipYard/cmake/RelocData.cmake)
+
+if(RELOCDATA_CC)
+    finalize_battleship_from_source(${CMAKE_BINARY_DIR}/BattleShip.fromsource.o2r)
+endif()

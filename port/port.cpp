@@ -562,9 +562,34 @@ static int PortInitImpl(int argc, char* argv[]) {
 
 	{
 		// Add BattleShip.o2r to the running ResourceManager now that it exists.
+		auto am = sContext->GetResourceManager()->GetArchiveManager();
+
+		// Optional: BattleShip.fromsource.o2r contains relocData resources
+		// produced by compiling decomp/src/relocData/*.c via the source-
+		// compile pipeline (tools/build_reloc_resource.py). Adding it BEFORE
+		// the Torch-extracted BattleShip.o2r means the LUS ArchiveManager's
+		// FIFO-wins lookup serves source-compiled entries for matching
+		// resource paths. The file is gitignored / produced by the
+		// BuildBattleShipFromSource CMake target, which is gated on clang
+		// availability — when missing the load is silently skipped and
+		// runtime behaves exactly as the pre-M2 Torch-only path.
+		if (const char *fromsource = std::getenv("SSB64_RELOC_FROMSOURCE");
+			fromsource && fromsource[0] == '1') {
+			const std::string fs = PortLocateFile("BattleShip.fromsource.o2r");
+			if (!fs.empty()) {
+				port_log("SSB64: SSB64_RELOC_FROMSOURCE=1 -> adding %s ahead of BattleShip.o2r\n",
+				         fs.c_str());
+				if (!am->AddArchive(fs)) {
+					port_log("SSB64: AddArchive failed for %s (continuing with Torch-extracted reloc data)\n",
+					         fs.c_str());
+				}
+			} else {
+				port_log("SSB64: SSB64_RELOC_FROMSOURCE=1 set but BattleShip.fromsource.o2r not found\n");
+			}
+		}
+
 		const std::string ssb64o2r = PortLocateFile("BattleShip.o2r");
 		port_log("SSB64: adding game archive -> %s\n", ssb64o2r.c_str());
-		auto am = sContext->GetResourceManager()->GetArchiveManager();
 		if (!am->AddArchive(ssb64o2r)) {
 			port_log("SSB64: AddArchive failed for %s\n", ssb64o2r.c_str());
 			return 1;
