@@ -41,7 +41,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SRC_DIR = ROOT / "src"
+# Decomp source lives in the `decomp/` submodule (port-patches branch). The
+# pre-submodule path was ROOT/src; it's still on disk during the submodule
+# migration but slated for deletion. Prefer the submodule path when present.
+SRC_DIR = (ROOT / "decomp" / "src") if (ROOT / "decomp" / "src").is_dir() else (ROOT / "src")
 HEADER_OUT = ROOT / "include" / "reloc_data.h"
 SYMBOLS_TXT = ROOT / "tools" / "reloc_data_symbols.us.txt"
 

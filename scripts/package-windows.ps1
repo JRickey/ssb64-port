@@ -44,12 +44,12 @@ function Write-Step($msg) { Write-Host "`n=== $msg ===" -ForegroundColor Cyan }
 function Fail($msg) { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 
 # ── 0. Run codegen scripts that don't need the ROM ──
-# Encoded credit files are gitignored (input text is in src/credits/),
+# Encoded credit files are gitignored (input text is in decomp/src/credits/),
 # so a fresh checkout (CI or otherwise) must run the encoder before
 # cmake builds scstaffroll.c. ROM-independent — same step CMake's
 # GenerateCreditsAssets target runs.
 Write-Step "Encoding credits text"
-Push-Location (Join-Path $Root "src/credits")
+Push-Location (Join-Path $Root "decomp/src/credits")
 foreach ($f in @("staff.credits.us.txt", "titles.credits.us.txt")) {
     & python "$Root/tools/creditsTextConverter.py" $f | Out-Null
     if ($LASTEXITCODE -ne 0) { Pop-Location; Fail "credits encode failed: $f" }

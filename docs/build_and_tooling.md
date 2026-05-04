@@ -42,7 +42,7 @@ The decompiled C code contains patterns that are artifacts of the original IDO 7
 - `stdarg.h`'s `(long)list` alignment macros use `long` as a pointer-sized integer; LP64 actually makes that *more* correct than LLP64.
 - Every `_Static_assert(sizeof(X) == N)` struct (Bitmap, Sprite, DObjDesc, MObjSub, FTAccessPart, …) compiles clean, which means the reconciled types produce the correct byte layouts on both ABIs.
 
-When adding new decomp sources or vendored SDK headers, re-run this sweep (`grep -rn '\blong\b' include/ src/ | grep -v 'long long'`) before assuming the new code is LP64-safe.
+When adding new decomp sources or vendored SDK headers, re-run this sweep (`grep -rn '\blong\b' decomp/include/ decomp/src/ port/ | grep -v 'long long'`) before assuming the new code is LP64-safe.
 
 Other compiler-compat notes:
 - `ultratypes.h` defines `u32`/`s32` as `unsigned int`/`int` under `#ifdef PORT && !defined(_MSC_VER)` (and as `unsigned long`/`long` everywhere else). This is the LP64 fix: on clang/gcc `long` is 8 bytes, which silently corrupts every file-backed N64 struct the decomp touches. MSVC (LLP64) keeps the original SDK definitions.
