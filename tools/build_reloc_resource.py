@@ -271,8 +271,12 @@ class Coff32:
 
     def section_bytes(self, sec: dict) -> bytes:
         if sec["is_bss"]:
-            # Synthesize zero-fill: COFF .bss has raw_size=0 but vsize>0.
-            return b"\x00" * sec["vsize"]
+            # Per PE/COFF spec: VirtualSize is an image-only field and is
+            # zero in object files. The actual size of an uninitialized
+            # section in an .obj lives in SizeOfRawData (= our `size`),
+            # PointerToRawData is 0, and there are no on-disk bytes — so
+            # we synthesize zero-fill of `size` bytes here.
+            return b"\x00" * sec["size"]
         return self.blob[sec["offset"]:sec["offset"] + sec["size"]]
 
     def symtab(self) -> dict[str, dict]:
@@ -339,9 +343,12 @@ class Coff32:
             sec = next((s for s in self.sections if s["idx"] == sec_num), None)
             if sec is None:
                 continue
-            # For .bss, size lives in vsize (raw_size is 0 for uninitialized
-            # sections); for everything else, raw size is the upper bound.
-            sec_size = sec["vsize"] if sec["is_bss"] else sec["size"]
+            # In COFF object files SizeOfRawData (= sec["size"]) is the
+            # authoritative section size for both initialized AND
+            # uninitialized data. VirtualSize is an image-only field
+            # (zero in .obj). Don't fall back to vsize for .bss here —
+            # it's always 0, so the upper bound would be wrong.
+            sec_size = sec["size"]
             for i, (off, name) in enumerate(rows):
                 end = rows[i + 1][0] if i + 1 < len(rows) else sec_size
                 syms[name]["size"] = max(0, end - off)

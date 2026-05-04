@@ -66,8 +66,17 @@ def build_one(task: dict) -> dict:
 
     src_path   = repo / "decomp" / "src" / "relocData" / src_basename
     reloc_path = src_path.with_suffix(".reloc")
-    out_path   = build_dir / "phase2_outputs" / f"{kind}_{file_id}.relo"
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+    # Per-backend subdir lets phase 3's equivalence validator point at
+    # each independently via --torch/--source + --torch-objdir/
+    # --source-objdir without ambiguity.
+    backend_dir = build_dir / "phase2_outputs" / kind
+    backend_dir.mkdir(parents=True, exist_ok=True)
+    out_path = backend_dir / f"{file_id}.relo"
+    # Keep the compiled object alongside the .relo. ELF objects use .o,
+    # COFF objects use .obj — convention so the validator picks the right
+    # parser by extension.
+    obj_ext = ".obj" if kind == "msvc" else ".o"
+    obj_path = backend_dir / f"{file_id}{obj_ext}"
 
     cmd = [
         sys.executable,
@@ -81,6 +90,7 @@ def build_one(task: dict) -> dict:
         "--include-dir", str(repo / "decomp" / "src"),
         "--include-dir", str(repo / "decomp" / "src" / "relocData"),
         "--include-dir", str(build_dir / "inc_c_extracts"),
+        "--obj-out",  str(obj_path),
         "--output",   str(out_path),
     ]
 
