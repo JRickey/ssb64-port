@@ -156,6 +156,197 @@ class Elf32:
         return out
 
 
+# ───────────────────────────── COFF parser ─────────────────────────────
+
+# COFF/PE constants we care about (subset of winnt.h).
+IMAGE_FILE_MACHINE_I386          = 0x014c
+IMAGE_SCN_CNT_INITIALIZED_DATA   = 0x00000040
+IMAGE_SCN_CNT_UNINITIALIZED_DATA = 0x00000080
+IMAGE_SCN_LNK_COMDAT             = 0x00001000
+IMAGE_SYM_CLASS_EXTERNAL         = 2
+IMAGE_SYM_CLASS_STATIC           = 3
+IMAGE_SYM_UNDEFINED              = 0      # SectionNumber == 0
+IMAGE_SYM_ABSOLUTE               = -1
+IMAGE_SYM_DEBUG                  = -2
+
+
+class Coff32:
+    """Minimal COFF32 (PE/COFF i386 .obj) reader. Mirrors Elf32's surface:
+    section(name), section_bytes(sec), symtab() — so the rest of the
+    pipeline doesn't care which compiler produced the object file.
+
+    Quirks vs ELF this class hides from callers:
+      * COFF symbols carry no st_size; sizes are derived by sorting
+        per-section symbols by offset and using the next symbol's offset
+        (or section size) as the upper bound. Safe for relocData files
+        because they're pure data — no inlining, no symbol overlap.
+      * MSVC x86 prepends `_` to non-static (extern) symbol names. We
+        strip a single leading underscore on IMAGE_SYM_CLASS_EXTERNAL
+        records so .reloc-file label resolution works without source edits.
+      * .bss sections (IMAGE_SCN_CNT_UNINITIALIZED_DATA) have raw size 0
+        but virtual size > 0. section_bytes() synthesizes zeroes for them
+        — see merge_data_sections() for the .data + .bss concatenation
+        that gives downstream a single linear blob equivalent to clang's
+        -fno-zero-initialized-in-bss output.
+    """
+
+    def __init__(self, blob: bytes):
+        if len(blob) < 20:
+            raise ValueError(f"COFF too small ({len(blob)} bytes)")
+        (machine, n_sec, _ts, ptr_sym, n_sym, opt_hdr, _char) = \
+            struct.unpack_from("<HHIIIHH", blob, 0)
+        if machine != IMAGE_FILE_MACHINE_I386:
+            raise ValueError(f"COFF machine 0x{machine:04x} != "
+                             f"IMAGE_FILE_MACHINE_I386 (0x014c)")
+        if opt_hdr != 0:
+            raise ValueError(f"COFF object has optional header (size={opt_hdr})"
+                             f" — expected an .obj, got an image")
+
+        self.blob = blob
+        self._n_sec = n_sec
+        self._ptr_sym = ptr_sym
+        self._n_sym = n_sym
+
+        # String table sits immediately after the symbol table. First 4 bytes
+        # of the string table = total string table size (including those 4 bytes).
+        sym_end = ptr_sym + n_sym * 18
+        if n_sym > 0 and sym_end + 4 <= len(blob):
+            (str_size,) = struct.unpack_from("<I", blob, sym_end)
+            self._str_buf = blob[sym_end:sym_end + str_size]
+        else:
+            self._str_buf = b"\x00\x00\x00\x00"
+
+        # Section table: 40 bytes per entry, immediately after the file header
+        # (no optional header in object files).
+        self.sections: list[dict] = []
+        for i in range(n_sec):
+            off = 20 + i * 40
+            name8 = blob[off:off + 8]
+            (vsize, vaddr, raw_size, raw_ptr, rel_ptr, ln_ptr,
+             n_rel, n_ln, characteristics) = struct.unpack_from(
+                "<IIIIIIHHI", blob, off + 8)
+            if characteristics & IMAGE_SCN_LNK_COMDAT:
+                # COMDAT folding would mean multiple instances of this section
+                # exist in the .obj. Pure-data relocData files should never
+                # produce this; bail loudly if MSVC ever does.
+                raise ValueError(
+                    f"COFF section {self._coff_section_name(name8)!r} has "
+                    f"IMAGE_SCN_LNK_COMDAT — unexpected for a pure-data TU")
+            self.sections.append(dict(
+                idx=i + 1,                     # 1-based to match SectionNumber
+                name=self._coff_section_name(name8),
+                offset=raw_ptr,
+                size=raw_size,
+                vsize=vsize,
+                characteristics=characteristics,
+                is_bss=bool(characteristics & IMAGE_SCN_CNT_UNINITIALIZED_DATA),
+            ))
+
+    @staticmethod
+    def _cstr(buf: bytes, off: int) -> str:
+        end = buf.find(b"\x00", off)
+        if end < 0:
+            end = len(buf)
+        return buf[off:end].decode("utf-8", errors="replace")
+
+    def _coff_section_name(self, name8: bytes) -> str:
+        """Decode an 8-byte COFF section-name field. Names ≥8 chars are
+        stored as `/<n>` referencing offset n in the string table.
+        """
+        if name8.startswith(b"/"):
+            try:
+                off = int(name8.rstrip(b"\x00")[1:].decode("ascii"))
+                return self._cstr(self._str_buf, off)
+            except (ValueError, UnicodeDecodeError):
+                pass
+        return name8.rstrip(b"\x00").decode("utf-8", errors="replace")
+
+    # ── Elf32-compatible API ────────────────────────────────────────────
+
+    def section(self, name: str) -> dict | None:
+        for s in self.sections:
+            if s["name"] == name:
+                return s
+        return None
+
+    def section_bytes(self, sec: dict) -> bytes:
+        if sec["is_bss"]:
+            # Synthesize zero-fill: COFF .bss has raw_size=0 but vsize>0.
+            return b"\x00" * sec["vsize"]
+        return self.blob[sec["offset"]:sec["offset"] + sec["size"]]
+
+    def symtab(self) -> dict[str, dict]:
+        """Returns {symbol_name: {offset, size, section_idx}}.
+
+        offset is the section-relative byte offset (Value field for
+        ordinary defined symbols on x86). size is derived from sorted
+        per-section offsets — see _fill_sizes(). Strips a single leading
+        underscore from extern symbols (MSVC x86 ABI decoration).
+        """
+        out: dict[str, dict] = {}
+        i = 0
+        while i < self._n_sym:
+            rec_off = self._ptr_sym + i * 18
+            name8 = self.blob[rec_off:rec_off + 8]
+            (value, sec_num, _typ, sclass, n_aux) = struct.unpack_from(
+                "<IhHBB", self.blob, rec_off + 8)
+
+            # Skip undefined / absolute / debug section pseudo-symbols.
+            if sec_num <= 0:
+                i += 1 + n_aux
+                continue
+
+            # Skip section-table marker symbols (StorageClass == STATIC and
+            # has aux records describing the section). These have name ==
+            # the section name (".data", ".bss", etc.) and Value == 0; they
+            # come through as duplicates of real symbols if not filtered.
+            if sclass == IMAGE_SYM_CLASS_STATIC and n_aux >= 1 and value == 0:
+                i += 1 + n_aux
+                continue
+
+            if name8[:4] == b"\x00\x00\x00\x00":
+                (_zeroes, str_off) = struct.unpack_from("<II", self.blob, rec_off)
+                name = self._cstr(self._str_buf, str_off)
+            else:
+                name = name8.rstrip(b"\x00").decode("utf-8", errors="replace")
+
+            # MSVC x86 ABI: extern symbols are decorated with leading `_`.
+            # Strip one underscore so the .reloc file's bare symbol names
+            # match. Static symbols are NOT decorated, so don't strip them.
+            if sclass == IMAGE_SYM_CLASS_EXTERNAL and name.startswith("_"):
+                name = name[1:]
+
+            out[name] = dict(
+                offset=value,
+                size=0,                         # filled by _fill_sizes below
+                section_idx=sec_num,
+            )
+            i += 1 + n_aux
+
+        self._fill_sizes(out)
+        return out
+
+    def _fill_sizes(self, syms: dict[str, dict]) -> None:
+        """Derive per-symbol byte size by sorting symbols within each section
+        by offset and using the next symbol's offset (or section end) as the
+        upper bound."""
+        by_sec: dict[int, list[tuple[int, str]]] = {}
+        for name, s in syms.items():
+            by_sec.setdefault(s["section_idx"], []).append((s["offset"], name))
+
+        for sec_num, rows in by_sec.items():
+            rows.sort()
+            sec = next((s for s in self.sections if s["idx"] == sec_num), None)
+            if sec is None:
+                continue
+            # For .bss, size lives in vsize (raw_size is 0 for uninitialized
+            # sections); for everything else, raw size is the upper bound.
+            sec_size = sec["vsize"] if sec["is_bss"] else sec["size"]
+            for i, (off, name) in enumerate(rows):
+                end = rows[i + 1][0] if i + 1 < len(rows) else sec_size
+                syms[name]["size"] = max(0, end - off)
+
+
 # ───────────────────────────── label resolution ─────────────────────────────
 
 def resolve_label(label: str, symbols: dict[str, dict]) -> int:
@@ -464,6 +655,114 @@ def preprocess_le_bitfield_inits(c_text: str) -> str:
     return _BITFIELD_REVERSE_RE.sub(reverse_block, c_text)
 
 
+# ───────────────────────────── object-format dispatch ──────────────────────
+
+# Section names worth merging into the unified data blob downstream stages
+# consume. Order matters: ELF only ever produces ".data" (clang has
+# -fno-zero-initialized-in-bss); MSVC may scatter initialised data across
+# .data, zero-init across .bss, and `const` across .rdata. We concatenate
+# in this fixed order so reproducibility doesn't depend on COFF section
+# table ordering.
+_DATA_SECTION_NAMES: tuple[str, ...] = (".data", ".bss", ".rdata")
+
+
+def parse_object(blob: bytes, cc_kind: str):
+    """Dispatch on compiler kind. Returns an Elf32 or Coff32 instance —
+    both expose section(name), section_bytes(sec), symtab()."""
+    if cc_kind == "msvc":
+        return Coff32(blob)
+    return Elf32(blob)
+
+
+def merge_data_sections(obj) -> tuple[bytes, dict[str, dict]]:
+    """Concatenate .data + .bss + .rdata in fixed order, rebasing every
+    symbol's offset so the caller sees a single linear blob — exactly
+    what clang produces today via -fno-zero-initialized-in-bss into
+    .data alone, and what MSVC requires via .bss synthesis + merge.
+
+    Sections that don't exist on a given backend are skipped. Symbols
+    living in a section we merged get their offset shifted by the
+    section's running base; symbols living elsewhere (e.g. unmerged
+    debug or directive sections) are dropped from the returned table.
+    """
+    data = bytearray()
+    rebased: dict[str, dict] = {}
+
+    # Build a section_idx → running_base map so we can rebase symbols
+    # without a second per-section pass.
+    base_by_idx: dict[int, int] = {}
+    for sec_name in _DATA_SECTION_NAMES:
+        sec = obj.section(sec_name)
+        if sec is None:
+            continue
+        base_by_idx[sec["idx"]] = len(data)
+        data += obj.section_bytes(sec)
+
+    for name, sym in obj.symtab().items():
+        sec_idx = sym.get("section_idx")
+        if sec_idx not in base_by_idx:
+            continue
+        rebased[name] = dict(
+            offset=base_by_idx[sec_idx] + sym["offset"],
+            size=sym["size"],
+            section_idx=sec_idx,
+        )
+
+    return bytes(data), rebased
+
+
+# ───────────────────────────── compiler invocation ─────────────────────────
+
+
+def compile_to_coff(src: Path, output: Path, cc: str,
+                    include_dirs: list[Path]) -> None:
+    """Compile a single relocData .c to a 32-bit i386 COFF object using
+    cl.exe. Caller must invoke this from a `vcvars32` (x86) environment
+    so cl.exe and its INCLUDE/LIB are wired up.
+
+    /Od pins layout (no global ordering reshuffles between toolchains).
+    /Zl omits the default-library directive from the .obj. /GS- avoids
+    a stray __security_check_cookie reference. Debug-info flags
+    deliberately omitted — none of /Zi /Z7 /ZI — to keep cl.exe
+    process-isolated for parallel builds.
+    """
+    cmd = [
+        cc,
+        "/nologo",
+        "/c",
+        "/Od",
+        "/Zl",
+        "/GS-",
+        "/utf-8",
+        "/permissive-",
+        # C11 — decomp headers use _Static_assert (port-side layout checks
+        # under #ifdef PORT). Default cl.exe mode is C89; without /std:c11
+        # the parser dies on the first sizeof() inside _Static_assert().
+        "/std:c11",
+        "/DPORT=1",
+        "/D_LANGUAGE_C",
+        "/DF3DEX_GBI_2=1",
+        "/DREGION_US=1",
+        "/wd4311", "/wd4302",      # pointer-to-int-cast (= -Wno-pointer-to-int-cast)
+        "/wd4133",                  # incompatible pointer types
+        "/wd4047", "/wd4022",       # int-conversion / parameter mismatch
+        f"/Fo{output}",
+    ]
+    for inc in include_dirs:
+        cmd += [f"/I{inc}"]
+    cmd += [str(src)]
+    subprocess.run(cmd, check=True)
+
+
+def compile_to_object(src: Path, output: Path, cc: str, cc_kind: str,
+                      include_dirs: list[Path]) -> None:
+    """Backend-dispatched compile. clang → ELF, MSVC → COFF."""
+    if cc_kind == "msvc":
+        compile_to_coff(src, output, cc, include_dirs)
+    else:
+        compile_to_elf(src, output, cc, include_dirs)
+
+
 def compile_to_elf(src: Path, output: Path, clang: str,
                    include_dirs: list[Path]) -> None:
     """
@@ -541,12 +840,38 @@ def main() -> int:
     ap.add_argument("--file-id", type=int, required=True)
     ap.add_argument("--symbol-index", type=Path, default=None,
                     help="JSON {symbol→file_id} for extern resolution")
-    ap.add_argument("--clang", default="clang")
+    ap.add_argument("--cc", default=None,
+                    help="path to C compiler (clang or cl.exe)")
+    ap.add_argument("--cc-kind", choices=("clang", "msvc"), default=None,
+                    help="compiler family; auto-detected from --cc basename if omitted")
+    ap.add_argument("--clang", default=None,
+                    help="DEPRECATED: use --cc / --cc-kind clang")
     ap.add_argument("--include-dir", type=Path, action="append", default=[])
     ap.add_argument("--obj-out", type=Path, default=None,
-                    help="keep the compiled .o at this path")
+                    help="keep the compiled .o/.obj at this path")
     ap.add_argument("--output", type=Path, required=True)
     args = ap.parse_args()
+
+    # Resolve compiler kind + path. Order:
+    #   1. Legacy --clang wins, prints deprecation warning.
+    #   2. --cc + --cc-kind: take both as given.
+    #   3. --cc only: detect kind from basename (`cl`/`cl.exe` → msvc, else clang).
+    #   4. Neither: default to `clang`/clang for back-compat.
+    if args.clang is not None:
+        print("warning: --clang is deprecated; use --cc / --cc-kind clang",
+              file=sys.stderr)
+        args.cc = args.clang
+        args.cc_kind = "clang"
+    elif args.cc is not None:
+        if args.cc_kind is None:
+            base = os.path.basename(args.cc).lower()
+            if base in ("cl", "cl.exe"):
+                args.cc_kind = "msvc"
+            else:
+                args.cc_kind = "clang"
+    else:
+        args.cc = "clang"
+        args.cc_kind = "clang"
 
     # Pre-process the .c source for LE-clang quirks (FTAttributes bitfield
     # init order). Skip the preprocess step when the file doesn't contain
@@ -575,10 +900,11 @@ def main() -> int:
         cleanup_pp = False
         pp_src = None
 
-    # Compile .c → .o.
+    # Compile .c → .o (clang) or .obj (MSVC).
     # NamedTemporaryFile on Windows holds an exclusive lock until close, so
-    # we use mkstemp + explicit close — gives clang an unlocked path to
-    # write to on every platform.
+    # we use mkstemp + explicit close — gives the compiler an unlocked path
+    # to write to on every platform.
+    obj_suffix = ".obj" if args.cc_kind == "msvc" else ".o"
     if args.obj_out is not None:
         args.obj_out.parent.mkdir(parents=True, exist_ok=True)
         obj_path = args.obj_out
@@ -589,10 +915,10 @@ def main() -> int:
         include_dirs = list(args.include_dir)
         if compile_src != args.src:
             include_dirs.insert(0, args.src.parent)
-        compile_to_elf(compile_src, obj_path, args.clang, include_dirs)
+        compile_to_object(compile_src, obj_path, args.cc, args.cc_kind, include_dirs)
         cleanup_obj = False
     else:
-        fd, tmp_name = tempfile.mkstemp(suffix=".o")
+        fd, tmp_name = tempfile.mkstemp(suffix=obj_suffix)
         os.close(fd)
         obj_path = Path(tmp_name)
         cleanup_obj = True
@@ -600,7 +926,7 @@ def main() -> int:
         if compile_src != args.src:
             include_dirs.insert(0, args.src.parent)
         try:
-            compile_to_elf(compile_src, obj_path, args.clang, include_dirs)
+            compile_to_object(compile_src, obj_path, args.cc, args.cc_kind, include_dirs)
         except Exception:
             obj_path.unlink(missing_ok=True)
             if cleanup_pp and pp_src:
@@ -610,13 +936,12 @@ def main() -> int:
     if cleanup_pp and pp_src:
         pp_src.unlink(missing_ok=True)
 
-    elf = Elf32(obj_path.read_bytes())
-    sym_table = elf.symtab()
-
-    data_sec = elf.section(".data")
-    if data_sec is None:
-        raise RuntimeError(f"{args.src.name}: no .data section in compiled .o")
-    data = bytearray(elf.section_bytes(data_sec))
+    obj = parse_object(obj_path.read_bytes(), args.cc_kind)
+    data_bytes, sym_table = merge_data_sections(obj)
+    if not data_bytes:
+        raise RuntimeError(f"{args.src.name}: no data sections in compiled "
+                           f"object (looked for {_DATA_SECTION_NAMES})")
+    data = bytearray(data_bytes)
 
     # Per-struct field-aware byteswap for typed structs (FTAttributes,
     # WPAttributes, MPGroundData) whose runtime fixup helpers in
