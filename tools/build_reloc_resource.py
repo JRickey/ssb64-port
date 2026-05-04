@@ -531,12 +531,25 @@ def _emit_region(regions: list[tuple[str, str, int, int]],
     if expected is None:
         regions.append((type_name, name, base_off, total_size))
         return
-    if total_size % expected != 0:
+    if total_size < expected:
+        # The symbol is smaller than even one instance of the struct.
+        # That's a real layout error (header drift, wrong sizeof in the
+        # tables file, etc.) — surface it.
         raise RuntimeError(
-            f"{name}: ELF symbol size {total_size} is not a multiple "
-            f"of sizeof({type_name})={expected}. Struct layout drift "
+            f"{name}: symbol size {total_size} is smaller than "
+            f"sizeof({type_name})={expected}. Struct layout drift "
             f"between port headers and tools/struct_byteswap_tables.py "
             f"— cross-check decomp/src/.../*types.h _Static_assert.")
+    if total_size % expected != 0:
+        # MSVC pads globals to .data-section alignment (typically 8B).
+        # When the struct size isn't a multiple of that alignment, the
+        # next-symbol-offset overshoots the array's true end by 1–7 bytes.
+        # Trim down to the largest multiple of expected that fits — those
+        # are the real struct elements; the leftover is compiler padding.
+        # ELF builds (clang -fno-zero-init-in-bss) don't take this branch
+        # because the .data layout is tightly packed.
+        trimmed = total_size - (total_size % expected)
+        total_size = trimmed
     n_elements = total_size // expected
     for i in range(n_elements):
         regions.append((type_name, f"{name}[{i}]",
