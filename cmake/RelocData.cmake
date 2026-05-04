@@ -19,6 +19,49 @@
 # When neither toolchain is available (or RELOCDATA_COMPILER=auto with
 # nothing found) the BuildBattleShipFromSource target is omitted and the
 # runtime falls back to Torch-extracted reloc data exactly as today.
+#
+# ─────────────────────────── Required inputs ───────────────────────────
+#
+#   RELOCDATA_DECOMP_DIR      Path to the decomp tree; we read .c sources
+#                             from <decomp>/src/relocData/, headers from
+#                             <decomp>/include/, and the file-descriptions
+#                             table from <decomp>/tools/. No default.
+#   RELOCDATA_RELOC_TABLE     Path to RelocFileTable.cpp — the codegen
+#                             output mapping file_id ↔ archive resource
+#                             path. No default.
+#
+# ─────────────────────────── Optional inputs ───────────────────────────
+#
+#   RELOCDATA_TOOLS_DIR       Path to the toolkit Python tools. Defaults
+#                             to <RelocData.cmake>/../tools so when this
+#                             module ships in a standalone modkit repo,
+#                             tools/ next to cmake/ is found automatically.
+#   RELOCDATA_OUTPUT_DIR      Build output directory. Defaults to
+#                             ${CMAKE_BINARY_DIR}/relocdata.
+#   RELOCDATA_BATTLESHIP_O2R  Path to a Torch-extracted BattleShip.o2r
+#                             (used only by extract_inc_c / passthrough
+#                             paths). Probed at the parent's CMAKE_SOURCE_DIR
+#                             and CMAKE_BINARY_DIR if unset.
+#   RELOCDATA_COMPILER        auto|clang|msvc — see comment above.
+
+if(NOT DEFINED RELOCDATA_DECOMP_DIR)
+    message(FATAL_ERROR
+        "RelocData: RELOCDATA_DECOMP_DIR must be set before including "
+        "RelocData.cmake — point it at the decomp tree (e.g. "
+        "set(RELOCDATA_DECOMP_DIR \"\${CMAKE_SOURCE_DIR}/decomp\")).")
+endif()
+if(NOT DEFINED RELOCDATA_RELOC_TABLE)
+    message(FATAL_ERROR
+        "RelocData: RELOCDATA_RELOC_TABLE must be set before including "
+        "RelocData.cmake — point it at the consumer's RelocFileTable.cpp.")
+endif()
+if(NOT DEFINED RELOCDATA_TOOLS_DIR)
+    get_filename_component(RELOCDATA_TOOLS_DIR
+        "${CMAKE_CURRENT_LIST_DIR}/../tools" ABSOLUTE)
+endif()
+if(NOT DEFINED RELOCDATA_OUTPUT_DIR)
+    set(RELOCDATA_OUTPUT_DIR "${CMAKE_BINARY_DIR}/relocdata")
+endif()
 
 set(RELOCDATA_COMPILER "auto" CACHE STRING
     "Backend for the from-source relocData pipeline (auto|clang|msvc)")
@@ -293,36 +336,38 @@ set(CLANG_EXECUTABLE "${RELOCDATA_CC}" CACHE INTERNAL "")
 message(STATUS "RelocData: ${RELOCDATA_CC_KIND} backend at ${RELOCDATA_CC} — "
                "BuildBattleShipFromSource enabled")
 
-set(RELOC_FROMSOURCE_DIR ${CMAKE_BINARY_DIR}/reloc_resources)
-set(RELOC_OBJECTS_DIR ${CMAKE_BINARY_DIR}/reloc_objects)
-set(RELOC_INC_C_DIR ${CMAKE_BINARY_DIR}/inc_c_extracts)
+set(RELOC_FROMSOURCE_DIR ${RELOCDATA_OUTPUT_DIR}/reloc_resources)
+set(RELOC_OBJECTS_DIR    ${RELOCDATA_OUTPUT_DIR}/reloc_objects)
+set(RELOC_INC_C_DIR      ${RELOCDATA_OUTPUT_DIR}/inc_c_extracts)
 file(MAKE_DIRECTORY ${RELOC_FROMSOURCE_DIR})
 file(MAKE_DIRECTORY ${RELOC_OBJECTS_DIR})
 file(MAKE_DIRECTORY ${RELOC_INC_C_DIR})
 
 # Run the .inc.c extractor at configure time. Outputs land at
-# <build>/inc_c_extracts/<FileName>/<sym>.<type>.inc.c, matching the
-# include paths (`#include <FileName/sym.type.inc.c>`) used by typed
-# relocData .c files. Depends on the Torch-extracted BattleShip.o2r;
-# if that doesn't exist yet (no ExtractAssets run), the extractor is
-# skipped — relocData files needing .inc.c will fail compile and the
-# user will see the failure with a clear path forward.
-if(EXISTS ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
-    set(_battleship_o2r ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
-elseif(EXISTS ${CMAKE_BINARY_DIR}/BattleShip.o2r)
-    set(_battleship_o2r ${CMAKE_BINARY_DIR}/BattleShip.o2r)
-else()
-    set(_battleship_o2r "")
+# <RELOCDATA_OUTPUT_DIR>/inc_c_extracts/<FileName>/<sym>.<type>.inc.c,
+# matching the include paths (`#include <FileName/sym.type.inc.c>`)
+# used by typed relocData .c files. Depends on the Torch-extracted
+# BattleShip.o2r; if that doesn't exist yet (no ExtractAssets run), the
+# extractor is skipped — relocData files needing .inc.c will fail compile
+# and the user will see the failure with a clear path forward.
+if(NOT DEFINED RELOCDATA_BATTLESHIP_O2R)
+    if(EXISTS ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
+        set(RELOCDATA_BATTLESHIP_O2R ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
+    elseif(EXISTS ${CMAKE_BINARY_DIR}/BattleShip.o2r)
+        set(RELOCDATA_BATTLESHIP_O2R ${CMAKE_BINARY_DIR}/BattleShip.o2r)
+    else()
+        set(RELOCDATA_BATTLESHIP_O2R "")
+    endif()
 endif()
 
-if(_battleship_o2r)
-    message(STATUS "RelocData: extracting .inc.c blocks from ${_battleship_o2r}")
+if(RELOCDATA_BATTLESHIP_O2R)
+    message(STATUS "RelocData: extracting .inc.c blocks from ${RELOCDATA_BATTLESHIP_O2R}")
     execute_process(
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/extract_inc_c.py
-            --battleship-o2r ${_battleship_o2r}
-            --reloc-table ${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp
-            --reloc-dir ${CMAKE_SOURCE_DIR}/decomp/src/relocData
-            --descriptions ${CMAKE_SOURCE_DIR}/decomp/tools/relocFileDescriptions.us.txt
+        COMMAND ${Python3_EXECUTABLE} ${RELOCDATA_TOOLS_DIR}/extract_inc_c.py
+            --battleship-o2r ${RELOCDATA_BATTLESHIP_O2R}
+            --reloc-table ${RELOCDATA_RELOC_TABLE}
+            --reloc-dir ${RELOCDATA_DECOMP_DIR}/src/relocData
+            --descriptions ${RELOCDATA_DECOMP_DIR}/tools/relocFileDescriptions.us.txt
             --output-dir ${RELOC_INC_C_DIR}
         RESULT_VARIABLE _extract_result
         OUTPUT_QUIET
@@ -370,20 +415,20 @@ function(add_reloc_resource file_id source_path resource_path)
     add_custom_command(
         OUTPUT ${out}
         COMMAND ${_cmd_prefix} ${Python3_EXECUTABLE}
-            ${CMAKE_SOURCE_DIR}/tools/build_reloc_resource.py
+            ${RELOCDATA_TOOLS_DIR}/build_reloc_resource.py
             --src ${source_path}
             --reloc ${reloc_path}
             --file-id ${file_id}
             --cc ${RELOCDATA_CC}
             --cc-kind ${RELOCDATA_CC_KIND}
-            --include-dir ${CMAKE_SOURCE_DIR}/decomp/include
-            --include-dir ${CMAKE_SOURCE_DIR}/decomp/src
-            --include-dir ${CMAKE_SOURCE_DIR}/decomp/src/relocData
+            --include-dir ${RELOCDATA_DECOMP_DIR}/include
+            --include-dir ${RELOCDATA_DECOMP_DIR}/src
+            --include-dir ${RELOCDATA_DECOMP_DIR}/src/relocData
             --include-dir ${RELOC_INC_C_DIR}
             --obj-out ${obj}
             --output ${out}
         DEPENDS ${source_path} ${reloc_path}
-                ${CMAKE_SOURCE_DIR}/tools/build_reloc_resource.py
+                ${RELOCDATA_TOOLS_DIR}/build_reloc_resource.py
         COMMENT "Building from-source reloc resource ${file_id} (${resource_path})"
         VERBATIM
     )
@@ -401,13 +446,13 @@ function(add_passthrough_resource file_id resource_path)
     set(out ${RELOC_FROMSOURCE_DIR}/${file_id}.relo)
     add_custom_command(
         OUTPUT ${out}
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/passthrough_reloc.py
-            --battleship-o2r ${_battleship_o2r}
-            --reloc-table ${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp
+        COMMAND ${Python3_EXECUTABLE} ${RELOCDATA_TOOLS_DIR}/passthrough_reloc.py
+            --battleship-o2r ${RELOCDATA_BATTLESHIP_O2R}
+            --reloc-table ${RELOCDATA_RELOC_TABLE}
             --file-id ${file_id}
             --output ${out}
-        DEPENDS ${_battleship_o2r}
-                ${CMAKE_SOURCE_DIR}/tools/passthrough_reloc.py
+        DEPENDS ${RELOCDATA_BATTLESHIP_O2R}
+                ${RELOCDATA_TOOLS_DIR}/passthrough_reloc.py
         COMMENT "Passthrough reloc resource ${file_id} (${resource_path})"
         VERBATIM
     )
@@ -420,7 +465,7 @@ endfunction()
 
 
 function(finalize_battleship_from_source archive_output)
-    set(manifest ${CMAKE_BINARY_DIR}/reloc_fromsource_manifest.txt)
+    set(manifest ${RELOCDATA_OUTPUT_DIR}/reloc_fromsource_manifest.txt)
     set(manifest_lines "")
     foreach(entry ${SSB64_RELOC_FROMSOURCE_PATHS})
         list(APPEND manifest_lines ${entry})
@@ -430,12 +475,12 @@ function(finalize_battleship_from_source archive_output)
 
     add_custom_command(
         OUTPUT ${archive_output}
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/pack_reloc_archive.py
+        COMMAND ${Python3_EXECUTABLE} ${RELOCDATA_TOOLS_DIR}/pack_reloc_archive.py
             --manifest ${manifest}
             --reloc-dir ${RELOC_FROMSOURCE_DIR}
             --output ${archive_output}
         DEPENDS ${SSB64_RELOC_FROMSOURCE_OUTPUTS}
-                ${CMAKE_SOURCE_DIR}/tools/pack_reloc_archive.py
+                ${RELOCDATA_TOOLS_DIR}/pack_reloc_archive.py
         COMMENT "Packing BattleShip.fromsource.o2r (${archive_output})"
         VERBATIM
     )
@@ -445,12 +490,40 @@ function(finalize_battleship_from_source archive_output)
     )
 
     # Copy archive next to the executable so the runtime PortLocateFile
-    # finds it without extra -E setup. Same pattern ExtractAssets uses.
-    add_custom_command(TARGET BuildBattleShipFromSource POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${archive_output}
-            $<TARGET_FILE_DIR:${PROJECT_NAME}>/BattleShip.fromsource.o2r
-        VERBATIM
-    )
+    # finds it without extra -E setup — only when the consuming project
+    # actually has a target to point at. Standalone modkit users pack
+    # the archive directly to wherever they need it via archive_output.
+    if(TARGET ${PROJECT_NAME})
+        add_custom_command(TARGET BuildBattleShipFromSource POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${archive_output}
+                $<TARGET_FILE_DIR:${PROJECT_NAME}>/BattleShip.fromsource.o2r
+            VERBATIM
+        )
+    endif()
 endfunction()
+
+
+# ─────────────────────────── Eligible-set generation ───────────────────────
+#
+# Run gen_reloc_cmake.py at configure time to enumerate which relocData files
+# the source-compile path can handle. Output is a CMake fragment of
+# add_reloc_resource() / add_passthrough_resource() calls, included
+# immediately. Lives at the bottom of this module so add_reloc_resource and
+# add_passthrough_resource are defined before the include() pulls them in.
+
+execute_process(
+    COMMAND ${Python3_EXECUTABLE} ${RELOCDATA_TOOLS_DIR}/gen_reloc_cmake.py
+        --reloc-dir ${RELOCDATA_DECOMP_DIR}/src/relocData
+        --reloc-table ${RELOCDATA_RELOC_TABLE}
+        --inc-c-dir ${RELOC_INC_C_DIR}
+        --cmake-source-prefix \${RELOCDATA_DECOMP_DIR}/src/relocData
+        --output ${RELOCDATA_OUTPUT_DIR}/reloc_data_targets.cmake
+    RESULT_VARIABLE _gen_result
+)
+if(NOT _gen_result EQUAL 0)
+    message(FATAL_ERROR
+        "RelocData: gen_reloc_cmake.py failed (exit ${_gen_result})")
+endif()
+include(${RELOCDATA_OUTPUT_DIR}/reloc_data_targets.cmake)

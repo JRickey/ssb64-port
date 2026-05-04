@@ -495,37 +495,27 @@ add_custom_target(GeneratePortO2R
 )
 
 ################################################################################
-# RelocData compile-from-source pipeline (Milestone 2 POC)
+# RelocData compile-from-source pipeline
 #
-# When clang is available on the build host, builds BattleShip.fromsource.o2r
-# alongside the executable. Loaded ahead of BattleShip.o2r at runtime when
-# SSB64_RELOC_FROMSOURCE=1, shadowing Torch entries for matching paths.
-# When clang is missing, the entire subsystem is skipped — runtime falls
-# back to Torch-extracted reloc data exactly as before.
+# When a compatible toolchain is available (LLVM/clang or VS x86 cl.exe via
+# vcvars32), builds BattleShip.fromsource.o2r alongside the executable.
+# Loaded ahead of BattleShip.o2r at runtime when SSB64_RELOC_FROMSOURCE=1,
+# shadowing Torch entries for matching paths. With no toolchain the entire
+# subsystem is skipped — runtime falls back to Torch-extracted reloc data
+# exactly as before.
+#
+# RelocData.cmake is the toolkit's CMake driver. The toolkit lives in-tree
+# today (cmake/ + tools/) but is being prepared to ship as its own modkit
+# repo consumed via submodule — see Phase 4 work in
+# C:\Users\Jack Rickey\dev\ssb64-modkit. The variable contract below is
+# what that future submodule will read; setting them here keeps the in-tree
+# build working unchanged.
 ################################################################################
 
+set(RELOCDATA_DECOMP_DIR  "${CMAKE_SOURCE_DIR}/decomp")
+set(RELOCDATA_RELOC_TABLE "${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp")
 include(cmake/RelocData.cmake)
 
-if(CLANG_EXECUTABLE)
-    # Regenerate reloc_data_targets.cmake from decomp/src/relocData/ on every
-    # configure. The generator filters out files the source-compile pipeline
-    # can't yet handle: JP-only overlays (no .c), files needing upstream
-    # `make extract` for *.inc.c includes, and files initializing IDO-style
-    # bitfield structs (FTAttributes/WPAttributes/ITAttributes/MPGroundData)
-    # whose layout differs from PORT's. The remaining ~1,800 files compile
-    # straight through.
-    execute_process(
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_reloc_cmake.py
-            --reloc-dir ${CMAKE_SOURCE_DIR}/decomp/src/relocData
-            --reloc-table ${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp
-            --inc-c-dir ${RELOC_INC_C_DIR}
-            --output ${CMAKE_BINARY_DIR}/reloc_data_targets.cmake
-        RESULT_VARIABLE _gen_result
-    )
-    if(NOT _gen_result EQUAL 0)
-        message(FATAL_ERROR "gen_reloc_cmake.py failed (exit ${_gen_result})")
-    endif()
-    include(${CMAKE_BINARY_DIR}/reloc_data_targets.cmake)
-
+if(RELOCDATA_CC)
     finalize_battleship_from_source(${CMAKE_BINARY_DIR}/BattleShip.fromsource.o2r)
 endif()
