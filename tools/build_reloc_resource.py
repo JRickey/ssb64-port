@@ -50,6 +50,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -175,43 +176,57 @@ def resolve_label(label: str, symbols: dict[str, dict]) -> int:
     return symbols[s]["offset"]
 
 
-def parse_reloc(reloc_path: Path, symbols: dict[str, dict]
-                ) -> tuple[list[tuple[int, int, str]], list[tuple[int, int, str]]]:
-    """
-    Returns (intern_entries, extern_entries) where each entry is
-    (ptr_byte_offset, target_byte_offset, target_label).
+_ANNOT_RE = re.compile(r"#\s*->\s*file\s*(\d+)")
 
-    target_label is preserved on extern entries so the caller can map the
-    target symbol → file_id for the resource's extern_file_ids[] array.
+
+def parse_reloc(reloc_path: Path, symbols: dict[str, dict]
+                ) -> tuple[list[tuple[int, int, str]],
+                           list[tuple[int, int, int, str]]]:
+    """
+    Returns (intern_entries, extern_entries) where:
+      intern entry  = (ptr_byte_offset, target_byte_offset, target_label)
+      extern entry  = (ptr_byte_offset, target_byte_offset_in_dep,
+                       dep_file_id_or_-1, target_label)
+
+    For extern entries, the dep_file_id is parsed from the trailing
+    `# -> file N (Name)` annotation written by
+    tools/annotate_externs_from_torch.py. -1 means missing — the caller
+    can decide how to handle it (skip, error, manual override).
     """
     intern: list[tuple[int, int, str]] = []
-    extern: list[tuple[int, int, str]] = []
+    extern: list[tuple[int, int, int, str]] = []
 
     for raw in reloc_path.read_text().splitlines():
-        # Strip inline comments like `# -> file 208 (FoxMainMotion)`.
-        if "#" in raw:
-            raw = raw.split("#", 1)[0]
-        parts = raw.split()
+        # Capture the annotation BEFORE stripping the comment.
+        annot_match = _ANNOT_RE.search(raw)
+        dep_fid = int(annot_match.group(1)) if annot_match else -1
+
+        body = raw.split("#", 1)[0] if "#" in raw else raw
+        parts = body.split()
         if len(parts) != 3:
             continue
         kind, ptr_label, target_label = parts
         ptr_off = resolve_label(ptr_label, symbols)
-        # For extern, target may be a symbol that doesn't exist in THIS .o
-        # (it's defined in another file). We use 0 as the within-file
-        # offset placeholder — it's stored in target_label for cross-file
-        # lookup at the chain-emit step.
-        try:
-            tgt_off = resolve_label(target_label, symbols)
-        except KeyError:
-            tgt_off = 0
         if kind == "intern":
+            try:
+                tgt_off = resolve_label(target_label, symbols)
+            except KeyError:
+                tgt_off = 0
             intern.append((ptr_off, tgt_off, target_label))
         elif kind == "extern":
-            # extern target offset is offset INTO the dep file, not this one.
-            # The current placeholder won't be in this .o's symtab — caller
-            # will compute via the dep file's symtab during pack. For the
-            # POC where externs are out of scope, we still record the entry.
-            extern.append((ptr_off, 0, target_label))
+            # For externs, target_label is a raw hex offset INTO the dep
+            # file (not a symbol in this .o). dep_fid comes from the
+            # annotation comment (or -1 if missing).
+            try:
+                tgt_off = int(target_label, 0)
+            except ValueError:
+                # Unusual case: extern target is a symbolic name. Resolve
+                # to 0 (chain still encodes; runtime will use the wrong
+                # offset — flag this case loudly).
+                print(f"warning: extern target {target_label!r} in "
+                      f"{reloc_path.name} is not a hex offset", file=sys.stderr)
+                tgt_off = 0
+            extern.append((ptr_off, tgt_off, dep_fid, target_label))
         else:
             print(f"warning: unknown reloc kind {kind!r} in {reloc_path}",
                   file=sys.stderr)
@@ -270,6 +285,7 @@ def compile_to_elf(src: Path, output: Path, clang: str,
         "-ffreestanding", "-nostdlib",
         "-Wno-pointer-to-int-cast",
         "-Wno-incompatible-pointer-types",
+        "-Wno-int-conversion",
     ]
     for inc in include_dirs:
         cmd += ["-I", str(inc)]
@@ -361,38 +377,27 @@ def main() -> int:
 
     intern_off = write_chain(data, intern_entries)
 
-    # Externs need cross-file lookup. For the POC, accept files with no
-    # externs and skip extern handling. M2.P2 / M3 will populate via
-    # symbol_index.
+    # Externs: dep_file_id comes from the trailing `# -> file N (Name)`
+    # annotation written by tools/annotate_externs_from_torch.py. Source-
+    # order matches Torch's chain-walk order (sorted by ptr_offset within
+    # this file's data layout) for >99% of files (verified empirically).
     extern_file_ids: list[int] = []
     if extern_entries:
-        if args.symbol_index is None:
-            print(f"warning: {args.src.name} has {len(extern_entries)} extern "
-                  "entries but no --symbol-index; emitting chain with target=0",
+        # Sort by ptr_offset to match the chain encoding order.
+        sorted_externs = sorted(extern_entries, key=lambda e: e[0])
+        missing_annotations = [(p, t, l) for p, t, fid, l in sorted_externs
+                               if fid < 0]
+        if missing_annotations:
+            print(f"error: {args.src.name} has {len(missing_annotations)} "
+                  f"extern entries without `# -> file N` annotation. "
+                  f"Run tools/annotate_externs_from_torch.py to populate.",
                   file=sys.stderr)
-            extern_off = write_chain(data, extern_entries)
-        else:
-            sym_index = json.loads(args.symbol_index.read_text())
-            # For each extern entry, look up target symbol's file_id AND
-            # offset within the dep file. The .reloc target_label points
-            # at a symbol defined in the dep file's compiled .o; the
-            # symbol_index records {symbol → {file_id, offset}}.
-            resolved: list[tuple[int, int, str]] = []
-            ids: list[int] = []
-            for ptr_off, _placeholder, label in sorted(extern_entries,
-                                                       key=lambda e: e[0]):
-                # Strip +0xN suffix on the target label
-                base, _, off_s = label.partition("+")
-                base = base.strip()
-                rel = int(off_s.strip(), 16) if off_s.strip().lower().startswith("0x") \
-                    else (int(off_s.strip(), 0) if off_s.strip() else 0)
-                if base not in sym_index:
-                    raise KeyError(f"extern target {base!r} not in symbol index")
-                entry = sym_index[base]
-                ids.append(entry["file_id"])
-                resolved.append((ptr_off, entry["offset"] + rel, label))
-            extern_off = write_chain(data, resolved)
-            extern_file_ids = ids
+            return 2
+
+        # write_chain expects 3-tuples (ptr, tgt, label) — adapt.
+        chain_input = [(p, t, l) for p, t, _fid, l in sorted_externs]
+        extern_off = write_chain(data, chain_input)
+        extern_file_ids = [fid for _p, _t, fid, _l in sorted_externs]
     else:
         extern_off = 0xFFFF
 

@@ -12,11 +12,15 @@ Eligibility filter (M3 best-effort):
   - .reloc file exists (skip files with no relocation metadata)
   - .c does not #include any *.inc.c file (those need upstream's
     `make extract` step which the port doesn't run)
-  - .reloc has no `extern` lines (extern handling needs a dep_file_id
-    index that's not yet built — M3 follow-up)
+  - .c does not initialize any *Attributes struct or *GroundData struct
+    (those use IDO-style bitfield initializers that clang i686 packs to
+    different total sizes — needs per-field PORT-guarded rewrite of the
+    initializer first; tracked as a follow-up)
 
-The remainder (intern-only, self-contained C source) builds end-to-end
-through tools/build_reloc_resource.py.
+Externs are NOT a blocker: tools/annotate_externs_from_torch.py has
+populated `# -> file N (Name)` on every US extern line, and
+tools/build_reloc_resource.py reads those annotations to populate
+extern_file_ids[].
 
 Usage:
     gen_reloc_cmake.py
@@ -60,15 +64,40 @@ def has_inc_c_include(c_path: Path) -> bool:
     return bool(re.search(r'#\s*include\s+[<"][^>"]*\.inc\.c[>"]', text))
 
 
-def has_extern_reloc(reloc_path: Path) -> bool:
-    """True if any line starts with 'extern '."""
+_BITFIELD_TYPE_RE = re.compile(
+    r"\b(FTAttributes|WPAttributes|ITAttributes|MPGroundData)\s+\w+\s*=", re.M)
+
+# Macros only defined in headers upstream's `make extract` generates
+# (e.g. build/<v>/src/relocData/motiondesc_offsets.h). MainMotion files
+# use them as initializers; until we extract / vendor them, these files
+# can't compile.
+_GENERATED_MACRO_RE = re.compile(
+    r"\b(ftMotionCommand\w+|aobjEvent32End|aobjEvent16End)\s*\(", re.M)
+
+
+def uses_bitfield_initializer(c_path: Path) -> bool:
+    """True if the file initializes one of the bitfield-heavy struct types
+    whose PORT-guarded layout differs from upstream's IDO layout. clang
+    i686 packs LSB-first; IDO packs MSB-first into pad gaps. Until the
+    .c initializers themselves are PORT-guarded, source-compile of these
+    files produces a different data_size than Torch's ROM-extracted bytes.
+    """
     try:
-        for line in reloc_path.read_text().splitlines():
-            if line.strip().startswith("extern "):
-                return True
+        return bool(_BITFIELD_TYPE_RE.search(c_path.read_text()))
     except Exception:
-        return False
-    return False
+        return True  # be conservative
+
+
+def uses_generated_macros(c_path: Path) -> bool:
+    """True if the file uses macros only defined in upstream-generated
+    headers (motion command DSL, AObjEvent32 helpers). The port doesn't
+    run upstream's `make extract`, so these macros are undefined → clang
+    treats them as implicit function declarations → compile fails.
+    """
+    try:
+        return bool(_GENERATED_MACRO_RE.search(c_path.read_text()))
+    except Exception:
+        return True
 
 
 def main() -> int:
@@ -90,7 +119,8 @@ def main() -> int:
         "no_reloc_file": [],
         "no_table_entry": [],
         "needs_inc_c": [],
-        "has_externs": [],
+        "uses_bitfield_init": [],
+        "uses_generated_macros": [],
     }
 
     for c_path in sorted(args.reloc_dir.glob("*.c")):
@@ -112,8 +142,12 @@ def main() -> int:
             skipped["needs_inc_c"].append(fid)
             continue
 
-        if has_extern_reloc(reloc_path):
-            skipped["has_externs"].append(fid)
+        if uses_bitfield_initializer(c_path):
+            skipped["uses_bitfield_init"].append(fid)
+            continue
+
+        if uses_generated_macros(c_path):
+            skipped["uses_generated_macros"].append(fid)
             continue
 
         eligible.append((fid, c_path.name, table[fid]))
@@ -135,7 +169,8 @@ def main() -> int:
     print(f"  skipped — no .reloc:                {len(skipped['no_reloc_file'])}")
     print(f"  skipped — no table entry:           {len(skipped['no_table_entry'])}")
     print(f"  skipped — needs upstream .inc.c:    {len(skipped['needs_inc_c'])}")
-    print(f"  skipped — has extern reloc:         {len(skipped['has_externs'])}")
+    print(f"  skipped — bitfield-init struct:     {len(skipped['uses_bitfield_init'])}")
+    print(f"  skipped — uses generated macros:    {len(skipped['uses_generated_macros'])}")
 
     if args.report is not None:
         args.report.write_text(json.dumps(
