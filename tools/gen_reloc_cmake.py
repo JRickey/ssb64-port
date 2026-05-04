@@ -67,16 +67,41 @@ def has_inc_c_include(c_path: Path) -> bool:
 _INC_C_RE = re.compile(r'#\s*include\s+[<"]([^>"]+\.inc\.c)[>"]')
 
 
+def _strip_jp_branches(text: str) -> str:
+    """Drop `#if defined(REGION_JP) ... #else ... #endif` JP branches —
+    keep only the US branch (or no branch when no #else exists). Mirror
+    of the same routine in extract_inc_c.py so this scan only flags
+    .inc.c references that the US compile actually reaches."""
+    out: list[str] = []
+    state = "normal"
+    for line in text.splitlines(keepends=True):
+        s = line.strip()
+        if state == "normal":
+            if re.match(r"^#\s*if\s+defined\s*\(\s*REGION_JP\s*\)", s):
+                state = "jp"; continue
+            out.append(line)
+        elif state == "jp":
+            if s.startswith("#else"):
+                state = "us"; continue
+            if s.startswith("#endif"):
+                state = "normal"; continue
+        elif state == "us":
+            if s.startswith("#endif"):
+                state = "normal"; continue
+            out.append(line)
+    return "".join(out)
+
+
 def missing_inc_c(c_path: Path, inc_c_dir: Path) -> bool:
-    """True if any .inc.c the file references hasn't been extracted yet
-    (extractor couldn't resolve the symbol's offset OR the offset+size
-    exceeded the file's data extent). The file would fail clang -c with
-    `fatal error: ... file not found`. Skip it from eligible list rather
-    than break the build — runtime falls back to Torch for these files."""
+    """True if any .inc.c the file references in its US-branch hasn't been
+    extracted yet. The file would fail clang -c with `fatal error: ...
+    file not found`. JP branches are stripped first so JP-only includes
+    don't false-positive (REGION_JP is never defined in our compile)."""
     try:
         text = c_path.read_text()
     except Exception:
         return True
+    text = _strip_jp_branches(text)
     for m in _INC_C_RE.finditer(text):
         rel = m.group(1)
         if not (inc_c_dir / rel).is_file():

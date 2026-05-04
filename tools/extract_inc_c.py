@@ -60,10 +60,20 @@ RELOCDATA_FILE_RE = re.compile(r"^(\d+)_([A-Za-z0-9_]+)\.c$")
 DECL_RE = re.compile(
     r"^\s*(u8|u16|u32|Vtx|Gfx|DObjDesc|MObjSub|MatAnimJoint|AnimJoint|"
     r"CamAnimJoint|MapHead|FTSpecialColl|GRAttackColl|HitDesc|HitParties|"
-    r"BloatScales|MPGeometryData|SpriteArray|Sprite|Bitmap)\s+"
-    r"(d\w+)\s*\[\s*(\d*)\s*\]\s*=\s*\{",
+    r"BloatScales|MPGeometryData|SpriteArray|Sprite|Bitmap|"
+    r"SC1PTrainingPosSprite|SC1PTrainingSprite|FTModelPart|FTHiddenPart|"
+    r"FTThrowHitDesc|FTThrownStatus|FTSkeleton|FTKirbyCopy|"
+    r"ITAttributes|ITAttackEvent|DObjDLLink)\s+"
+    r"(d\w+)\s*\[\s*(0[xX][0-9a-fA-F]+|\d*)\s*\]\s*=\s*\{",
     re.M,
 )
+
+
+def _parse_count(s: str) -> int:
+    """Parse a C array length literal — decimal or hex."""
+    if not s:
+        return 0
+    return int(s, 0)
 
 
 def _strip_jp_branches(text: str) -> str:
@@ -99,13 +109,26 @@ def _strip_jp_branches(text: str) -> str:
             out.append(line)
     return "".join(out)
 
+# Texture-format suffixes (`.i4`, `.ci4`, etc.) are stored as raw bytes —
+# the format only affects how the renderer interprets them, not how they're
+# laid out in the file. We emit all of them via the `bytes` path.
 INCLUDE_RE = re.compile(
-    r'#\s*include\s+[<"]([^>"]*)\.(vtx|dl|palette|data|tex)\.inc\.c[>"]'
+    r'#\s*include\s+[<"]([^>"]*)\.'
+    r'(vtx|dl|palette|data|tex|i4|i4c|ia4|ia8|ia16|ci4|ci8|rgba16|rgba32)'
+    r'\.inc\.c[>"]'
 )
 
-# Symbol offset patterns
-SYM_OFF_PRIMARY = re.compile(r"_0x([0-9a-fA-F]+)$")
-SYM_OFF_SUB = re.compile(r"_0x([0-9a-fA-F]+)_sub_0x([0-9a-fA-F]+)$")
+# Symbol offset patterns. Some symbols carry a trailing type tag
+# (`_Vtx`, `_Tex`, `_Lut`, `_Gfx`, `_DObjDesc`, etc.) added by upstream's
+# typing tools — accept those too. The hex offset is what we want.
+_TYPE_SUFFIX_RE = (
+    r"(?:_(?:Vtx|Gfx|Tex|Lut|DL|DObjDesc|MObjSub|Sprite|Bitmap|"
+    r"Palette|AnimJoint|MatAnimJoint|CamAnimJoint|tex|data|block))?$"
+)
+SYM_OFF_PRIMARY = re.compile(r"_0x([0-9a-fA-F]+)" + _TYPE_SUFFIX_RE)
+SYM_OFF_SUB = re.compile(
+    r"_0x([0-9a-fA-F]+)_sub_0x([0-9a-fA-F]+)" + _TYPE_SUFFIX_RE
+)
 
 
 @dataclass
@@ -143,6 +166,17 @@ TYPE_SIZE = {
     "SpriteArray": 4,    # array of pointers (4-byte token slots)
     "Sprite": 56,
     "Bitmap": 32,
+    "SC1PTrainingPosSprite": 16,
+    "SC1PTrainingSprite": 16,
+    "FTModelPart": 16,
+    "FTHiddenPart": 8,
+    "FTThrowHitDesc": 16,
+    "FTThrownStatus": 8,
+    "FTSkeleton": 8,
+    "FTKirbyCopy": 16,
+    "ITAttributes": 80,
+    "ITAttackEvent": 32,
+    "DObjDLLink": 8,
 }
 
 
@@ -254,8 +288,7 @@ def find_all_declarations(c_text: str) -> list[tuple[int, str, str, int, str | N
     for m in DECL_RE.finditer(c_text):
         type_name = m.group(1)
         sym = m.group(2)
-        count_str = m.group(3)
-        count = int(count_str) if count_str else 0
+        count = _parse_count(m.group(3))
 
         body_start = m.end()
         body_end = c_text.find("};", body_start)
@@ -299,7 +332,8 @@ def derive_offsets(c_text: str, file_name: str,
 
     # Strippable subtype suffixes — used in (4) when the symbol has an
     # extra trailing token like `_data` past the type name.
-    STRIPPABLE = ("_data", "_block", "_aliases", "_array", "_inc")
+    STRIPPABLE = ("_data", "_block", "_aliases", "_array", "_inc", "_tex",
+                  "_pal")
 
     for _pos, type_name, sym, count, _id, _is, _it in decls:
         # 1+2+6: any `_0xHEX` pattern in symbol
@@ -421,6 +455,12 @@ EMITTERS = {
     "tex": emit_bytes,
 }
 
+# All texture-format suffixes (rgba32 / i4 / ci4 / etc.) are stored as
+# raw bytes. The format-specific name is purely documentary — same on-disk
+# layout as `.data` or `.tex`.
+_RAW_BYTE_TYPES = {"data", "tex", "i4", "i4c", "ia4", "ia8", "ia16",
+                   "ci4", "ci8", "rgba16", "rgba32"}
+
 
 # ───────────────────────────── driver ─────────────────────────────
 
@@ -500,8 +540,13 @@ def main() -> int:
                 content = emit_vtx(data, sym_off, count)
             elif inc_type == "dl":
                 content = emit_dl(data, sym_off, count)
-            else:  # data / tex
+            elif inc_type in _RAW_BYTE_TYPES:
                 content = emit_bytes(data, sym_off, byte_count)
+            else:
+                if args.verbose:
+                    print(f"  [{fid}] {sym}: unknown inc.c type {inc_type!r}",
+                          file=sys.stderr)
+                continue
 
             if content is None:
                 # Offset+size exceeds the file's data — sequential walk
