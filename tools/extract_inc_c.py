@@ -54,14 +54,50 @@ RELOCDATA_FILE_RE = re.compile(r"^(\d+)_([A-Za-z0-9_]+)\.c$")
 
 # Matches `<TypeName> dXxx_<Name>[<count>] = {`
 # Type covers raw-byte u8/u16/u32 wrappers and typed Vtx / Gfx / DObjDesc /
-# MObjSub / etc. Count may be empty (auto-sized) — caller must derive size.
+# MObjSub / etc. Count may be empty (auto-sized) or contain multi-line
+# `#if defined(REGION_JP)/#else/#endif` blocks — we strip JP branches
+# in a preprocess pass (see _strip_jp_branches) before applying this regex.
 DECL_RE = re.compile(
     r"^\s*(u8|u16|u32|Vtx|Gfx|DObjDesc|MObjSub|MatAnimJoint|AnimJoint|"
     r"CamAnimJoint|MapHead|FTSpecialColl|GRAttackColl|HitDesc|HitParties|"
     r"BloatScales|MPGeometryData|SpriteArray|Sprite|Bitmap)\s+"
-    r"(d\w+)\s*\[(\d*)\]\s*=\s*\{",
+    r"(d\w+)\s*\[\s*(\d*)\s*\]\s*=\s*\{",
     re.M,
 )
+
+
+def _strip_jp_branches(text: str) -> str:
+    """Strip `#if defined(REGION_JP) ... #else / ... / #endif` regions to
+    keep only the US branch. Region-conditional declarations like
+        u8 X[
+        #if defined(REGION_JP)
+            <jp size>
+        #else
+            <us size>
+        #endif
+        ] = { ... };
+    otherwise break the single-line array-size capture in DECL_RE.
+    """
+    out: list[str] = []
+    state: str = "normal"   # normal | jp | us
+    nested: int = 0         # for nested #if outside our pattern
+    for line in text.splitlines(keepends=True):
+        s = line.strip()
+        if state == "normal":
+            if re.match(r"^#\s*if\s+defined\s*\(\s*REGION_JP\s*\)", s):
+                state = "jp"; continue
+            out.append(line)
+        elif state == "jp":
+            if s.startswith("#else"):
+                state = "us"; continue
+            if s.startswith("#endif"):
+                state = "normal"; continue
+            # drop JP-only line
+        elif state == "us":
+            if s.startswith("#endif"):
+                state = "normal"; continue
+            out.append(line)
+    return "".join(out)
 
 INCLUDE_RE = re.compile(
     r'#\s*include\s+[<"]([^>"]*)\.(vtx|dl|palette|data|tex)\.inc\.c[>"]'
@@ -418,6 +454,8 @@ def main() -> int:
         c_text = c_path.read_text()
         if not INCLUDE_RE.search(c_text):
             continue   # no .inc.c includes — no work to do
+        # Strip JP-only branches so US sizes parse cleanly.
+        c_text = _strip_jp_branches(c_text)
 
         files_processed += 1
         file_name = file_names.get(fid)
