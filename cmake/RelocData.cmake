@@ -28,8 +28,45 @@ message(STATUS "RelocData: clang found at ${CLANG_EXECUTABLE} — "
 
 set(RELOC_FROMSOURCE_DIR ${CMAKE_BINARY_DIR}/reloc_resources)
 set(RELOC_OBJECTS_DIR ${CMAKE_BINARY_DIR}/reloc_objects)
+set(RELOC_INC_C_DIR ${CMAKE_BINARY_DIR}/inc_c_extracts)
 file(MAKE_DIRECTORY ${RELOC_FROMSOURCE_DIR})
 file(MAKE_DIRECTORY ${RELOC_OBJECTS_DIR})
+file(MAKE_DIRECTORY ${RELOC_INC_C_DIR})
+
+# Run the .inc.c extractor at configure time. Outputs land at
+# <build>/inc_c_extracts/<FileName>/<sym>.<type>.inc.c, matching the
+# include paths (`#include <FileName/sym.type.inc.c>`) used by typed
+# relocData .c files. Depends on the Torch-extracted BattleShip.o2r;
+# if that doesn't exist yet (no ExtractAssets run), the extractor is
+# skipped — relocData files needing .inc.c will fail compile and the
+# user will see the failure with a clear path forward.
+if(EXISTS ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
+    set(_battleship_o2r ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
+elseif(EXISTS ${CMAKE_BINARY_DIR}/BattleShip.o2r)
+    set(_battleship_o2r ${CMAKE_BINARY_DIR}/BattleShip.o2r)
+else()
+    set(_battleship_o2r "")
+endif()
+
+if(_battleship_o2r)
+    message(STATUS "RelocData: extracting .inc.c blocks from ${_battleship_o2r}")
+    execute_process(
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/extract_inc_c.py
+            --battleship-o2r ${_battleship_o2r}
+            --reloc-table ${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp
+            --reloc-dir ${CMAKE_SOURCE_DIR}/decomp/src/relocData
+            --descriptions ${CMAKE_SOURCE_DIR}/decomp/tools/relocFileDescriptions.us.txt
+            --output-dir ${RELOC_INC_C_DIR}
+        RESULT_VARIABLE _extract_result
+        OUTPUT_QUIET
+    )
+    if(NOT _extract_result EQUAL 0)
+        message(WARNING "RelocData: extract_inc_c.py failed (exit ${_extract_result})")
+    endif()
+else()
+    message(STATUS "RelocData: BattleShip.o2r not present — skipping .inc.c extract; "
+                   "files needing inc.c will fall back to Torch")
+endif()
 
 # Per-file: file_id N + source path → custom command emitting <build>/reloc_resources/<N>.relo
 # resource_path is the LUS archive path (from RelocFileTable.cpp), e.g.
@@ -55,6 +92,7 @@ function(add_reloc_resource file_id source_path resource_path)
             --include-dir ${CMAKE_SOURCE_DIR}/decomp/include
             --include-dir ${CMAKE_SOURCE_DIR}/decomp/src
             --include-dir ${CMAKE_SOURCE_DIR}/decomp/src/relocData
+            --include-dir ${RELOC_INC_C_DIR}
             --obj-out ${obj}
             --output ${out}
         DEPENDS ${source_path} ${reloc_path}

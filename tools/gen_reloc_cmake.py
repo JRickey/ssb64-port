@@ -64,6 +64,26 @@ def has_inc_c_include(c_path: Path) -> bool:
     return bool(re.search(r'#\s*include\s+[<"][^>"]*\.inc\.c[>"]', text))
 
 
+_INC_C_RE = re.compile(r'#\s*include\s+[<"]([^>"]+\.inc\.c)[>"]')
+
+
+def missing_inc_c(c_path: Path, inc_c_dir: Path) -> bool:
+    """True if any .inc.c the file references hasn't been extracted yet
+    (extractor couldn't resolve the symbol's offset OR the offset+size
+    exceeded the file's data extent). The file would fail clang -c with
+    `fatal error: ... file not found`. Skip it from eligible list rather
+    than break the build — runtime falls back to Torch for these files."""
+    try:
+        text = c_path.read_text()
+    except Exception:
+        return True
+    for m in _INC_C_RE.finditer(text):
+        rel = m.group(1)
+        if not (inc_c_dir / rel).is_file():
+            return True
+    return False
+
+
 _BITFIELD_TYPE_RE = re.compile(
     r"\b(FTAttributes|WPAttributes|ITAttributes|MPGroundData)\s+\w+\s*=", re.M)
 
@@ -104,6 +124,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reloc-dir", type=Path, required=True)
     ap.add_argument("--reloc-table", type=Path, required=True)
+    ap.add_argument("--inc-c-dir", type=Path, default=None,
+                    help="<build>/inc_c_extracts — files referencing missing "
+                         "extracts get skipped")
     ap.add_argument("--output", type=Path, required=True)
     ap.add_argument("--report", type=Path, default=None)
     args = ap.parse_args()
@@ -121,6 +144,7 @@ def main() -> int:
         "needs_inc_c": [],
         "uses_bitfield_init": [],
         "uses_generated_macros": [],
+        "missing_inc_c_extract": [],
     }
 
     for c_path in sorted(args.reloc_dir.glob("*.c")):
@@ -138,12 +162,20 @@ def main() -> int:
             skipped["no_table_entry"].append(fid)
             continue
 
-        if has_inc_c_include(c_path):
-            skipped["needs_inc_c"].append(fid)
-            continue
+        # Note: previously skipped files needing *.inc.c. After M3.P14
+        # added tools/extract_inc_c.py + the CMake hook to extract .inc.c
+        # blocks from Torch's BattleShip.o2r at configure time, files with
+        # .inc.c includes resolve via -I <build>/inc_c_extracts.
 
         if uses_bitfield_initializer(c_path):
             skipped["uses_bitfield_init"].append(fid)
+            continue
+
+        # Skip files where extract_inc_c.py couldn't resolve every .inc.c
+        # symbol's offset within the file. clang would otherwise fail
+        # with `fatal error: file not found`. Falls back to Torch.
+        if args.inc_c_dir is not None and missing_inc_c(c_path, args.inc_c_dir):
+            skipped["missing_inc_c_extract"].append(fid)
             continue
 
         # Note: previously skipped files using ftMotionCommand* / aobjEvent32End
@@ -171,6 +203,7 @@ def main() -> int:
     print(f"  skipped — needs upstream .inc.c:    {len(skipped['needs_inc_c'])}")
     print(f"  skipped — bitfield-init struct:     {len(skipped['uses_bitfield_init'])}")
     print(f"  skipped — uses generated macros:    {len(skipped['uses_generated_macros'])}")
+    print(f"  skipped — missing .inc.c extract:   {len(skipped['missing_inc_c_extract'])}")
 
     if args.report is not None:
         args.report.write_text(json.dumps(

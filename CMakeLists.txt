@@ -511,6 +511,7 @@ if(CLANG_EXECUTABLE)
         COMMAND ${Python3_EXECUTABLE} ${CMAKE_SOURCE_DIR}/tools/gen_reloc_cmake.py
             --reloc-dir ${CMAKE_SOURCE_DIR}/decomp/src/relocData
             --reloc-table ${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp
+            --inc-c-dir ${RELOC_INC_C_DIR}
             --output ${CMAKE_BINARY_DIR}/reloc_data_targets.cmake
         RESULT_VARIABLE _gen_result
     )
