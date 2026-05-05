@@ -473,8 +473,16 @@ if(NOT SSB64_BASEROM)
     set(SSB64_BASEROM "${CMAKE_SOURCE_DIR}/baserom.us.z64")
 endif()
 
-add_custom_target(ExtractAssets
-    DEPENDS TorchExternal PrepareBuildInputs GenerateF3DO2R
+# Declared as add_custom_command(OUTPUT ...) rather than add_custom_target
+# so downstream rules that DEPENDS on ${CMAKE_SOURCE_DIR}/BattleShip.o2r as
+# a file (notably Battle-ShipYard's passthrough_reloc commands) connect to
+# this producer through CMake's file-level dependency graph. Without an
+# explicit OUTPUT declaration Ninja errors with "missing and no known rule
+# to make it". The wrapping custom_target keeps `cmake --build . --target
+# ExtractAssets` working for callers that invoke it directly.
+add_custom_command(
+    OUTPUT ${CMAKE_SOURCE_DIR}/BattleShip.o2r
+    DEPENDS TorchExternal PrepareBuildInputs GenerateF3DO2R ${SSB64_BASEROM}
     COMMAND ${TORCH_EXECUTABLE} o2r ${SSB64_BASEROM} -s ${CMAKE_SOURCE_DIR} -d ${CMAKE_SOURCE_DIR}
     COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -482,6 +490,7 @@ add_custom_target(ExtractAssets
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/BattleShip.o2r
     COMMENT "Extracting assets from ${SSB64_BASEROM} into O2R archive"
 )
+add_custom_target(ExtractAssets DEPENDS ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
 
 add_custom_target(GenerateBattleShipO2R
     DEPENDS ExtractAssets
@@ -515,6 +524,11 @@ add_custom_target(GeneratePortO2R
 
 set(RELOCDATA_DECOMP_DIR  "${CMAKE_SOURCE_DIR}/decomp")
 set(RELOCDATA_RELOC_TABLE "${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp")
+# ExtractAssets writes BattleShip.o2r to ${CMAKE_SOURCE_DIR}; tell the modkit
+# to make BuildBattleShipFromSource depend on it so the source-compile +
+# passthrough commands don't race on a fresh `cmake -B && cmake --build` flow
+# (the failure mode that broke v0.7.6-beta packaging).
+set(RELOCDATA_BATTLESHIP_O2R_TARGET ExtractAssets)
 include(Battle-ShipYard/cmake/RelocData.cmake)
 
 if(RELOCDATA_CC)
