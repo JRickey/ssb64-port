@@ -473,24 +473,47 @@ if(NOT SSB64_BASEROM)
     set(SSB64_BASEROM "${CMAKE_SOURCE_DIR}/baserom.us.z64")
 endif()
 
-# Declared as add_custom_command(OUTPUT ...) rather than add_custom_target
-# so downstream rules that DEPENDS on ${CMAKE_SOURCE_DIR}/BattleShip.o2r as
-# a file (notably Battle-ShipYard's passthrough_reloc commands) connect to
-# this producer through CMake's file-level dependency graph. Without an
-# explicit OUTPUT declaration Ninja errors with "missing and no known rule
-# to make it". The wrapping custom_target keeps `cmake --build . --target
-# ExtractAssets` working for callers that invoke it directly.
-add_custom_command(
-    OUTPUT ${CMAKE_SOURCE_DIR}/BattleShip.o2r
-    DEPENDS TorchExternal PrepareBuildInputs GenerateF3DO2R ${SSB64_BASEROM}
-    COMMAND ${TORCH_EXECUTABLE} o2r ${SSB64_BASEROM} -s ${CMAKE_SOURCE_DIR} -d ${CMAKE_SOURCE_DIR}
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/BattleShip.o2r
-        $<TARGET_FILE_DIR:${PROJECT_NAME}>/BattleShip.o2r
-    COMMENT "Extracting assets from ${SSB64_BASEROM} into O2R archive"
-)
-add_custom_target(ExtractAssets DEPENDS ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
+# Two configurations:
+#
+#   (a) Baserom present (typical dev / Torch-extract first-run): declare the
+#       o2r as an add_custom_command(OUTPUT ...) so downstream rules that
+#       DEPENDS on it as a file (notably Battle-ShipYard's passthrough_reloc
+#       commands) connect to this producer through CMake's file-level
+#       dependency graph. The wrapping custom_target keeps
+#       `cmake --build . --target ExtractAssets` working.
+#
+#   (b) Baserom absent (CI release pipeline never ships the copyrighted ROM):
+#       provide a stub ExtractAssets target that fails with a clear error if
+#       invoked, but does NOT register the file-level rule. Without the rule
+#       Ninja correctly skips the source-compile pipeline (which transitively
+#       depends on the o2r) instead of erroring with "no rule to make target".
+#       Any caller that genuinely needs the o2r will hit ExtractAssets and
+#       get the explanatory error.
+#
+# `finalize_battleship_from_source` below additionally gates on the baserom,
+# so case (b) doesn't even register the source-compile target.
+if(EXISTS "${SSB64_BASEROM}")
+    add_custom_command(
+        OUTPUT ${CMAKE_SOURCE_DIR}/BattleShip.o2r
+        DEPENDS TorchExternal PrepareBuildInputs GenerateF3DO2R ${SSB64_BASEROM}
+        COMMAND ${TORCH_EXECUTABLE} o2r ${SSB64_BASEROM} -s ${CMAKE_SOURCE_DIR} -d ${CMAKE_SOURCE_DIR}
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:${PROJECT_NAME}>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/BattleShip.o2r
+            $<TARGET_FILE_DIR:${PROJECT_NAME}>/BattleShip.o2r
+        COMMENT "Extracting assets from ${SSB64_BASEROM} into O2R archive"
+    )
+    add_custom_target(ExtractAssets DEPENDS ${CMAKE_SOURCE_DIR}/BattleShip.o2r)
+else()
+    add_custom_target(ExtractAssets
+        COMMAND ${CMAKE_COMMAND} -E echo
+            "ERROR: ExtractAssets requires baserom.us.{z64,n64,v64} in source root (${CMAKE_SOURCE_DIR})"
+        COMMAND ${CMAKE_COMMAND} -E false
+        COMMENT "ExtractAssets stub — baserom missing"
+    )
+    message(STATUS "BattleShip.o2r: baserom absent — ExtractAssets stub installed; "
+                   "source-compile pipeline will be disabled (released artifacts ship without .fromsource.o2r)")
+endif()
 
 add_custom_target(GenerateBattleShipO2R
     DEPENDS ExtractAssets
@@ -531,6 +554,9 @@ set(RELOCDATA_RELOC_TABLE "${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp"
 set(RELOCDATA_BATTLESHIP_O2R_TARGET ExtractAssets)
 include(Battle-ShipYard/cmake/RelocData.cmake)
 
-if(RELOCDATA_CC)
+if(RELOCDATA_CC AND EXISTS "${SSB64_BASEROM}")
     finalize_battleship_from_source(${CMAKE_BINARY_DIR}/BattleShip.fromsource.o2r)
+elseif(RELOCDATA_CC)
+    message(STATUS "RelocData: baserom absent — BuildBattleShipFromSource skipped "
+                   "(release CI / no-rom builds; runtime falls back to Torch-passthrough reloc data)")
 endif()
