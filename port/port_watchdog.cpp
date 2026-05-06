@@ -431,13 +431,24 @@ extern "C" void port_watchdog_init(void) {
     sa.sa_flags = 0;
     sigaction(SIGUSR1, &sa, nullptr);
 
-    /* Fatal-signal handlers: dump backtrace before the process dies. */
+    /* Fatal-signal handlers: dump backtrace before the process dies.
+     *
+     * When AddressSanitizer is compiled in, skip SIGSEGV/SIGBUS so ASan's
+     * own handler (installed in __asan_init via preinit) catches the fault
+     * and produces its full report — alloc/free stacks, shadow-byte map,
+     * the works. Our handler only prints registers + a backtrace, which
+     * loses the diagnostic value that's the entire reason ASan is in the
+     * build. SIGILL/SIGFPE/SIGABRT remain ours: ASan doesn't intercept
+     * them, and SIGABRT is what ASan itself raises after printing its
+     * report (so chaining is fine — by then the report is already out). */
     struct sigaction csa;
     sigemptyset(&csa.sa_mask);
     csa.sa_flags = SA_SIGINFO | SA_ONSTACK;
     csa.sa_sigaction = CrashSignalHandler;
+#if !defined(__SANITIZE_ADDRESS__) && !(defined(__has_feature) && __has_feature(address_sanitizer))
     sigaction(SIGSEGV, &csa, nullptr);
     sigaction(SIGBUS,  &csa, nullptr);
+#endif
     sigaction(SIGILL,  &csa, nullptr);
     sigaction(SIGFPE,  &csa, nullptr);
     sigaction(SIGABRT, &csa, nullptr);
