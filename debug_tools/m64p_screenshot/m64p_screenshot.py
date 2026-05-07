@@ -8,9 +8,9 @@ Context
 -------
 The SSB64 PC port (libultraship-based) renders many scenes incorrectly compared
 to the original N64. To debug rendering bugs we diff display list streams
-(see debug_tools/gbi_diff, debug_tools/m64p_trace_plugin) — but sometimes we
-need a pixel reference of what the scene SHOULD look like. Mupen64Plus with a
-high-accuracy video plugin (glide64mk2 / GLideN64) is our reference renderer.
+(see debug_tools/gbi_diff) — but sometimes we need a pixel reference of what
+the scene SHOULD look like. Mupen64Plus with a high-accuracy video plugin
+(glide64mk2 / GLideN64) is our reference renderer.
 
 This script drives Mupen64Plus non-interactively via its `--testshots` CLI
 option, which auto-captures screenshots at the listed frames and then quits.

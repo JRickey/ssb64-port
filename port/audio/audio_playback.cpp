@@ -1,3 +1,11 @@
+// SPDX-License-Identifier: MIT
+//
+// Portions of this file mirror watermark/buffering logic from the Starship
+// (Star Fox 64) PC port:
+//   Copyright (c) The Harbour Masters
+//   https://github.com/HarbourMasters/Starship
+// Licensed under the MIT License; see LICENSE at repository root.
+
 // Audio playback bridge — Phase 1: silence pipeline
 //
 // Generates zeroed PCM and feeds it to libultraship's AudioPlayerPlayFrame()
