@@ -42,6 +42,27 @@ It does NOT extend to:
     incorporates it by reference as a submodule. Refer to the upstream
     project (and its contributors) for any rights, terms, or restrictions
     governing reuse of the decomp tree.
+  * Decomp-derived content elsewhere in this repository, even though these
+    files live outside the `decomp/` submodule. They originate (verbatim or
+    derivatively) from the decomp's symbol and file-name tables; the port
+    makes no copyright claim over their content and defers to the upstream
+    decomp project on the same terms as the `decomp/` submodule above:
+      - `tools/reloc_data_symbols.us.txt` — vendored verbatim from
+        ssb-decomp-re's `symbols/reloc_data_symbols.us.txt`.
+      - `tools/relocFileDescriptions.us.txt` — decomp-authored file-name
+        table.
+      - `include/reloc_data.h` — auto-generated mirror of the symbols
+        table.
+      - `port/resource/RelocFileTable.cpp` — auto-generated
+        `file_id` → resource path mapping derived from the decomp's
+        symbol/file-name tables.
+      - `yamls/us/reloc_*.yml` — auto-generated Torch extraction recipes
+        keyed on decomp symbol names.
+    The generator scripts under `tools/` (`generate_reloc_stubs.py`,
+    `generate_reloc_table.py`, `generate_yamls.py`) are port-authored and
+    remain MIT-licensed; only the content they emit — when that content
+    originates from the decomp — is subject to the upstream-deference
+    clause above.
   * The `libultraship/` submodule (https://github.com/Kenix3/libultraship),
     licensed independently by its upstream maintainers under the MIT License:
       Copyright (c) 2022 kenix3 <kenixwhisperwind@gmail.com>
