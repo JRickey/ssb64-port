@@ -126,10 +126,47 @@ Copy-Item (Join-Path $Root "assets\icon.ico") (Join-Path $StageDir "$AppName.ico
 # <staging>\assets\custom\fonts\ next to the .exe matches the first
 # iteration of the walker rooted at the .exe's directory. Without this
 # the menu falls back to ImGui's default font silently.
+#
+# OFL 1.1 §1 requires the license text to accompany each redistributed
+# font file, so the *-OFL.txt files ship alongside the .ttf they govern.
 $FontsDir = Join-Path $StageDir "assets\custom\fonts"
 New-Item -ItemType Directory -Path $FontsDir -Force | Out-Null
 Copy-Item (Join-Path $Root "assets\custom\fonts\Montserrat-Regular.ttf")  $FontsDir
+Copy-Item (Join-Path $Root "assets\custom\fonts\Montserrat-OFL.txt")      $FontsDir
 Copy-Item (Join-Path $Root "assets\custom\fonts\Inconsolata-Regular.ttf") $FontsDir
+Copy-Item (Join-Path $Root "assets\custom\fonts\Inconsolata-OFL.txt")     $FontsDir
+
+# Project LICENSE + verbatim upstream LICENSE files for the submodules
+# whose compiled code is in this distribution. MIT requires the upstream
+# copyright + permission notice to ride along with redistributed copies.
+# .txt suffix follows Windows convention so users can double-click open.
+Copy-Item (Join-Path $Root "LICENSE") (Join-Path $StageDir "LICENSE.txt")
+$LicensesDir = Join-Path $StageDir "licenses"
+New-Item -ItemType Directory -Path $LicensesDir -Force | Out-Null
+$LusLicense = Join-Path $Root "libultraship\LICENSE"
+$TorchLicense = Join-Path $Root "torch\LICENSE"
+if (-not (Test-Path $LusLicense))   { Fail "libultraship\LICENSE not found - submodules not initialized?" }
+if (-not (Test-Path $TorchLicense)) { Fail "torch\LICENSE not found - submodules not initialized?" }
+Copy-Item $LusLicense   (Join-Path $LicensesDir "libultraship-LICENSE.txt")
+Copy-Item $TorchLicense (Join-Path $LicensesDir "torch-LICENSE.txt")
+@'
+This directory contains license texts for third-party components whose
+compiled code is included in this BattleShip distribution:
+
+  - libultraship-LICENSE.txt  (MIT, Copyright (c) 2022 kenix3)
+  - torch-LICENSE.txt         (MIT, Copyright (c) 2023 Lywx)
+
+Bundled font licenses (SIL Open Font License 1.1) live alongside the
+font files at assets\custom\fonts\.
+
+The BattleShip project's own MIT license is in ..\LICENSE.txt.
+
+Additional libraries dynamically linked at runtime (SDL2, GLEW, libzip,
+nlohmann_json, tinyxml2, spdlog, fmt, hidapi-via-libultraship) are
+distributed under their respective upstream licenses (zlib, modified
+BSD, BSD-3-Clause, MIT). Refer to those upstream packages for full
+license texts.
+'@ | Set-Content -Path (Join-Path $LicensesDir "README.txt") -Encoding UTF8
 
 # Bundle DLLs that landed next to BattleShip.exe (vcpkg drops SDL2.dll, etc.).
 $ExeBuildDir = Split-Path $GameExe -Parent

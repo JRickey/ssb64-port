@@ -101,9 +101,48 @@ cp "$ROOT/yamls/us/"*.yml "$APPDIR/usr/share/$APP_NAME/yamls/us/"
 # after AppRun's cd). Fonts placed under the cwd-rooted walker hit on
 # the first iteration. Without this the menu falls back to ImGui's
 # default font silently.
+#
+# OFL 1.1 §1 requires the license text to accompany each redistributed
+# font file, so the *-OFL.txt files ship alongside the .ttf they govern.
 mkdir -p "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts"
 cp "$ROOT/assets/custom/fonts/Montserrat-Regular.ttf"  "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts/"
+cp "$ROOT/assets/custom/fonts/Montserrat-OFL.txt"      "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts/"
 cp "$ROOT/assets/custom/fonts/Inconsolata-Regular.ttf" "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts/"
+cp "$ROOT/assets/custom/fonts/Inconsolata-OFL.txt"     "$APPDIR/usr/share/$APP_NAME/assets/custom/fonts/"
+
+# Project LICENSE + verbatim upstream LICENSE files for the submodules
+# whose compiled code is in this AppImage. MIT requires the upstream
+# copyright + permission notice to ride along with redistributed copies.
+cp "$ROOT/LICENSE" "$APPDIR/usr/share/$APP_NAME/LICENSE"
+mkdir -p "$APPDIR/usr/share/$APP_NAME/licenses"
+if [[ -f "$ROOT/libultraship/LICENSE" ]]; then
+    cp "$ROOT/libultraship/LICENSE" "$APPDIR/usr/share/$APP_NAME/licenses/libultraship-LICENSE.txt"
+else
+    fail "libultraship/LICENSE not found — submodules not initialized?"
+fi
+if [[ -f "$ROOT/torch/LICENSE" ]]; then
+    cp "$ROOT/torch/LICENSE" "$APPDIR/usr/share/$APP_NAME/licenses/torch-LICENSE.txt"
+else
+    fail "torch/LICENSE not found — submodules not initialized?"
+fi
+cat > "$APPDIR/usr/share/$APP_NAME/licenses/README.txt" <<'EOF'
+This directory contains license texts for third-party components whose
+compiled code is included in this BattleShip distribution:
+
+  - libultraship-LICENSE.txt  (MIT, Copyright (c) 2022 kenix3)
+  - torch-LICENSE.txt         (MIT, Copyright (c) 2023 Lywx)
+
+Bundled font licenses (SIL Open Font License 1.1) live alongside the
+font files at assets/custom/fonts/.
+
+The BattleShip project's own MIT license is in ../LICENSE in this bundle.
+
+Additional libraries dynamically linked at runtime (SDL2, GLEW, libzip,
+nlohmann_json, tinyxml2, spdlog, fmt, hidapi-via-libultraship) are
+distributed under their respective upstream licenses (zlib, modified
+BSD, BSD-3-Clause, MIT). Refer to those upstream packages for full
+license texts.
+EOF
 
 # ── 5. .desktop + icon (AppRun written after linuxdeploy) ──
 # linuxdeploy reads .desktop + icon from the AppDir, so they have to
