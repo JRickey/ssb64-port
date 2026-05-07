@@ -1,3 +1,12 @@
+/*
+ * SPDX-License-Identifier: MIT
+ *
+ * Portions of this file are derived from the Starship (Star Fox 64) PC port
+ *   Copyright (c) The Harbour Masters
+ *   https://github.com/HarbourMasters/Starship
+ * Licensed under the MIT License; see LICENSE at repository root.
+ */
+
 /**
  * mixer.c — CPU-side Acmd audio interpreter for SSB64 PC port
  *

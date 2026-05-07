@@ -53,3 +53,36 @@ It does NOT extend to:
     file and governs use, modification, and redistribution of the font files.
 
 Refer to each submodule and external project for its own license terms.
+
+---
+
+Third-party notices (in-tree code derived from external projects):
+
+The following portions of this repository contain or are derived from code
+authored by third parties. The MIT grant above continues to apply to those
+files as integrated here, and the upstream copyright notices are reproduced
+below in satisfaction of the MIT attribution requirement.
+
+  * `port/gui/Compat.h`, `port/gui/Menu.{cpp,h}`, `port/gui/MenuTypes.h`,
+    `port/gui/PortMenu.{cpp,h}`, `port/gui/UIWidgets.{cpp,hpp}` —
+    derived from the Ship of Harkinian (SoH) project.
+      Copyright (c) The Harbour Masters
+      https://github.com/HarbourMasters/Shipwright
+      Licensed under the MIT License.
+
+  * `port/audio/mixer.{c,h}`, and the watermark/buffering logic in
+    `port/audio/audio_playback.cpp` — derived from the Starship (Star Fox 64)
+    PC port.
+      Copyright (c) The Harbour Masters
+      https://github.com/HarbourMasters/Starship
+      Licensed under the MIT License.
+
+  * `port/renderdoc_app.h` — verbatim from the RenderDoc in-application API.
+      Copyright (c) 2015-2026 Baldur Karlsson
+      https://github.com/baldurk/renderdoc
+      Licensed under the MIT License (notice retained in the file).
+
+  * `gamecontrollerdb.txt` — community-maintained SDL game controller
+    mappings.
+      Source: https://github.com/mdqinc/SDL_GameControllerDB
+      Licensed under the zlib License.

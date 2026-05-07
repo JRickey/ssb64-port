@@ -1,3 +1,10 @@
+// SPDX-License-Identifier: MIT
+//
+// Portions of this file are derived from the Ship of Harkinian (SoH) project
+//   Copyright (c) The Harbour Masters
+//   https://github.com/HarbourMasters/Shipwright
+// Licensed under the MIT License; see LICENSE at repository root.
+
 #include "PortMenu.h"
 
 #include "Compat.h"
