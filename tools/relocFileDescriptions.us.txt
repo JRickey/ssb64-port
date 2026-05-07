@@ -1,3 +1,15 @@
+# relocFileDescriptions.us.txt — file_id → name table for the SSB64 relocatable
+# data archive (LBReloc).
+#
+# Content derived from the ssb-decomp-re project
+# (https://github.com/VetriTheRetri/ssb-decomp-re): the file names below
+# (MNCommon, MNMain, FTMario, etc.) are the decomp authors' creative work,
+# matching the naming convention used throughout the decomp source tree. This
+# repository makes no copyright claim over those names and defers to the
+# upstream decomp project for any rights or restrictions on reuse. See LICENSE
+# at the repository root for the full carve-out covering decomp-derived
+# content.
+
 # FILE_COUNT: 2132
 
 # FILE NAMES
