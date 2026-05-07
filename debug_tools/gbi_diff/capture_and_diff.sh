@@ -13,26 +13,14 @@
 #   1. Runs the port for <seconds> with SSB64_GBI_TRACE=1, writes
 #      debug_traces/<label>_port.gbi
 #   2. Looks for an emulator-side reference at debug_traces/<label>_emu.gbi
-#      (or the generic debug_traces/emu_trace.gbi). You produce that file
-#      either with mupen64plus + our RSP plugin (see below) or via RMG.
+#      (or the generic debug_traces/emu_trace.gbi).
 #   3. Runs gbi_diff.py and writes debug_traces/<label>_diff.txt
 #
-# Generating the emulator-side reference (mupen64plus, on this Mac):
-#
-#   PLUGIN_DIR=<repo>/debug_tools/m64p_trace_plugin/build
-#   M64P_TRACE_DIR=debug_traces M64P_TRACE_FRAMES=600 \
-#     mupen64plus --noosd \
-#       --rsp   $PLUGIN_DIR/mupen64plus-rsp-trace.dylib \
-#       --gfx   /opt/homebrew/Cellar/mupen64plus/2.6.0/lib/mupen64plus/mupen64plus-video-rice.dylib \
-#       --audio dummy --input dummy \
-#       baserom.us.z64
-#
-# Generating the emulator-side reference (RMG, the issue-71 reference combo):
-#   - Install our plugin into the RMG plugin dir (see docs/debug_gbi_trace.md)
-#   - In RMG settings: RSP=GBI+Acmd Trace RSP Plugin, GFX=GLideN64,
-#     Audio=any, Input=any, CPU=Pure Interpreter (in core settings)
-#   - Set M64P_TRACE_DIR=<absolute path to debug_traces> in RMG's environment
-#     before launching, then start the ROM. emu_trace.gbi appears in that dir.
+# Generating the emulator-side reference:
+#   The previous in-tree mupen64plus RSP plugin was removed in the
+#   licensing-compliance pass (GPLv2-derived; incompatible with this repo's
+#   MIT scope). Produce a reference `emu_trace.gbi` from a separately-licensed
+#   capture tool out of tree, or skip the diff step.
 #   - Move/rename it to debug_traces/<label>_emu.gbi.
 
 set -euo pipefail
