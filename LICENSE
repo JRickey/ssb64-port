@@ -34,13 +34,26 @@ It does NOT extend to:
   * Anything owned by Nintendo / HAL Laboratory (game code, data, audio,
     textures, models, trademarks). None of that is included in this
     repository.
-  * The decompiled C source under `src/`, which is derived from the
-    VetriTheRetri/ssb-decomp-re project and is governed by that project's
-    license.
-  * The `libultraship/` submodule, which is licensed independently by its
-    upstream maintainers.
-  * The `torch/` submodule, which is licensed independently by its upstream
-    maintainers.
+  * The decompiled C source under the `decomp/` submodule, which is derived
+    from the VetriTheRetri/ssb-decomp-re project
+    (https://github.com/VetriTheRetri/ssb-decomp-re). At the time of writing,
+    the upstream decompilation does not publish an explicit license; this
+    repository makes no copyright claim over the decompiled source and
+    incorporates it by reference as a submodule. Refer to the upstream
+    project (and its contributors) for any rights, terms, or restrictions
+    governing reuse of the decomp tree.
+  * The `libultraship/` submodule (https://github.com/Kenix3/libultraship),
+    licensed independently by its upstream maintainers under the MIT License:
+      Copyright (c) 2022 kenix3 <kenixwhisperwind@gmail.com>
+    libultraship was originated by the Harbour Masters team for the
+    Ship of Harkinian project and is now maintained at Kenix3/libultraship.
+  * The `torch/` submodule (https://github.com/HarbourMasters/Torch),
+    licensed independently by its upstream maintainers under the MIT License:
+      Copyright (c) 2023 Lywx <admin@undervolt.dev>
+    Torch is maintained by the Harbour Masters team.
+  * The `Battle-ShipYard/` modding-toolkit submodule
+    (https://github.com/JRickey/Battle-ShipYard), licensed independently
+    under the MIT License (see its own `LICENSE`).
   * The font assets bundled under `assets/custom/fonts/`, which are licensed
     under the SIL Open Font License, Version 1.1:
       - Montserrat (Copyright 2011 The Montserrat Project Authors,
