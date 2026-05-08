@@ -87,14 +87,6 @@ static struct {
 
 	/* Simulated DMEM */
 	uint8_t  buf[DMEM_SIZE];
-
-	/* The RSP mixes into wider internal accumulators and clamps late.  Keep
-	 * fixed N_AUDIO output buses wide too; otherwise loud layered SFX clip
-	 * once per voice before the aux/main bus passes can rebalance them. */
-	int32_t  dry_left_acc[PORT_NAUDIO_COUNT / sizeof(int16_t)];
-	int32_t  dry_right_acc[PORT_NAUDIO_COUNT / sizeof(int16_t)];
-	int32_t  wet_left_acc[PORT_NAUDIO_COUNT / sizeof(int16_t)];
-	int32_t  wet_right_acc[PORT_NAUDIO_COUNT / sizeof(int16_t)];
 } rspa;
 
 /* ------------------------------------------------------------------ */
@@ -146,81 +138,6 @@ static inline int16_t clamp16(int32_t v) {
 	return (int16_t)v;
 }
 
-static int32_t *fixed_bus_acc(uint16_t addr) {
-	switch (addr) {
-	case PORT_NAUDIO_DRY_LEFT:
-		return rspa.dry_left_acc;
-	case PORT_NAUDIO_DRY_RIGHT:
-		return rspa.dry_right_acc;
-	case PORT_NAUDIO_WET_LEFT:
-		return rspa.wet_left_acc;
-	case PORT_NAUDIO_WET_RIGHT:
-		return rspa.wet_right_acc;
-	default:
-		return NULL;
-	}
-}
-
-static void fixed_bus_clear(uint16_t addr, int nbytes) {
-	int count = nbytes / (int)sizeof(int16_t);
-	int offset;
-
-	if (addr < PORT_NAUDIO_DRY_LEFT || count <= 0) {
-		return;
-	}
-
-	offset = (addr - PORT_NAUDIO_DRY_LEFT) / (int)sizeof(int16_t);
-	if (offset < 0 || offset >= (int)(PORT_NAUDIO_COUNT * 4 / sizeof(int16_t))) {
-		return;
-	}
-
-	while (count > 0 && offset < (int)(PORT_NAUDIO_COUNT * 4 / sizeof(int16_t))) {
-		int bus = offset / (PORT_NAUDIO_COUNT / (int)sizeof(int16_t));
-		int bus_index = offset % (PORT_NAUDIO_COUNT / (int)sizeof(int16_t));
-		int run = (PORT_NAUDIO_COUNT / (int)sizeof(int16_t)) - bus_index;
-		int32_t *acc;
-
-		if (run > count) {
-			run = count;
-		}
-
-		switch (bus) {
-		case 0: acc = rspa.dry_left_acc; break;
-		case 1: acc = rspa.dry_right_acc; break;
-		case 2: acc = rspa.wet_left_acc; break;
-		case 3: acc = rspa.wet_right_acc; break;
-		default: return;
-		}
-
-		memset(acc + bus_index, 0, (size_t)run * sizeof(*acc));
-		offset += run;
-		count -= run;
-	}
-}
-
-static int32_t sample_read(uint16_t base, int index) {
-	int32_t *acc = fixed_bus_acc(base);
-	return acc ? acc[index] : BUF_S16(base)[index];
-}
-
-static void sample_write(uint16_t base, int index, int32_t value) {
-	int32_t *acc = fixed_bus_acc(base);
-	if (acc) {
-		acc[index] = value;
-	} else {
-		BUF_S16(base)[index] = clamp16(value);
-	}
-}
-
-static void sample_add(uint16_t base, int index, int32_t value) {
-	int32_t *acc = fixed_bus_acc(base);
-	if (acc) {
-		acc[index] += value;
-	} else {
-		BUF_S16(base)[index] = clamp16((int32_t)BUF_S16(base)[index] + value);
-	}
-}
-
 static inline int16_t adpcm_predict_sample(uint8_t byte, uint8_t mask,
                                            unsigned lshift, unsigned rshift) {
 	int16_t sample = (uint16_t)(byte & mask) << lshift;
@@ -232,11 +149,7 @@ static inline int16_t adpcm_predict_sample(uint8_t byte, uint8_t mask,
 /* ================================================================== */
 
 void aClearBufferImpl(uint16_t addr, int nbytes) {
-	int32_t *acc = fixed_bus_acc(addr);
 	nbytes = ROUND_UP_16(nbytes);
-	if (acc) {
-		fixed_bus_clear(addr, nbytes);
-	}
 	memset(BUF_U8(addr), 0, nbytes);
 }
 
@@ -258,21 +171,6 @@ void aSetBufferImpl(uint8_t flags, uint16_t in, uint16_t out, uint16_t nbytes) {
 void aLoadBufferImpl(uintptr_t source_addr) {
 	if (source_addr == 0) return;
 	memcpy(BUF_U8(rspa.out), (const void*)source_addr, ROUND_UP_8(rspa.nbytes));
-	/* Mirror: if the destination DMEM addr aliases a fixed-bus int32
-	 * accumulator (wet/dry), populate that accumulator from the loaded
-	 * s16 bytes so subsequent sample_read calls on this addr see the
-	 * data. Otherwise the FX chain's "save → process → load → mix"
-	 * delay-line round-trip silently drops anything that flows through
-	 * a wet/dry-mapped DMEM address. */
-	{
-		int32_t *acc = fixed_bus_acc(rspa.out);
-		if (acc) {
-			int count = ROUND_UP_16(rspa.nbytes) / (int)sizeof(int16_t);
-			int16_t *src = BUF_S16(rspa.out);
-			int i;
-			for (i = 0; i < count; i++) acc[i] = src[i];
-		}
-	}
 }
 
 /* ================================================================== */
@@ -282,19 +180,6 @@ void aLoadBufferImpl(uintptr_t source_addr) {
 
 void aSaveBufferImpl(uintptr_t dest_addr) {
 	if (dest_addr == 0) return;
-	/* Mirror: if the source DMEM addr aliases a fixed-bus int32
-	 * accumulator (wet/dry), clamp16 each int32 sample and copy
-	 * into the s16 mirror first so memcpy actually carries the
-	 * accumulated bus data, not the stale s16 region underneath. */
-	{
-		int32_t *acc = fixed_bus_acc(rspa.in);
-		if (acc) {
-			int count = ROUND_UP_16(rspa.nbytes) / (int)sizeof(int16_t);
-			int16_t *dst = BUF_S16(rspa.in);
-			int i;
-			for (i = 0; i < count; i++) dst[i] = clamp16(acc[i]);
-		}
-	}
 	memcpy((void*)dest_addr, BUF_U8(rspa.in), ROUND_UP_8(rspa.nbytes));
 }
 
@@ -303,29 +188,7 @@ void aSaveBufferImpl(uintptr_t dest_addr) {
 /* ================================================================== */
 
 void aDMEMMoveImpl(uint16_t in_addr, uint16_t out_addr, int nbytes) {
-	int32_t *in_acc = fixed_bus_acc(in_addr);
-	int32_t *out_acc = fixed_bus_acc(out_addr);
 	nbytes = ROUND_UP_16(nbytes);
-
-	if (in_acc || out_acc) {
-		int count = nbytes / (int)sizeof(int16_t);
-		int i;
-		if (in_acc && out_acc) {
-			memmove(out_acc, in_acc, (size_t)count * sizeof(*out_acc));
-		} else if (out_acc) {
-			int16_t *in = BUF_S16(in_addr);
-			for (i = 0; i < count; i++) {
-				out_acc[i] = in[i];
-			}
-		} else {
-			int16_t *out = BUF_S16(out_addr);
-			for (i = 0; i < count; i++) {
-				out[i] = clamp16(in_acc[i]);
-			}
-		}
-		return;
-	}
-
 	memmove(BUF_U8(out_addr), BUF_U8(in_addr), nbytes);
 }
 
@@ -615,17 +478,19 @@ void aResampleImpl(uint8_t flags, uint16_t pitch, int16_t *state) {
 
 void aInterleaveImpl(uint16_t left, uint16_t right) {
 	int count;
-	int16_t *d;
+	int16_t *l, *r, *d;
 	int i;
 
 	if (rspa.nbytes == 0) return;
 
 	count = rspa.nbytes / (2 * sizeof(int16_t));
+	l = BUF_S16(left);
+	r = BUF_S16(right);
 	d = BUF_S16(rspa.out);
 
 	for (i = 0; i < count; i++) {
-		*d++ = clamp16(sample_read(left, i));
-		*d++ = clamp16(sample_read(right, i));
+		*d++ = *l++;
+		*d++ = *r++;
 	}
 }
 
@@ -771,10 +636,15 @@ void aEnvMixerImpl(uint8_t flags, int16_t *state) {
 		int16_t r_dry = clamp16(((int32_t)r_vol * dry_amt + 0x4000) >> 15);
 		int16_t l_wet = clamp16(((int32_t)l_vol * wet_amt + 0x4000) >> 15);
 		int16_t r_wet = clamp16(((int32_t)r_vol * wet_amt + 0x4000) >> 15);
-		sample_add(MIX_MAIN_L, i, ((int32_t)s * l_dry) >> 15);
-		sample_add(MIX_MAIN_R, i, ((int32_t)s * r_dry) >> 15);
-		sample_add(MIX_AUX_L, i, ((int32_t)s * l_wet) >> 15);
-		sample_add(MIX_AUX_R, i, ((int32_t)s * r_wet) >> 15);
+		int16_t *dryL = BUF_S16(MIX_MAIN_L);
+		int16_t *dryR = BUF_S16(MIX_MAIN_R);
+		int16_t *wetL = BUF_S16(MIX_AUX_L);
+		int16_t *wetR = BUF_S16(MIX_AUX_R);
+
+		dryL[i] = clamp16(dryL[i] + (((int32_t)s * l_dry) >> 15));
+		dryR[i] = clamp16(dryR[i] + (((int32_t)s * r_dry) >> 15));
+		wetL[i] = clamp16(wetL[i] + (((int32_t)s * l_wet) >> 15));
+		wetR[i] = clamp16(wetR[i] + (((int32_t)s * r_wet) >> 15));
 	}
 
 	memset(save, 0, sizeof(save));
@@ -797,8 +667,9 @@ void aEnvMixerImpl(uint8_t flags, int16_t *state) {
 
 void aMixImpl(uint8_t flags, int16_t gain, uint16_t in_addr, uint16_t out_addr) {
 	int nbytes = ROUND_UP_16(rspa.nbytes);
+	int16_t *in = BUF_S16(in_addr);
+	int16_t *out = BUF_S16(out_addr);
 	int32_t sample;
-	int index = 0;
 
 	(void)flags;
 
@@ -807,9 +678,8 @@ void aMixImpl(uint8_t flags, int16_t gain, uint16_t in_addr, uint16_t out_addr) 
 		while (nbytes > 0) {
 			int i;
 			for (i = 0; i < 16 && nbytes > 0; i++) {
-				sample = sample_read(out_addr, index) - sample_read(in_addr, index);
-				sample_write(out_addr, index, sample);
-				index++;
+				sample = *out - *in++;
+				*out++ = clamp16(sample);
 				nbytes -= sizeof(int16_t);
 			}
 		}
@@ -819,9 +689,8 @@ void aMixImpl(uint8_t flags, int16_t gain, uint16_t in_addr, uint16_t out_addr) 
 	while (nbytes > 0) {
 		int i;
 		for (i = 0; i < 16 && nbytes > 0; i++) {
-			sample = sample_read(out_addr, index) + ((sample_read(in_addr, index) * gain) >> 15);
-			sample_write(out_addr, index, sample);
-			index++;
+			sample = *out + (((int32_t)*in++ * gain) >> 15);
+			*out++ = clamp16(sample);
 			nbytes -= sizeof(int16_t);
 		}
 	}

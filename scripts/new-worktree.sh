@@ -11,7 +11,8 @@
 # What it does:
 #   1. Creates a worktree at .claude/worktrees/<slug> on new branch agent/<slug>
 #   2. Symlinks baserom.us.z64 (gitignored, too big to duplicate)
-#   3. Clones libultraship and torch as independent repos inside the worktree:
+#   3. Clones libultraship, torch, decomp, and Battle-ShipYard as independent
+#      repos inside the worktree:
 #        - Source = main tree's local submodule checkout (picks up pinned SHAs
 #          that may only exist locally, never pushed to the fork)
 #        - Origin URL reset to the real SSH upstream from .gitmodules, so
@@ -20,8 +21,10 @@
 #   5. Runs `cmake -B build` (configure only; add --build to also compile).
 #
 # Resulting worktree is fully editable:
-#   - Edit any file in decomp/src/, decomp/include/, port/, libultraship/, torch/
-#   - Commit normally inside libultraship/ / torch/, then push to the fork
+#   - Edit any file in decomp/src/, decomp/include/, port/, libultraship/,
+#     torch/, Battle-ShipYard/
+#   - Commit normally inside libultraship/ / torch/ / Battle-ShipYard/, then
+#     push to the fork
 #   - In the outer worktree: `git add libultraship && git commit` bumps the
 #     submodule pointer; push that commit up when merging back to main.
 #
@@ -93,9 +96,10 @@ ln -sf "$ROM_SRC" "$WT_DIR/baserom.us.$ROM_EXT"
 # Instead: clone from the main tree's working submodule (git follows the
 # .git gitfile → .git/modules/<name>), then reset origin to the real SSH
 # upstream so pushes from the worktree go to GitHub.
-for sm in libultraship torch decomp; do
-    # `decomp` may not yet be a submodule on `main` (added on agent/decomp-submodule).
-    # Skip silently if the main tree doesn't track this submodule yet.
+for sm in libultraship torch decomp Battle-ShipYard; do
+    # Some submodules may not be registered on older base branches
+    # (e.g. `decomp` was added on agent/decomp-submodule, `Battle-ShipYard`
+    # came later). Skip silently if the main tree doesn't track it yet.
     if [[ -z "$(git -C "$ROOT" config -f .gitmodules "submodule.$sm.path" 2>/dev/null)" ]]; then
         printf '\033[33m  Skipping submodule %s (not configured in main tree .gitmodules)\033[0m\n' "$sm"
         continue
@@ -190,7 +194,8 @@ cat <<EOF
   Branch:   $BRANCH  (base: $BASE)
   Build:    $WT_DIR/build       ($GEN, $CONFIG)
   ROM:      symlinked
-  Submods:  libultraship, torch, decomp — independent clones, origin set to fork
+  Submods:  libultraship, torch, decomp, Battle-ShipYard — independent clones,
+            origin set to fork
 
   Point a new Claude window at: $WT_DIR
   Build:    cmake --build $WT_DIR/build --target ssb64 -j

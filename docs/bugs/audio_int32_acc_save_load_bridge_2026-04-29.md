@@ -1,5 +1,17 @@
 # Audio: reverb wet bus invisible to FX delay-line save/load — 2026-04-29
 
+> **SUPERSEDED 2026-05-08** — This bridge code only existed because of the
+> int32 wet/dry bus accumulators introduced in commit `d30a967` ("Fix
+> N_AUDIO bus clipping for loud SFX"). With those accumulators reverted —
+> the underlying clipping was a downstream effect of the ramp overflow
+> documented in [`audio_envmix_ramp_overflow_2026-05-08.md`](audio_envmix_ramp_overflow_2026-05-08.md),
+> now fixed at the root — the s16 DMEM region is once again the only state
+> for wet/dry buses, and `memcpy` preserves it across the FX delay-line
+> save/load round-trip without any int32 mirror. The reverb that this fix
+> restored is still audible; the implementation is just simpler now.
+>
+> **Status:** RESOLVED → SUPERSEDED (mirror code reverted; reverb still works against canonical s16 saturating bus)
+
 ## Symptom
 
 BGM and SFX played but sounded "dry" — missing reverb. Multiple users (incl.
