@@ -895,6 +895,15 @@ void lbRelocInitSetup(LBRelocSetup *setup)
 	// Clear u16 struct fixup tracking — addresses from the old heap are stale
 	portResetStructFixups();
 
+	// Clear FB-mirror registrations — see port/bridge/framebuffer_capture.h.
+	// The 1P stage-clear wallpaper buf and the lbtransition photo heap both
+	// register their CPU pointer as a mirror of a snapshot FB; on scene change
+	// the bump-reset heaps free those addresses and a fresh load could land
+	// at the same address. Without this, the new asset would render the prior
+	// scene's snapshot instead of its own pixels.
+	extern void port_capture_release_all(void);
+	port_capture_release_all();
+
 	// ROM addresses (unused in port but stored for completeness)
 	sLBRelocInternBuffer.rom_table_lo = setup->table_addr;
 	sLBRelocInternBuffer.total_files_num = setup->table_files_num;
