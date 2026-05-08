@@ -1,6 +1,16 @@
 # Output Low-Pass Biquad Overshoot Clipped Loud SFX — 2026-04-29
 
-**Status:** RESOLVED
+> **SUPERSEDED 2026-05-08** — Root cause was the int32 envelope-mixer ramp
+> overflow documented in [`audio_envmix_ramp_overflow_2026-05-08.md`](audio_envmix_ramp_overflow_2026-05-08.md).
+> The biquad's 14.6% bilinear-warp overshoot is real, but it only clipped
+> because input was rail-pinned by the ramp wrap. With the int32→int64
+> ramp clamp in place, voice samples no longer peak ±32767, so the biquad's
+> `kHeadroom = 0.85` pre-attenuation has been reverted. The investigation
+> below remains accurate as a description of the discrete-filter step
+> response — useful reference for any future near-Nyquist IIR work — but
+> the fix it landed is no longer in the tree.
+
+**Status:** RESOLVED → SUPERSEDED (fix reverted; underlying ramp overflow addressed elsewhere)
 
 ## Symptom
 
