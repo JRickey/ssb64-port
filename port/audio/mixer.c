@@ -687,7 +687,30 @@ typedef struct {
 static inline int16_t ramp_step(AudioRamp *ramp) {
 	int reached;
 
-	ramp->value += ramp->step;
+	/* PORT: do the accumulation in int64 so an overshoot is detected
+	 * by the existing reach check instead of wrapping int32 silently.
+	 *
+	 * When n_env.c's `_getRate` is called with count==0 (em_segEnd
+	 * zero) and tgt>=vol — typical for a voice that just needs to
+	 * settle at its target with no attack ramp — it returns the
+	 * sentinel `ratem=0x7FFF, ratel=0xFFFF` meaning "saturate to
+	 * target immediately."  The N64 RSP ucode applies that as a
+	 * one-sample jump.  In the port, plain `value += rate/8` with
+	 * value already near positive max (e.g. em_volume * n_eqpower at
+	 * extreme pan ≈ 29542 << 16 = 1.94e9, target equal) overflows
+	 * int32, wraps to a large negative, and the reach check
+	 * (value >= target) becomes false because value is now negative.
+	 * The ramp continues wrapping every ~16 samples, producing
+	 * sawtooth-shaped sign flips audible as harsh 2 kHz noise on
+	 * whichever channel is being driven near the rail (= the
+	 * dominant channel at extreme pan).  See:
+	 *   docs/bugs/audio_envmix_ramp_overflow_*.
+	 *
+	 * Issue #108: hit SFX corrupted at extreme stage |X|. */
+	int64_t next = (int64_t)ramp->value + (int64_t)ramp->step;
+	if (next > INT32_MAX) next = INT32_MAX;
+	if (next < INT32_MIN) next = INT32_MIN;
+	ramp->value = (int32_t)next;
 	reached = (ramp->step <= 0) ? (ramp->value <= ramp->target)
 	                            : (ramp->value >= ramp->target);
 	if (reached) {
