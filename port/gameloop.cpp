@@ -55,6 +55,8 @@ extern "C" int portFastCaptureBackbufferPNG(const char *path);
  * Implemented in port/stubs/n64_stubs.c. */
 extern "C" void port_vi_simulate_vblank(void);
 
+extern "C" void lbBackupApplyCheats(void);
+
 /* ========================================================================= */
 /*  External game symbols (C linkage)                                        */
 /* ========================================================================= */
@@ -504,6 +506,9 @@ static void port_screenshot_maybe_capture(int frame)
 
 void PortPushFrame(void)
 {
+	// Process cheats safely before the frame updates
+	lbBackupApplyCheats();
+
 	/* Capture the wall-clock start of this PortPushFrame for the
 	 * frame-pacing fallback below. */
 	auto frameStart = std::chrono::steady_clock::now();
