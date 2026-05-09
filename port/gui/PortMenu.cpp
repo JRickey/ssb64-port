@@ -15,6 +15,12 @@
 #include <ship/Context.h>
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
+#ifndef DISABLE_SCRIPTING
+#include <ship/scripting/ScriptLoader.h>
+#include "../mods/HookManager.h"
+
+namespace ssb64 { void MountModsDir(); }
+#endif
 
 #include <SDL2/SDL.h>
 #include <spdlog/fmt/fmt.h>
@@ -475,6 +481,62 @@ void PortMenu::AddMenuAssets() {
               WIDGET_TEXT);
 }
 
+#ifndef DISABLE_SCRIPTING
+static void DoHotReload() {
+    auto scripting = Ship::Context::GetInstance()->GetScriptLoader();
+    if (!scripting) {
+        return;
+    }
+    try {
+        /* Unload: ModExit fires, then HookManager uninstalls every
+         * hook owned by that mod (postExit callback runs BEFORE
+         * FreeLibrary so trampolines into the about-to-be-freed mod
+         * code get cleanly removed). Then recompile + reload with the
+         * SetCurrentOwner wrapper so new Install calls re-tag with
+         * the right owner. */
+        scripting->UnloadAll(
+            /*preExit=*/std::nullopt,
+            /*postExit=*/[](const std::string& mod) {
+                ssb64::mods::HookManager::UninstallHooksForOwner(mod.c_str());
+            });
+        /* Pick up any new mod folders/archives that landed in mods/
+         * since the last load. Idempotent: already-mounted archives
+         * are skipped. */
+        ssb64::MountModsDir();
+        scripting->CompileAll();
+        scripting->LoadAll(
+            /*preInit=*/[](const std::string& mod) {
+                ssb64::mods::HookManager::SetCurrentOwner(mod.c_str());
+            },
+            /*postInit=*/[](const std::string&) {
+                ssb64::mods::HookManager::ClearCurrentOwner();
+            });
+    } catch (const std::exception& e) {
+        SPDLOG_ERROR("Mod reload failed: {}", e.what());
+    }
+}
+
+void PortMenu::AddMenuMods() {
+    AddMenuEntry("Mods", CVAR_SETTING("Menu.ModsSidebarSection"));
+
+    WidgetPath path = { "Mods", "Mods", SECTION_COLUMN_1 };
+    AddSidebarEntry("Mods", "Mods", 1);
+    AddWidget(path, "mods_panel", WIDGET_CUSTOM)
+        .CustomFunction([](WidgetInfo&) {
+            if (ImGui::Button("Hot Reload")) {
+                DoHotReload();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Unload + recompile + re-init all TCC mods.\n"
+                                  "Adding or removing mod folders still needs an engine restart.");
+            }
+            ImGui::Separator();
+            ImGui::TextWrapped("Mods are loaded from the mods/ folder next to the executable. "
+                               "Drop a folder or .o2r in there, then Hot Reload (or restart) to pick it up.");
+        });
+}
+#endif
+
 void PortMenu::AddMenuAbout() {
     AddMenuEntry("About", CVAR_SETTING("Menu.AboutSidebarSection"));
 
@@ -490,6 +552,9 @@ void PortMenu::AddMenuElements() {
     AddMenuSettings();
     AddMenuWindows();
     AddMenuAssets();
+#ifndef DISABLE_SCRIPTING
+    AddMenuMods();
+#endif
     AddMenuAbout();
 
     if (CVarGetInteger(CVAR_SETTING("Menu.SidebarSearch"), 0)) {

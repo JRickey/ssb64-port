@@ -34,6 +34,9 @@ class PortMenu : public Ship::Menu {
     void AddMenuWindows();
     void AddMenuAssets();
     void AddMenuAbout();
+#ifndef DISABLE_SCRIPTING
+    void AddMenuMods();
+#endif
 
   private:
     bool mShowReextractMessage = false;

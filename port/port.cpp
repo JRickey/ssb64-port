@@ -13,7 +13,9 @@
 #include <cstdlib>
 #include <cstring>
 #include <exception>
+#include <functional>
 #include <typeinfo>
+#include <unordered_set>
 
 #include "resource/ResourceType.h"
 #include "resource/RelocFileFactory.h"
@@ -26,8 +28,30 @@
 #include "enhancements/enhancements.h"
 #include "first_run.h"
 #include "gui/PortMenu.h"
+#include "mods/HookManager.h"
+#include "mods/SymbolResolver.h"
 #include "renderdoc_trigger.h"
 #include "port_log.h"
+
+#ifndef DISABLE_SCRIPTING
+#include <ship/scripting/ScriptLoader.h>
+#include <libultraship/bridge/scriptingbridge.h>
+#endif
+
+extern "C" void PortRegisterEvents(void);
+
+#ifndef DISABLE_SCRIPTING
+/* Force the linker to pull bridge .obj files into the EXE so their
+ * exported symbols land in the .edata table. Mods call these by name;
+ * nothing in the EXE itself references them, so without an explicit
+ * anchor they get dropped at link time and the post-build tcc -impdef
+ * step doesn't see them. */
+extern "C" int   mod_install_hook(const char* symbol_name, void* replacement, void** original_out);
+extern "C" void* mod_resolve_symbol(const char* symbol_name);
+extern "C" void* sScriptingBridgeAnchor = (void*)&ScriptGetFunction;
+extern "C" void* sModBridgeAnchorHook    = (void*)&mod_install_hook;
+extern "C" void* sModBridgeAnchorResolve = (void*)&mod_resolve_symbol;
+#endif
 
 #include <filesystem>
 #include <system_error>
@@ -87,8 +111,27 @@ static void portResolveSymbol(void* addr, char* out, size_t cap)
 		GetModuleFileNameA(mod, modPath, sizeof(modPath));
 		const char *modName = std::strrchr(modPath, '\\');
 		modName = modName ? modName + 1 : modPath;
-		std::snprintf(out, cap, "%s+0x%llx", modName,
-		             (unsigned long long)((uintptr_t)addr - (uintptr_t)mod));
+
+		// Try SymFromAddr for the function name. The mod loader's
+		// SymbolResolver::Init runs SymInitialize during port startup,
+		// so by the time a crash filter fires, symbols are loaded.
+		// Fall back to module+RVA if the lookup fails.
+		constexpr size_t kBufSize = sizeof(SYMBOL_INFO) + MAX_SYM_NAME * sizeof(TCHAR);
+		char symBuf[kBufSize];
+		SYMBOL_INFO* si = reinterpret_cast<SYMBOL_INFO*>(symBuf);
+		std::memset(si, 0, kBufSize);
+		si->SizeOfStruct = sizeof(SYMBOL_INFO);
+		si->MaxNameLen   = MAX_SYM_NAME;
+		DWORD64 disp = 0;
+		if (SymFromAddr(GetCurrentProcess(), (DWORD64)addr, &disp, si) && si->Name[0] != '\0') {
+			std::snprintf(out, cap, "%s+0x%llx %s+0x%llx",
+				modName,
+				(unsigned long long)((uintptr_t)addr - (uintptr_t)mod),
+				si->Name, (unsigned long long)disp);
+		} else {
+			std::snprintf(out, cap, "%s+0x%llx", modName,
+				(unsigned long long)((uintptr_t)addr - (uintptr_t)mod));
+		}
 	}
 }
 
@@ -302,6 +345,91 @@ static LONG WINAPI portWindowsCrashFilter(EXCEPTION_POINTERS* info)
 #endif
 
 static std::shared_ptr<Ship::Context> sContext;
+
+#ifndef DISABLE_SCRIPTING
+namespace ssb64 {
+
+/* Recursively walk mods/, mounting any folder that contains a
+ * manifest.json or any .o2r/.otr/.zip file as a separate archive
+ * with the LUS ArchiveManager. Folders without a manifest.json are
+ * treated as category dirs and traversed for nested mods.
+ *
+ * This means modders can organize via either layout:
+ *
+ *   mods/MasterBall/manifest.json            ← flat
+ *   mods/items/MasterBall/manifest.json      ← categorical
+ *   mods/pokemon/Celebi/manifest.json        ← categorical
+ *   mods/some_pack.o2r                       ← packaged
+ *
+ * Idempotent: AddArchive is only called for paths not already
+ * present in the manager's archive list. Safe to call repeatedly
+ * (e.g. from the Mods → Reload menu, after a modder dropped a
+ * brand-new mod folder in mods/ while the engine was running). */
+void MountModsDir() {
+	namespace fs = std::filesystem;
+	auto rm = sContext ? sContext->GetResourceManager() : nullptr;
+	if (!rm) return;
+	auto am = rm->GetArchiveManager();
+	if (!am) return;
+
+	const fs::path modsDir(ssb64::RealAppBundlePath() + "/mods");
+	std::error_code ec;
+	if (!fs::exists(modsDir, ec)) {
+		return;
+	}
+
+	/* Build a set of already-mounted archive paths so we don't
+	 * double-mount on a rescan. Path comparison is by exact string;
+	 * the LUS manager keeps the path the caller passed to AddArchive. */
+	auto existing_list = am->GetArchives();
+	std::unordered_set<std::string> existing;
+	if (existing_list) {
+		for (const auto& a : *existing_list) {
+			if (a) existing.insert(a->GetPath());
+		}
+	}
+
+	auto try_mount = [&](const fs::path& p) {
+		const std::string path = p.generic_string();
+		if (existing.contains(path)) {
+			return;
+		}
+		if (am->AddArchive(path)) {
+			port_log("SSB64: mounted mod archive -> %s\n", path.c_str());
+			existing.insert(path);
+		} else {
+			port_log("SSB64: failed to mount mod archive -> %s\n", path.c_str());
+		}
+	};
+
+	std::function<void(const fs::path&)> walk = [&](const fs::path& dir) {
+		std::error_code ec_local;
+		for (const auto& entry : fs::directory_iterator(dir, ec_local)) {
+			const fs::path p = entry.path();
+			if (entry.is_regular_file(ec_local)) {
+				const std::string ext = p.extension().string();
+				if (ext == ".o2r" || ext == ".otr" || ext == ".zip") {
+					try_mount(p);
+				}
+				continue;
+			}
+			if (!entry.is_directory(ec_local)) {
+				continue;
+			}
+			/* A folder containing manifest.json is a mod. Otherwise
+			 * treat it as a category directory and recurse. */
+			if (fs::exists(p / "manifest.json", ec_local)) {
+				try_mount(p);
+			} else {
+				walk(p);
+			}
+		}
+	};
+	walk(modsDir);
+}
+
+} // namespace ssb64
+#endif
 
 // Port-side replacement for Ship::Context::LocateFileAcrossAppDirs.
 //
@@ -610,6 +738,68 @@ static int PortInitImpl(int argc, char* argv[]) {
 		port_log("SSB64: Audio initialized at %d Hz\n", (int)audio.SampleRate);
 	}
 	if (!sContext->InitGfxDebugger()) { port_log("SSB64: InitGfxDebugger failed\n"); return 1; }
+
+	if (!sContext->InitEventSystem()) { port_log("SSB64: InitEventSystem failed\n"); return 1; }
+	port_log("SSB64: EventSystem initialized\n");
+
+	// Allocate runtime EventIDs for every event declared in port/hooks/list/*.
+	// Must happen AFTER InitEventSystem (PortRegisterEvents calls
+	// EventSystemRegisterEvent, which dereferences Context::GetEventSystem()).
+	PortRegisterEvents();
+	port_log("SSB64: Engine events registered\n");
+
+#ifndef DISABLE_SCRIPTING
+	// TCC mod scripting: configure the include paths + library paths under
+	// .tcc/ that the engine populates post-build (see CMakeLists.txt). On
+	// Windows we link mods against BattleShip.def (auto-generated from the
+	// EXE export table); on Unix mods resolve symbols dynamically via the
+	// host process's exported symbols.
+	{
+		std::unordered_map<std::string, std::string> defines = {
+			{ "PORT", "1" },
+			{ "REGION_US", "1" },
+			{ "VERSION_US", "1" },
+			{ "F3DEX_GBI_2", "1" },
+			{ "_LANGUAGE_C", "1" },
+			{ "_USE_MATH_DEFINES", "1" },
+			{ "NON_MATCHING", "1" },
+			{ "NON_EQUIVALENT", "1" },
+			{ "AVOID_UB", "1" },
+		};
+		std::vector<std::string> includePaths = {
+			Ship::Context::GetPathRelativeToAppDirectory(".tcc/include"),
+			Ship::Context::GetPathRelativeToAppDirectory(".tcc/include/tcc"),
+			Ship::Context::GetPathRelativeToAppDirectory(".tcc/include/winapi"),
+			Ship::Context::GetPathRelativeToAppDirectory(".tcc/include/sys"),
+			Ship::Context::GetPathRelativeToAppDirectory(".tcc/include/sec_api"),
+		};
+		std::vector<std::string> libraryPaths = {
+			Ship::Context::GetPathRelativeToAppDirectory(".tcc/lib"),
+		};
+#ifdef _WIN32
+		std::vector<std::string> libraries = { "BattleShip.def" };
+#else
+		std::vector<std::string> libraries = {};
+#endif
+		constexpr int kCodeVersion = 1;
+		/* -mms-bitfields makes TCC pack bitfields the way MSVC does
+		 * (start a new storage unit on type changes, e.g. between
+		 * `ub32 X : 1` and `s32 Y : 2`). The engine is built with MSVC
+		 * and several decomp structs (notably FTStruct ~lines
+		 * 1507-1551) mix `ub32`/`s32`/`u32` bitfield types — without
+		 * this flag, TCC packs them all into a single 32-bit unit
+		 * while MSVC splits them across multiple units, shifting every
+		 * field afterwards (e.g. `attr`, `joints`) and causing mod
+		 * reads to land on adjacent function-pointer fields. */
+		if (!sContext->InitScriptLoader(defines, kCodeVersion, "-g -mms-bitfields",
+		                                includePaths, libraryPaths, libraries)) {
+			port_log("SSB64: InitScriptLoader failed\n");
+			return 1;
+		}
+		port_log("SSB64: ScriptLoader initialized (codeVersion=%d)\n", kCodeVersion);
+	}
+#endif
+
 	// InitFileDropMgr already happened earlier — see the wizard plumbing.
 	port_log("SSB64: All subsystems initialized\n");
 
@@ -630,11 +820,59 @@ static int PortInitImpl(int argc, char* argv[]) {
 		0
 	);
 
-	port_log("SSB64: Resource factories registered — init complete\n");
+	port_log("SSB64: Resource factories registered\n");
+
+	/* Mod runtime: bring up symbol resolution + the hook table so TCC
+	 * mods can install hooks during their MOD_INIT below. Hooks land on
+	 * engine functions in memory; the game coroutine started later via
+	 * PortGameInit() picks them up automatically because the patches
+	 * are in the running .text. */
+	if (!ssb64::mods::SymbolResolver::Init()) {
+		port_log("SSB64: SymbolResolver::Init failed - mods will not load\n");
+	}
+	if (!ssb64::mods::HookManager::Init()) {
+		port_log("SSB64: HookManager::Init failed - mods will not load\n");
+	}
+
+#ifndef DISABLE_SCRIPTING
+	/* Mount mods/ entries (folders, .o2r, .zip) into the LUS
+	 * ArchiveManager so ScriptLoader can iterate them. */
+	ssb64::MountModsDir();
+
+	// TCC scripting: compile + load any .o2r / folder mod under mods/ that
+	// declares a `main` entry in its manifest.json. Each mod's source files
+	// are amalgamated by the ScriptLoader, compiled to a temp DLL via libtcc,
+	// and ModInit is called by name. The pre/post-init callbacks tag every
+	// HookManager::InstallHook call with the current mod name so hot-reload
+	// can selectively uninstall hooks per mod without touching others.
+	if (auto scripting = sContext->GetScriptLoader()) {
+		try {
+			scripting->CompileAll();
+			scripting->LoadAll(
+				/*preInit=*/[](const std::string& mod) {
+					ssb64::mods::HookManager::SetCurrentOwner(mod.c_str());
+				},
+				/*postInit=*/[](const std::string&) {
+					ssb64::mods::HookManager::ClearCurrentOwner();
+				});
+			port_log("SSB64: TCC scripted mods compiled + loaded\n");
+		} catch (const std::exception& e) {
+			port_log("SSB64: TCC ScriptLoader threw — continuing without scripted mods: %s\n", e.what());
+		}
+	}
+#endif
+
+	port_log("SSB64: init complete\n");
 	return 0;
 }
 
 void PortShutdown(void) {
+	// Tear down mod hooks first so no replacement function fires during
+	// engine shutdown (replacement code might call into ssb64_game state
+	// that's about to be torn down).
+	ssb64::mods::HookManager::Shutdown();
+	ssb64::mods::SymbolResolver::Shutdown();
+
 	// Drop audio bridge resource references before Ship::Context goes away.
 	// Otherwise their shared_ptrs survive into __cxa_finalize_ranges and
 	// Ship::IResource::~IResource() lands on a shut-down spdlog.

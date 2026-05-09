@@ -23,6 +23,15 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build." FORCE)
 endif()
 
+# Disable MSVC's vectorized STL helpers (added in 14.40 / VS 17.10).
+# Some VS installs ship the headers without the matching vcruntime
+# symbols, which produces unresolved external errors at link
+# (__std_find_first_of_trivial_pos_1 etc). The fallback non-vectorized
+# variants are functionally equivalent and always work.
+if(MSVC)
+    add_compile_definitions(_USE_STD_VECTOR_ALGORITHMS=0)
+endif()
+
 ################################################################################
 # Options
 ################################################################################
@@ -59,6 +68,23 @@ set(BUILD_SSB64 ON CACHE BOOL "" FORCE)
 ################################################################################
 
 add_subdirectory(libultraship ${CMAKE_BINARY_DIR}/libultraship)
+
+################################################################################
+# MinHook - runtime function-detouring lib used by the mod loader.
+#
+# Mods install hooks on engine functions at runtime; MinHook does the
+# prologue rewrite + trampoline emit. Pulled in via FetchContent so the
+# repo doesn't carry a vendored copy.
+################################################################################
+
+include(FetchContent)
+FetchContent_Declare(
+    minhook
+    GIT_REPOSITORY https://github.com/TsudaKageyu/minhook.git
+    GIT_TAG        master
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(minhook)
 
 ExternalProject_Add(TorchExternal
     PREFIX TorchExternal
@@ -392,7 +418,44 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 add_dependencies(${PROJECT_NAME} libultraship TorchExternal)
 add_dependencies(ssb64_game GenerateCreditsAssets)
-target_link_libraries(${PROJECT_NAME} PRIVATE libultraship)
+target_link_libraries(${PROJECT_NAME} PRIVATE libultraship minhook)
+
+################################################################################
+# Mod-system linkage requirements
+#
+# 1. Disable function inlining on the main executable so engine
+#    functions remain resolvable + hookable by name. Without this, the
+#    optimizer can collapse a hookable function into its caller and
+#    eliminate the address mods would target. /Ob0 (MSVC) and
+#    -fno-inline-functions (GCC/Clang) preserve every function as a
+#    standalone symbol.
+#
+#    Cost: marginal. The decomp is already non-matching for the port
+#    build and the renderer is the perf bottleneck, not game logic.
+#
+# 2. Ensure PDB (Windows) / debug symbols (Linux/macOS) are produced
+#    for Release builds too, since symbol resolution depends on them.
+################################################################################
+
+if (MSVC)
+    target_compile_options(${PROJECT_NAME} PRIVATE /Ob0)
+    target_compile_options(ssb64_game     PRIVATE /Ob0)
+    # /Zi on compile + /DEBUG on link emits a PDB for every config,
+    # not just Debug. Release builds otherwise strip symbols.
+    target_compile_options(${PROJECT_NAME} PRIVATE /Zi)
+    target_compile_options(ssb64_game     PRIVATE /Zi)
+    # NOTE: do NOT add /OPT:REF or /OPT:ICF here. /OPT:REF strips
+    # unreferenced symbols (mods reach in by-name even when nothing
+    # in the binary references the function); /OPT:ICF folds
+    # identical code sections (two functions with the same body
+    # collapse to one symbol, breaking hook-by-name when two ports
+    # of the same function exist). Plain /DEBUG is enough; it just
+    # tells the linker to emit a full PDB.
+    target_link_options(${PROJECT_NAME}    PRIVATE /DEBUG)
+else()
+    target_compile_options(${PROJECT_NAME} PRIVATE -fno-inline-functions -g)
+    target_compile_options(ssb64_game     PRIVATE -fno-inline-functions -g)
+endif()
 
 ################################################################################
 # Platform-specific settings
@@ -407,6 +470,25 @@ if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_sources(${PROJECT_NAME} PRIVATE port/ssb64.rc)
 elseif (CMAKE_SYSTEM_NAME STREQUAL "Linux")
     target_link_options(${PROJECT_NAME} PRIVATE -Wl,-export-dynamic)
+endif()
+
+################################################################################
+# TCC mod scripting: export the engine's full symbol table so libtcc-compiled
+# mods can resolve any engine function by name. On Windows this is what makes
+# `tcc.exe -impdef BattleShip.exe -o BattleShip.def` produce a useful import
+# library; on Unix the linker default-visibility + -Wl,-export-dynamic above
+# handles it.
+################################################################################
+if(NOT DISABLE_SCRIPTING)
+    # ENABLE_EXPORTS makes the EXE produce an import library (.lib) and
+    # surface its symbols to runtime-loaded modules. Without it
+    # WINDOWS_EXPORT_ALL_SYMBOLS only generates a .def file but the linker
+    # doesn't actually emit an export table on the EXE - the .exe ends up
+    # without an .edata section and tcc -impdef returns "no symbols found".
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        ENABLE_EXPORTS TRUE
+        WINDOWS_EXPORT_ALL_SYMBOLS TRUE
+    )
 endif()
 
 ################################################################################
@@ -455,6 +537,102 @@ add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         ${TORCH_EXECUTABLE}
         $<TARGET_FILE_DIR:${PROJECT_NAME}>/${TORCH_SIDECAR_NAME}
 )
+
+################################################################################
+# TCC mod scripting: post-build .tcc/ population + BattleShip.def generation
+#
+# At runtime the engine's ScriptLoader feeds mod source through libtcc with
+# include paths under .tcc/include/ and library paths under .tcc/lib/. We
+# populate both from the FetchContent'd TinyCC source tree so the binary is
+# self-contained; modders don't have to install TinyCC.
+#
+# On Windows we additionally run `tcc.exe -impdef BattleShip.exe -o
+# BattleShip.def` to generate the import library that libtcc links mod
+# objects against. WINDOWS_EXPORT_ALL_SYMBOLS (set above) makes the EXE's
+# export table contain every engine function so the .def covers them all.
+################################################################################
+if(NOT DISABLE_SCRIPTING)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMENT "Copying libtcc headers, libs, and runtime DLL..."
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/_deps/tinycc-src/include/"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/_deps/tinycc-src/win32/include/"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            # libtcc1.a built by MSVC is COFF format which TCC can't
+            # parse. Use tcc.exe itself to recompile the runtime sources
+            # into a TCC-readable archive. -B points tcc at .tcc/ for
+            # tccdefs.h (auto-included via the command line). This
+            # produces libtcc1.o + dllcrt1.o + dllmain.o in TCC's native
+            # object format, then `tcc -ar rcs` bundles them.
+            COMMAND "$<TARGET_FILE:tcc>"
+                -B "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc"
+                -c "${CMAKE_BINARY_DIR}/_deps/tinycc-src/lib/libtcc1.c"
+                -o "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/libtcc1.o"
+            COMMAND "$<TARGET_FILE:tcc>"
+                -B "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc"
+                -c "${CMAKE_BINARY_DIR}/_deps/tinycc-src/win32/lib/dllcrt1.c"
+                -o "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/dllcrt1.o"
+            COMMAND "$<TARGET_FILE:tcc>"
+                -B "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc"
+                -c "${CMAKE_BINARY_DIR}/_deps/tinycc-src/win32/lib/dllmain.c"
+                -o "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/dllmain.o"
+            COMMAND "$<TARGET_FILE:tcc>" -ar rcs
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/libtcc1.a"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/libtcc1.o"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/dllcrt1.o"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/dllmain.o"
+            # libtcc is built SHARED -> tcc.dll. The exe imports its symbols,
+            # so it must be loadable at process start. Without this the exe
+            # fails with 0xC0000135 (DLL not found) before main() runs.
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "$<TARGET_FILE:libtcc>"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/$<TARGET_FILE_NAME:libtcc>"
+            VERBATIM
+        )
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMENT "Generating BattleShip.def via tcc -impdef..."
+            COMMAND "$<TARGET_FILE:tcc>"
+                    -impdef "$<TARGET_FILE:${PROJECT_NAME}>"
+                    -o "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/BattleShip.def"
+            VERBATIM
+        )
+        add_dependencies(${PROJECT_NAME} tcc)
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMENT "Copying libtcc headers and libs..."
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/_deps/tinycc-src/include/"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "$<TARGET_FILE:libtcc1>"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/libtcc1.a"
+            VERBATIM
+        )
+    elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMENT "Copying libtcc headers and libs..."
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/"
+            COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_BINARY_DIR}/_deps/tinycc-src/include/"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/include/"
+            COMMAND ${CMAKE_COMMAND} -E copy
+                "$<TARGET_FILE:libtcc1>"
+                "$<TARGET_FILE_DIR:${PROJECT_NAME}>/.tcc/lib/libtcc1.a"
+            VERBATIM
+        )
+    endif()
+endif()
 
 ################################################################################
 # Asset extraction targets
@@ -560,3 +738,15 @@ elseif(RELOCDATA_CC)
     message(STATUS "RelocData: baserom absent — BuildBattleShipFromSource skipped "
                    "(release CI / no-rom builds; runtime falls back to Torch-passthrough reloc data)")
 endif()
+
+################################################################################
+# Workspace TCC mods
+#
+# Each mod under workspace/ has its own CMakeLists.txt that bundles the
+# mod's source + assets into output/ and stages a copy under
+# build/<config>/mods/<ModName>/ so the runtime loader picks it up.
+# ModO2R provides the optional ssb64_add_mod_o2r_target helper for
+# packaging into a single .o2r distributable.
+################################################################################
+
+include(ModO2R)
