@@ -138,6 +138,13 @@ static_assert(offsetof(WPStructPrefix, kind) == 0x18);
 static_assert(offsetof(SCBattleStatePrefix, gkind) == 0x01);
 static_assert(offsetof(SCBattleStatePrefix, time_passed) == 0x18);
 
+extern "C" {
+    extern SCCommonDataPrefix gSCManagerSceneData;
+    extern SCBattleStatePrefix* gSCManagerBattleState;
+    extern GObj* gGCCommonLinks[];
+    void gcEjectGObj(GObj* gobj);
+}
+
 namespace {
 
 struct BattleKey {
@@ -150,13 +157,6 @@ struct BattleKey {
 bool sWasInBattle = false;
 bool sDisableHazardsForBattle = false;
 BattleKey sBattleKey = {};
-
-extern "C" {
-extern SCCommonDataPrefix gSCManagerSceneData;
-extern SCBattleStatePrefix* gSCManagerBattleState;
-extern GObj* gGCCommonLinks[];
-void gcEjectGObj(GObj* gobj);
-}
 
 bool IsHazardControlledBattleScene(unsigned char scene) {
     return scene == kSceneVSBattle ||
