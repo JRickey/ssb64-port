@@ -51,6 +51,20 @@ extern "C" void* mod_resolve_symbol(const char* symbol_name);
 extern "C" void* sScriptingBridgeAnchor = (void*)&ScriptGetFunction;
 extern "C" void* sModBridgeAnchorHook    = (void*)&mod_install_hook;
 extern "C" void* sModBridgeAnchorResolve = (void*)&mod_resolve_symbol;
+
+/* MSVC's WINDOWS_EXPORT_ALL_SYMBOLS pass exports global *functions* but
+ * not most non-trivial global *data* objects, so engine globals like
+ * gGCCommonLinks don't make it into BattleShip.def and TCC mods can't
+ * resolve them by name. Wrap the ones mods commonly want behind tiny
+ * accessor functions; functions always export. */
+extern "C" struct GObj;
+extern "C" struct GObj *gGCCommonLinks_Ref(int link_id);
+extern "C" struct GObj *gGCCommonLinks_Ref(int link_id) {
+    extern struct GObj *gGCCommonLinks[];
+    /* No bounds-check: callers pass the engine's own enum constants. */
+    return gGCCommonLinks[link_id];
+}
+extern "C" void* sModBridgeAnchorFighterListRef = (void*)&gGCCommonLinks_Ref;
 #endif
 
 #include <filesystem>
