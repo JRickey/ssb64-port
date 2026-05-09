@@ -15,7 +15,6 @@ constexpr unsigned char kBattleStageEnd = 8;
 constexpr unsigned char kStageSector = 1;
 
 constexpr int kLinkGround = 1;
-constexpr int kLinkGroundDisplay = 2;
 constexpr int kLinkItem = 4;
 constexpr int kLinkWeapon = 5;
 
@@ -139,6 +138,8 @@ static_assert(offsetof(WPStructPrefix, kind) == 0x18);
 static_assert(offsetof(SCBattleStatePrefix, gkind) == 0x01);
 static_assert(offsetof(SCBattleStatePrefix, time_passed) == 0x18);
 
+namespace {
+
 struct BattleKey {
     unsigned char scene;
     unsigned char gkind;
@@ -213,16 +214,6 @@ void PauseGroundHazardProcesses() {
     for (GObj* gobj = gGCCommonLinks[kLinkGround]; gobj != nullptr; gobj = gobj->link_next) {
         for (GObjProcess* proc = gobj->gobjproc_head; proc != nullptr; proc = proc->link_next) {
             if (proc->priority >= 4) {
-                proc->is_paused = true;
-            }
-        }
-    }
-}
-
-void PauseProcessesWithPriority(int link, int32_t priority) {
-    for (GObj* gobj = gGCCommonLinks[link]; gobj != nullptr; gobj = gobj->link_next) {
-        for (GObjProcess* proc = gobj->gobjproc_head; proc != nullptr; proc = proc->link_next) {
-            if (proc->priority == priority) {
                 proc->is_paused = true;
             }
         }
@@ -316,6 +307,8 @@ void ApplyHazardDisable() {
     EjectGroundHazardWeapons();
     EjectGroundHazardItems();
 }
+
+} // namespace
 
 extern "C" void port_enhancement_stage_hazards_tick(void) {
     LatchBattleSettingIfNeeded();
