@@ -21,6 +21,7 @@
 
 #include "gameloop.h"
 #include "coroutine.h"
+#include "enhancements/enhancements.h"
 #include "port.h"
 #include "port_watchdog.h"
 
@@ -539,6 +540,8 @@ void PortPushFrame(void)
 	 *   Round 3+: Display list submitted, scheduler processes GFX task, etc.
 	 * Each thread runs until it yields at osRecvMesg(BLOCK) on empty queue. */
 	port_resume_service_threads();
+
+	port_enhancement_stage_hazards_tick();
 
 	sFrameCount++;
 
