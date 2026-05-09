@@ -65,6 +65,18 @@ extern "C" struct GObj *gGCCommonLinks_Ref(int link_id) {
     return gGCCommonLinks[link_id];
 }
 extern "C" void* sModBridgeAnchorFighterListRef = (void*)&gGCCommonLinks_Ref;
+
+/* Stage geometry: mods that distribute spawn positions across the
+ * active stage (StaryuSquad's followers etc) need map_bound_left /
+ * map_bound_right / map_bound_bottom from the engine's ground data.
+ * Same export hole as gGCCommonLinks -- wrap the pointer. */
+struct MPGroundData;
+extern "C" struct MPGroundData *gMPCollisionGroundData_Ref(void);
+extern "C" struct MPGroundData *gMPCollisionGroundData_Ref(void) {
+    extern struct MPGroundData *gMPCollisionGroundData;
+    return gMPCollisionGroundData;
+}
+extern "C" void* sModBridgeAnchorGroundDataRef = (void*)&gMPCollisionGroundData_Ref;
 #endif
 
 #include <filesystem>
