@@ -289,6 +289,16 @@ void PortMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Options(ComboboxOptions().Tooltip("Sets the active texture filtering mode.").ComboMap(kTextureFilteringMap));
 
+    AddWidget(path, "Widescreen (16:9, experimental)", WIDGET_CVAR_CHECKBOX)
+        .CVar(enhancements::WidescreenCVarName())
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip(
+            "Renders the game in native 16:9 widescreen with a wider field of view. "
+            "Some stages may show authored background edges that were never visible in 4:3. "
+            "Authored full-screen 2D effects (fades, wipes, freeze frames) are letterboxed "
+            "to a centered 4:3 region. Experimental — toggle takes effect on the next "
+            "stage transition."));
+
     path.sidebarName = "Gameplay";
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Gameplay", 1);
