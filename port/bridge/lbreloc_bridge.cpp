@@ -143,6 +143,23 @@ static void portRelocEvictFileRangesInRange(void *base, size_t size)
 		sPortRelocFileRanges.end());
 }
 
+/* Called by syTaskmanStartTask before reusing the scene arena for the next
+ * scene. Evicts every port-side cache that may hold a pointer into the old
+ * arena's contents (DL widening, texture upload, struct fixup, reloc file
+ * ranges) so a stale lookup can't resolve through prior-scene state. Same
+ * eviction APIs run per-relocFile-load in port_reloc_lb_load_request. */
+extern "C" void port_taskman_evict_arena_caches(const void *base, size_t size)
+{
+	if ((base == nullptr) || (size == 0)) return;
+	extern void portPackedDisplayListCacheDeleteRange(const void *base, size_t size);
+	extern void portTextureCacheDeleteRange(const void *base, size_t size);
+	extern void portEvictStructFixupsInRange(const void *base, size_t size);
+	portPackedDisplayListCacheDeleteRange(base, size);
+	portTextureCacheDeleteRange(base, size);
+	portEvictStructFixupsInRange(base, size);
+	portRelocEvictFileRangesInRange(const_cast<void *>(base), size);
+}
+
 static bool portRelocIsFighterFigatreeFile(u32 file_id)
 {
 	static const char sFighterAnimPrefix[] = "reloc_animations/FT";
