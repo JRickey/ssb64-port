@@ -22,6 +22,7 @@
 #include "gameloop.h"
 #include "coroutine.h"
 #include "enhancements/enhancements.h"
+#include "widescreen/widescreen.h"
 #include "port.h"
 #include "port_watchdog.h"
 
@@ -547,6 +548,7 @@ void PortPushFrame(void)
 	port_resume_service_threads();
 
 	port_enhancement_stage_hazards_tick();
+	port_widescreen_tick();
 
 	sFrameCount++;
 
