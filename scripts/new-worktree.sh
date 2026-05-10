@@ -100,11 +100,11 @@ for sm in libultraship torch decomp Battle-ShipYard; do
     # Some submodules may not be registered on older base branches
     # (e.g. `decomp` was added on agent/decomp-submodule, `Battle-ShipYard`
     # came later). Skip silently if the main tree doesn't track it yet.
-    if [[ -z "$(git -C "$ROOT" config -f .gitmodules "submodule.$sm.path" 2>/dev/null)" ]]; then
+    if [[ -z "$(git -C "$WT_DIR" config -f .gitmodules "submodule.$sm.path" 2>/dev/null)" ]]; then
         printf '\033[33m  Skipping submodule %s (not configured in main tree .gitmodules)\033[0m\n' "$sm"
         continue
     fi
-    pinned_sha="$(git -C "$ROOT" rev-parse "HEAD:$sm")"
+    pinned_sha="$(git -C "$WT_DIR" rev-parse "HEAD:$sm")"
     # Prefer the main tree's configured origin (often SSH) over .gitmodules URL
     # (often HTTPS) so the worktree inherits whatever auth method the user has
     # set up for push.
@@ -115,8 +115,16 @@ for sm in libultraship torch decomp Battle-ShipYard; do
     step "Submodule $sm → $pinned_sha (origin: $origin_url)"
     rm -rf "$WT_DIR/$sm"
     git clone --no-local --quiet "$ROOT/$sm" "$WT_DIR/$sm"
-    git -C "$WT_DIR/$sm" checkout --quiet "$pinned_sha"
     git -C "$WT_DIR/$sm" remote set-url origin "$origin_url"
+    # The local source clone only carries refs/heads/* of the main checkout, so
+    # SHAs reachable only via remote-tracking branches (e.g. an older tag's pin
+    # that lives on a feature branch) won't be in the new clone. If the
+    # checkout misses, fetch from the real fork and retry.
+    if ! git -C "$WT_DIR/$sm" checkout --quiet "$pinned_sha" 2>/dev/null; then
+        printf '  Pinned SHA not in local clone; fetching from %s\n' "$origin_url"
+        git -C "$WT_DIR/$sm" fetch --quiet origin
+        git -C "$WT_DIR/$sm" checkout --quiet "$pinned_sha"
+    fi
     if [[ -n "$sm_branch" ]]; then
         # Re-create the tracking branch so `git push` from detached HEAD is obvious.
         git -C "$WT_DIR/$sm" checkout -B "$sm_branch" --quiet
