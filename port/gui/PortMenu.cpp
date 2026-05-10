@@ -206,11 +206,6 @@ void PortMenu::AddMenuSettings() {
         })
         .Options(ButtonOptions().Tooltip("Opens the folder that contains the save, config, and asset files."));
 
-    path.column = SECTION_COLUMN_2;
-    AddWidget(path, "About", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "BattleShip", WIDGET_TEXT);
-    AddWidget(path, "Native Smash 64 PC port powered by libultraship", WIDGET_TEXT);
-
     path.sidebarName = "Graphics";
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Graphics", 2);
@@ -496,12 +491,80 @@ void PortMenu::AddMenuAssets() {
 void PortMenu::AddMenuAbout() {
     AddMenuEntry("About", CVAR_SETTING("Menu.AboutSidebarSection"));
 
+    // revamped credits menu
     WidgetPath path = { "About", "Build", SECTION_COLUMN_1 };
     AddSidebarEntry("About", "Build", 1);
-    AddWidget(path, "Build", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "About", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "BattleShip", WIDGET_TEXT);
+    AddWidget(path, "Native Smash 64 PC port powered by libultraship", WIDGET_TEXT);
     AddWidget(path, "Built from the ssb-decomp-re decompilation", WIDGET_TEXT);
-    AddWidget(path, "Powered by libultraship", WIDGET_TEXT);
+
+    AddWidget(path, "Credits", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "JRickey: primary developer", WIDGET_TEXT);
+    AddWidget(path, "Jameriquiah: developer", WIDGET_TEXT);
+    AddWidget(path, "TechnicallyComputers and NyxTheShield: netcode developers", WIDGET_TEXT);
+    AddWidget(path, "MarioIncarnate: decompilation efforts", WIDGET_TEXT);
+    AddWidget(path, "Krix08: bug reporter", WIDGET_TEXT);
+
+    // BUILT-IN UPDATER
+    // The background check still fires when the menu loads
+    ssb64::enhancements::CheckForUpdatesAsync(false);
+
+    AddWidget(path, "Updates", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Version: " + std::string(BATTLESHIP_CURRENT_VERSION), WIDGET_TEXT);
+
+    // 1. "Checking for updates..." Text
+    AddWidget(path, "Checking for updates...", WIDGET_TEXT)
+    .PreFunc([](WidgetInfo& info) {
+        info.isHidden = !ssb64::enhancements::IsCheckingForUpdates();
+    });
+
+    // 2. "Download Update" Button
+    AddWidget(path, "Download Update", WIDGET_BUTTON)
+    .RaceDisable(false)
+    .PreFunc([](WidgetInfo& info) {
+        info.isHidden = ssb64::enhancements::IsCheckingForUpdates() ||
+        ssb64::enhancements::IsDownloading() ||
+        ssb64::enhancements::IsDownloadComplete() ||
+        !ssb64::enhancements::IsUpdateAvailable();
+
+        if (!info.isHidden) {
+            info.name = "Download Update: " + ssb64::enhancements::GetLatestVersion();
+        }
+    })
+    .Callback([](WidgetInfo&) {
+        ssb64::enhancements::StartGameUpdate();
+    });
+
+    // 3. "Downloading... XX%" Text (Also handles the "Complete" text)
+    AddWidget(path, "Download Status", WIDGET_TEXT)
+    .PreFunc([](WidgetInfo& info) {
+        info.isHidden = !ssb64::enhancements::IsDownloading() && !ssb64::enhancements::IsDownloadComplete();
+        if (!info.isHidden) {
+            // Pipe the curl progress bar or completion string straight to the UI
+            info.name = ssb64::enhancements::GetDownloadStatus();
+        }
+    });
+
+    // 4. "Up to date" Text
+    AddWidget(path, "Up to date", WIDGET_TEXT)
+    .PreFunc([](WidgetInfo& info) {
+        info.isHidden = ssb64::enhancements::IsCheckingForUpdates() || ssb64::enhancements::IsUpdateAvailable();
+    });
+
+    // 5. "Check for Updates" Manual Button
+    AddWidget(path, "Check for Updates", WIDGET_BUTTON)
+    .RaceDisable(false)
+    .PreFunc([](WidgetInfo& info) {
+        // Hide this button while checking or downloading so they can't spam it
+        info.isHidden = ssb64::enhancements::IsCheckingForUpdates() ||
+        ssb64::enhancements::IsDownloading() ||
+        ssb64::enhancements::IsDownloadComplete();
+    })
+    .Callback([](WidgetInfo&) {
+        // Pass true to bypass the single-session lock
+        ssb64::enhancements::CheckForUpdatesAsync(true);
+    });
 }
 
 void PortMenu::AddMenuElements() {

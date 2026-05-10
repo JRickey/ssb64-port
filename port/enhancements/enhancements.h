@@ -2,6 +2,7 @@
 #define PORT_ENHANCEMENTS_H
 
 #ifdef __cplusplus
+#include <string> // needed for the built-in updater
 extern "C" {
 #endif
 
@@ -67,6 +68,16 @@ const char* AnalogRemapCVarName(int playerIndex);
 const char* AnalogRemapDeadzoneCVarName(int playerIndex);
 const char* AnalogRemapRangeCVarName(int playerIndex);
 const char* WidescreenCVarName();
+
+// Updater functions
+void CheckForUpdatesAsync(bool force = false);
+void StartGameUpdate();
+bool IsUpdateAvailable();
+bool IsDownloading();
+bool IsDownloadComplete();
+bool IsCheckingForUpdates();
+std::string GetDownloadStatus();
+std::string GetLatestVersion();
 }
 }
 #endif

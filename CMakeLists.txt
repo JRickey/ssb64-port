@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
-project(ssb64 LANGUAGES C CXX)
+project(ssb64 VERSION 0.8.1 LANGUAGES C CXX)
 
 include(ExternalProject)
 
@@ -241,6 +241,9 @@ set(SSB64_COMPILE_DEFS
 
     # ImGui
     CIMGUI_DEFINE_ENUMS_AND_STRUCTS
+
+    # Updater
+    BATTLESHIP_CURRENT_VERSION=\"v${PROJECT_VERSION}\"
 )
 
 if(SSB64_STAGE_CYCLE_DEMO)
