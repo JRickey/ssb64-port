@@ -500,11 +500,16 @@ void PortMenu::AddMenuAbout() {
     AddWidget(path, "Built from the ssb-decomp-re decompilation", WIDGET_TEXT);
 
     AddWidget(path, "Credits", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "JRickey: primary developer", WIDGET_TEXT);
-    AddWidget(path, "Jameriquiah: developer", WIDGET_TEXT);
-    AddWidget(path, "TechnicallyComputers and NyxTheShield: netcode developers", WIDGET_TEXT);
-    AddWidget(path, "MarioIncarnate: decompilation efforts", WIDGET_TEXT);
-    AddWidget(path, "Krix08: bug reporter", WIDGET_TEXT);
+    AddWidget(path, "JRickey: Lead Developer", WIDGET_TEXT);
+    AddWidget(path, "Jameriquiah: Developer", WIDGET_TEXT);
+    AddWidget(path, "the-outcaster: Developer", WIDGET_TEXT);
+    AddWidget(path, "TechnicallyComputers and NyxTheShield: Netcode Developers", WIDGET_TEXT);
+    AddWidget(path, "VetriTheRetri: Former Decompilation Lead", WIDGET_TEXT);
+    AddWidget(path, "MarioReincarnate: Decompilation Lead", WIDGET_TEXT);
+    AddWidget(path, "Krix08: Playtesting", WIDGET_TEXT);
+    AddWidget(path, "Bleee: Playtesting", WIDGET_TEXT);
+    AddWidget(path, "Fray: Nrage Control Advising", WIDGET_TEXT);
+    AddWidget(path, "ElBateSoli: Raphnet Playtesting", WIDGET_TEXT);
 
     // BUILT-IN UPDATER
     // The background check still fires when the menu loads
