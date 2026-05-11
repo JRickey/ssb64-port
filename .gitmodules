@@ -10,6 +10,3 @@
 	path = decomp
 	url = https://github.com/JRickey/ssb-decomp-re.git
 	branch = port-patches
-[submodule "Battle-ShipYard"]
-	path = Battle-ShipYard
-	url = https://github.com/JRickey/Battle-ShipYard.git
