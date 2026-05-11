@@ -397,6 +397,46 @@ void PortMenu::AddMenuSettings() {
                          .Tooltip("Output scale (50–150%). 100% caps at the N64's natural max."));
     }
 
+    // --- Audio ---
+    path.sidebarName = "Audio";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Audio", 1);
+
+    AddWidget(path, "Volume Levels", WIDGET_SEPARATOR_TEXT);
+
+    // Music Volume Slider
+    AddWidget(path, "Music Volume", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gSettings.Audio.MusicVolume")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions()
+        .Tooltip("Adjust the volume of the background music.")
+        .DefaultValue(1.0f)
+        .Min(0.0f)
+        .Max(1.0f)
+        .IsPercentage());
+
+    // Sound Effects Volume Slider
+    AddWidget(path, "Sound Volume", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gSettings.Audio.SFXVolume") // Standard LUS native CVar
+        .RaceDisable(false)
+        .Options(FloatSliderOptions()
+        .Tooltip("Adjust the volume of sound effects and voices.")
+        .DefaultValue(1.0f)
+        .Min(0.0f)
+        .Max(1.0f)
+        .IsPercentage());
+
+    // voice
+    AddWidget(path, "Voice Volume", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gSettings.Audio.VoiceVolume")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions()
+        .Tooltip("Adjust the volume of character voices and the announcer.")
+        .DefaultValue(1.0f)
+        .Min(0.0f)
+        .Max(1.0f)
+        .IsPercentage());
+
     // --- Cheats ---
     path.sidebarName = "Cheats";
     path.column = SECTION_COLUMN_1;
