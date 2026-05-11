@@ -13,6 +13,14 @@ int port_widescreen_enabled(void);
 // compression (FOV expansion) when on. Cheap; only writes when state flips.
 void port_widescreen_tick(void);
 
+// Returns the post-projection clip-space X scale factor libultraship is
+// currently applying to 3D vertices via AdjXForAspectRatio (1.0f when off
+// or not in a >4:3 window). Decomp consumers that project world points to
+// 2D screen space for HUD overlays (player tag, item arrow, fighter
+// magnify, boomerang off-screen check) multiply the projected x by this
+// factor so the overlay tracks the rendered character/item position.
+float port_widescreen_clip_x_scale(void);
+
 #ifdef __cplusplus
 }
 

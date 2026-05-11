@@ -19,6 +19,13 @@ extern "C" int port_widescreen_enabled(void) {
     return widescreen_enabled() ? 1 : 0;
 }
 
+extern "C" float port_widescreen_clip_x_scale(void) {
+    if (!widescreen_enabled()) {
+        return 1.0f;
+    }
+    return GfxGetWidescreenClipXScale();
+}
+
 extern "C" void port_widescreen_tick(void) {
     /* Mirror the CVar state into libultraship's Fast3D interpreter via the
      * GfxSetWidescreenActive bridge. When active, Interpreter::AdjXForAspectRatio
