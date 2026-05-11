@@ -60,6 +60,27 @@ static const std::map<int32_t, const char*> kHitboxViewMap = {
     { 1, "Filled (red cubes)" },
     { 2, "Outline + opaque hurtboxes" },
 };
+
+// Post-process shader picker. The combo stores an int index; the callback
+// translates that index into the string CVar value LUS reads each frame
+// (gPostProcessShader). Index 0 is reserved as the "off" position; the
+// callback flips gPostProcessEnabled to match so the user gets a single
+// dropdown UX instead of "checkbox + name field." Add an entry here when
+// a new builtin (or commonly-used user shader) ships under
+// libultraship/src/fast/shaders/postprocess/.
+static const std::map<int32_t, const char*> kPostProcessShaderMap = {
+    { 0, "Off" },
+    { 1, "Scanlines (built-in)" },
+    { 2, "CRT — Lottes (built-in)" },
+};
+// Parallel index → CVar-value table. Kept separate from the display map
+// so the user-facing label can drift without changing what gets written
+// to disk / the LUS loader.
+static const std::map<int32_t, const char*> kPostProcessShaderNames = {
+    { 1, "scanlines" },
+    { 2, "crt-lottes" },
+};
+
 } // namespace
 
 void PortMenu::AddSidebarEntry(std::string sectionName, std::string sidebarName, uint32_t columnCount) {
@@ -252,6 +273,30 @@ void PortMenu::AddMenuSettings() {
                      .Max(8)
                      .DefaultValue(1));
 #endif
+
+    AddWidget(path, "Post-Process Shader", WIDGET_CVAR_COMBOBOX)
+        .CVar("gPostProcessShaderSelect")
+        .RaceDisable(false)
+        .Callback([](WidgetInfo&) {
+            const int32_t idx = CVarGetInteger("gPostProcessShaderSelect", 0);
+            if (idx == 0) {
+                CVarSetInteger("gPostProcessEnabled", 0);
+            } else {
+                const auto it = kPostProcessShaderNames.find(idx);
+                if (it != kPostProcessShaderNames.end()) {
+                    CVarSetString("gPostProcessShader", it->second);
+                    CVarSetInteger("gPostProcessEnabled", 1);
+                }
+            }
+        })
+        .Options(ComboboxOptions()
+                     .Tooltip(
+                         "Applies a fullscreen fragment shader to the rendered frame before the GUI "
+                         "draws. \"Scanlines\" is a built-in MIT-licensed CRT effect; drop "
+                         "additional .glsl files into the ./shaders/ folder next to the executable "
+                         "to load them by name via the gPostProcessShader console variable.")
+                     .ComboMap(kPostProcessShaderMap)
+                     .DefaultIndex(0));
 
     AddWidget(path, "Renderer API (Needs reload)", WIDGET_VIDEO_BACKEND).RaceDisable(false);
     AddWidget(path, "Enable Vsync", WIDGET_CVAR_CHECKBOX)
