@@ -72,9 +72,6 @@ It does NOT extend to:
     licensed independently by its upstream maintainers under the MIT License:
       Copyright (c) 2023 Lywx <admin@undervolt.dev>
     Torch is maintained by the Harbour Masters team.
-  * The `Battle-ShipYard/` modding-toolkit submodule
-    (https://github.com/JRickey/Battle-ShipYard), licensed independently
-    under the MIT License (see its own `LICENSE`).
   * The font assets bundled under `assets/custom/fonts/`, which are licensed
     under the SIL Open Font License, Version 1.1:
       - Montserrat (Copyright 2011 The Montserrat Project Authors,

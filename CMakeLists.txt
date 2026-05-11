@@ -477,21 +477,15 @@ endif()
 #
 #   (a) Baserom present (typical dev / Torch-extract first-run): declare the
 #       o2r as an add_custom_command(OUTPUT ...) so downstream rules that
-#       DEPENDS on it as a file (notably Battle-ShipYard's passthrough_reloc
-#       commands) connect to this producer through CMake's file-level
-#       dependency graph. The wrapping custom_target keeps
+#       DEPENDS on it as a file connect to this producer through CMake's
+#       file-level dependency graph. The wrapping custom_target keeps
 #       `cmake --build . --target ExtractAssets` working.
 #
 #   (b) Baserom absent (CI release pipeline never ships the copyrighted ROM):
 #       provide a stub ExtractAssets target that fails with a clear error if
-#       invoked, but does NOT register the file-level rule. Without the rule
-#       Ninja correctly skips the source-compile pipeline (which transitively
-#       depends on the o2r) instead of erroring with "no rule to make target".
-#       Any caller that genuinely needs the o2r will hit ExtractAssets and
-#       get the explanatory error.
-#
-# `finalize_battleship_from_source` below additionally gates on the baserom,
-# so case (b) doesn't even register the source-compile target.
+#       invoked, but does NOT register the file-level rule. Any caller that
+#       genuinely needs the o2r will hit ExtractAssets and get the
+#       explanatory error.
 if(EXISTS "${SSB64_BASEROM}")
     add_custom_command(
         OUTPUT ${CMAKE_SOURCE_DIR}/BattleShip.o2r
@@ -511,8 +505,7 @@ else()
         COMMAND ${CMAKE_COMMAND} -E false
         COMMENT "ExtractAssets stub — baserom missing"
     )
-    message(STATUS "BattleShip.o2r: baserom absent — ExtractAssets stub installed; "
-                   "source-compile pipeline will be disabled (released artifacts ship without .fromsource.o2r)")
+    message(STATUS "BattleShip.o2r: baserom absent — ExtractAssets stub installed")
 endif()
 
 add_custom_target(GenerateBattleShipO2R
@@ -525,38 +518,3 @@ add_custom_target(GeneratePortO2R
     COMMAND ${TORCH_EXECUTABLE} pack ${CMAKE_SOURCE_DIR}/assets ${CMAKE_SOURCE_DIR}/ssb64.o2r o2r
     COMMENT "Packing port-specific assets into ssb64.o2r"
 )
-
-################################################################################
-# RelocData compile-from-source pipeline (Battle-ShipYard modkit)
-#
-# When a compatible toolchain is available (LLVM/clang or VS x86 cl.exe via
-# vcvars32), builds BattleShip.fromsource.o2r alongside the executable.
-# Loaded ahead of BattleShip.o2r at runtime when SSB64_RELOC_FROMSOURCE=1,
-# shadowing Torch entries for matching paths. With no toolchain the entire
-# subsystem is skipped — runtime falls back to Torch-extracted reloc data
-# exactly as before.
-#
-# The pipeline lives in the Battle-ShipYard submodule
-# (https://github.com/JRickey/Battle-ShipYard). Bumping the submodule
-# pointer is how we ship modkit changes; nothing in this repo's CMakeLists
-# needs to change for routine modkit updates. The contract is the variables
-# set below — DECOMP_DIR for the source tree, RELOC_TABLE for the file_id
-# mapping. Compiler discovery, eligible-set generation, per-file build
-# rules, and finalize_battleship_from_source all live in the submodule.
-################################################################################
-
-set(RELOCDATA_DECOMP_DIR  "${CMAKE_SOURCE_DIR}/decomp")
-set(RELOCDATA_RELOC_TABLE "${CMAKE_SOURCE_DIR}/port/resource/RelocFileTable.cpp")
-# ExtractAssets writes BattleShip.o2r to ${CMAKE_SOURCE_DIR}; tell the modkit
-# to make BuildBattleShipFromSource depend on it so the source-compile +
-# passthrough commands don't race on a fresh `cmake -B && cmake --build` flow
-# (the failure mode that broke v0.7.6-beta packaging).
-set(RELOCDATA_BATTLESHIP_O2R_TARGET ExtractAssets)
-include(Battle-ShipYard/cmake/RelocData.cmake)
-
-if(RELOCDATA_CC AND EXISTS "${SSB64_BASEROM}")
-    finalize_battleship_from_source(${CMAKE_BINARY_DIR}/BattleShip.fromsource.o2r)
-elseif(RELOCDATA_CC)
-    message(STATUS "RelocData: baserom absent — BuildBattleShipFromSource skipped "
-                   "(release CI / no-rom builds; runtime falls back to Torch-passthrough reloc data)")
-endif()
