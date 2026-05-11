@@ -520,15 +520,14 @@ static int PortInitImpl(int argc, char* argv[]) {
 		}
 	}
 
-	// Pin LUS to off-screen rendering when the stage-clear "frozen frame"
-	// enhancement is enabled, so mGameFb is populated during gameplay and
-	// the GPU readback at scene transitions captures the prior frame
-	// rather than the post-Present swap-chain back buffer (undefined
-	// contents under DXGI FLIP_DISCARD on D3D11). Cost is one extra full-
-	// screen blit per frame (sub-millisecond on any modern GPU). The CVar
-	// menu callback re-applies this on toggle.
-	port_capture_set_force_render_to_fb(
-		port_enhancement_stage_clear_frozen_wallpaper_enabled());
+	// Pin LUS to off-screen rendering so mGameFb is populated during
+	// gameplay and the GPU readback at scene transitions captures the
+	// prior frame rather than the post-Present swap-chain back buffer
+	// (undefined contents under DXGI FLIP_DISCARD on D3D11). Required by
+	// the 1P stage-clear frozen-wallpaper capture (issue #57) and the VS
+	// match -> results-screen photo wipe (issue #81). Cost is one extra
+	// full-screen blit per frame (sub-millisecond on any modern GPU).
+	port_capture_set_force_render_to_fb(1);
 
 	// FileDropMgr must come up before the first-run wizard so SDL_DROPFILE
 	// events landing on the window during the wizard frame loop can be
