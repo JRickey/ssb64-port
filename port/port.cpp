@@ -398,12 +398,20 @@ static int PortInitImpl(int argc, char* argv[]) {
 	 * game only fills 4:3 of, leaving the side strips as un-cleared
 	 * garbage. Force LUS's aspect-correction path on with a 4:3 target so
 	 * mCurDimensions and DrawGame()'s sPosX pillarbox the game image
-	 * inside black bars. Drop these forced sets when we ship genuine
-	 * widescreen DL patches game-side. */
+	 * inside black bars.
+	 *
+	 * Skip the 4:3 force when the widescreen feature is enabled — its
+	 * clip-x compression in Interpreter::AdjXForAspectRatio expands the 4:3
+	 * GBI to fill the widened FB during battles, and outside battles we
+	 * accept the 4:3-stretched menu look as a Phase 1 trade-off. Toggling
+	 * the widescreen CVar takes effect on the next launch (the 4:3 force is
+	 * latched here); changing it mid-session triggers an mCurDimensions FB
+	 * resize that's racy and crashes. Document this on the menu tooltip. */
 	if (auto cv = sContext->GetConsoleVariables()) {
+		const bool widescreen_on = cv->GetInteger("gEnhancements.Widescreen", 1) != 0;
 		cv->SetFloat("gAdvancedResolution.AspectRatioX", 4.0f);
 		cv->SetFloat("gAdvancedResolution.AspectRatioY", 3.0f);
-		cv->SetInteger("gAdvancedResolution.Enabled", 1);
+		cv->SetInteger("gAdvancedResolution.Enabled", widescreen_on ? 0 : 1);
 
 		/* Issue #96 migration. v0.7-beta stored the per-player NRage
 		 * analog-remap enable flag at gEnhancements.AnalogRemap.PX —
