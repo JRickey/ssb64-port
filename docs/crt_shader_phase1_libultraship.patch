@@ -1,0 +1,1104 @@
+From 052617057872b0829d77d51ad174e6c24b548e92 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Mon, 11 May 2026 20:58:32 +0000
+Subject: [PATCH] feat(postprocess): add user-shader runtime (Phase 1, OpenGL)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Implements §3 + §6 of the CRT/post-process shader plan in the consuming
+repo (Battleship docs/crt_shader_plan_2026-05-11.md), plus a working
+OpenGL backend. Designed to be game-agnostic so other LUS ports (SoH,
+2S2H, Starship) can adopt it unchanged.
+
+Public surface additions on Fast::GfxRenderingAPI (all non-pure with
+no-op defaults, so existing backends keep building):
+  - SupportsPostProcess()       -> bool
+  - CreatePostProcessProgram(src)
+  - DestroyPostProcessProgram(id)
+  - RunPostProcess(id, srcFb, dstFb, params)
+
+Interpreter additions:
+  - PostProcessChain helper owns a single sampleable output FBO,
+    compiles + retains one fragment program, runs the fullscreen pass.
+  - ComposeFinalFrame() factors the post-MSAA-resolve composition out
+    of Run() and RunGuiOnly(); when the chain is active it forces the
+    MSAA fast path to resolve to a texture (plan §3.1).
+  - StartFrame() reconciles two CVars each frame
+    (gPostProcessEnabled, gPostProcessShader) and compiles/unloads on
+    transitions only.
+  - PostProcessSourceLoader resolves shader names against the
+    filesystem (./shaders/<name>.glsl) first, then the f3d.o2r archive
+    (shaders/postprocess/<name>.glsl).
+
+OpenGL backend:
+  - Compiles a fixed pass-through vertex shader (NDC fullscreen
+    triangle + FlipY uniform that picks between mGameFb invertY=true
+    and mGameFbMsaaResolved invertY=false sources) linked against the
+    user FS.
+  - Runs the pass with scissor/blend/depth disabled, restores
+    mOpenglVbo + mOpenglVao bindings so the regular DrawTriangles
+    path is unaffected.
+
+Bundled builtin: shaders/postprocess/scanlines.glsl -- original MIT
+work in this repo, demonstrates the standard uniform schema
+(Source / SourceSize / OutputSize / InputSize / FrameCount /
+FrameDirection). Users can drop their own GLSL files under
+./shaders/<name>.glsl at install time.
+
+Out of scope for this commit (follow-ups):
+  - D3D11 + Metal backend implementations (default no-op overrides
+    keep them building; SupportsPostProcess() = false at runtime).
+  - SPIRV-Cross + glslang transpiler glue (the per-backend
+    PostProcessSource.{hlsl,msl} fields are reserved for it).
+  - .glslp / .slangp multi-pass preset support.
+
+Implemented from the libretro/Mednafen public shader-uniform spec.
+No code copied from RetroArch or any GPL-licensed shader runtime.
+
+https://claude.ai/code/session_017QqToFcBhCpxcAqauuY1LZ
+---
+ cmake/cvars.cmake                             |   4 +
+ include/fast/backends/gfx_opengl.h            |  27 ++
+ include/fast/backends/gfx_rendering_api.h     |  38 +++
+ include/fast/interpreter.h                    |  18 ++
+ include/fast/postprocess/PostProcessChain.h   |  72 ++++++
+ .../postprocess/PostProcessSourceLoader.h     |  26 ++
+ include/fast/postprocess/PostProcessTypes.h   |  43 ++++
+ src/fast/CMakeLists.txt                       |   7 +
+ src/fast/backends/gfx_opengl.cpp              | 237 ++++++++++++++++++
+ src/fast/interpreter.cpp                      | 116 +++++++--
+ src/fast/postprocess/PostProcessChain.cpp     |  83 ++++++
+ .../postprocess/PostProcessSourceLoader.cpp   |  83 ++++++
+ src/fast/shaders/postprocess/scanlines.glsl   |  53 ++++
+ 13 files changed, 782 insertions(+), 25 deletions(-)
+ create mode 100644 include/fast/postprocess/PostProcessChain.h
+ create mode 100644 include/fast/postprocess/PostProcessSourceLoader.h
+ create mode 100644 include/fast/postprocess/PostProcessTypes.h
+ create mode 100644 src/fast/postprocess/PostProcessChain.cpp
+ create mode 100644 src/fast/postprocess/PostProcessSourceLoader.cpp
+ create mode 100644 src/fast/shaders/postprocess/scanlines.glsl
+
+diff --git a/cmake/cvars.cmake b/cmake/cvars.cmake
+index 19108e0f..103df1fe 100644
+--- a/cmake/cvars.cmake
++++ b/cmake/cvars.cmake
+@@ -20,6 +20,8 @@ set(CVAR_PREFIX_CONTROLLERS "gControllers" CACHE STRING "")
+ set(CVAR_PREFIX_ADVANCED_RESOLUTION "gAdvancedResolution" CACHE STRING "")
+ set(CVAR_AUDIO_CHANNELS_SETTING "gAudioChannelsSetting" CACHE STRING "")
+ set(CVAR_ALLOW_BACKGROUND_INPUTS "gAllowBackgroundInputs" CACHE STRING "")
++set(CVAR_POSTPROCESS_ENABLED "gPostProcessEnabled" CACHE STRING "")
++set(CVAR_POSTPROCESS_SHADER "gPostProcessShader" CACHE STRING "")
+ 
+ add_compile_definitions(
+ 	CVAR_VSYNC_ENABLED="${CVAR_VSYNC_ENABLED}"
+@@ -44,4 +46,6 @@ add_compile_definitions(
+ 	CVAR_PREFIX_ADVANCED_RESOLUTION="${CVAR_PREFIX_ADVANCED_RESOLUTION}"
+ 	CVAR_AUDIO_CHANNELS_SETTING="${CVAR_AUDIO_CHANNELS_SETTING}"
+ 	CVAR_ALLOW_BACKGROUND_INPUTS="${CVAR_ALLOW_BACKGROUND_INPUTS}"
++	CVAR_POSTPROCESS_ENABLED="${CVAR_POSTPROCESS_ENABLED}"
++	CVAR_POSTPROCESS_SHADER="${CVAR_POSTPROCESS_SHADER}"
+ )
+diff --git a/include/fast/backends/gfx_opengl.h b/include/fast/backends/gfx_opengl.h
+index ff2cfc67..a4eb96c7 100644
+--- a/include/fast/backends/gfx_opengl.h
++++ b/include/fast/backends/gfx_opengl.h
+@@ -1,6 +1,8 @@
+ #ifdef ENABLE_OPENGL
+ #pragma once
+ 
++#include <string>
++
+ #include "gfx_rendering_api.h"
+ #include "../interpreter.h"
+ 
+@@ -49,6 +51,20 @@ struct FramebufferOGL {
+     GLuint fbo, clrbuf, clrbufMsaa, rbo;
+ };
+ 
++// Post-process fragment program + its standard-uniform locations. The
++// runtime emits a fixed vertex shader (NDC fullscreen triangle) so only
++// the FS source is user-controlled.
++struct PostProcessProgramOGL {
++    GLuint program = 0;
++    GLint sourceLocation = -1;
++    GLint sourceSizeLocation = -1;
++    GLint outputSizeLocation = -1;
++    GLint inputSizeLocation = -1;
++    GLint frameCountLocation = -1;
++    GLint frameDirectionLocation = -1;
++    std::string name;
++};
++
+ struct TextureInfo {
+     uint16_t width;
+     uint16_t height;
+@@ -102,10 +118,17 @@ class GfxRenderingAPIOGL final : public GfxRenderingAPI {
+     void SetSrgbMode() override;
+     ImTextureID GetTextureById(int id) override;
+ 
++    bool SupportsPostProcess() override;
++    int CreatePostProcessProgram(const PostProcessSource& src) override;
++    void DestroyPostProcessProgram(int progId) override;
++    void RunPostProcess(int progId, int srcFb, int dstFb, const PostProcessParams& params) override;
++
+   private:
+     void SetUniforms(ShaderProgram* prg) const;
+     std::string BuildFsShader(const CCFeatures& cc_features);
+     void SetPerDrawUniforms();
++    GLuint CompilePostProcessProgram(const std::string& fsSource, std::string& errOut);
++    GLuint EnsurePostProcessVao();
+ 
+     std::vector<TextureInfo> textures;
+     GLuint mCurrentTextureIds[SHADER_MAX_TEXTURES];
+@@ -135,6 +158,10 @@ class GfxRenderingAPIOGL final : public GfxRenderingAPI {
+     GLuint mPixelDepthRb = 0;
+     GLuint mPixelDepthFb = 0;
+     size_t mPixelDepthRbSize = 0;
++
++    std::vector<PostProcessProgramOGL> mPostProcessPrograms;
++    GLuint mPostProcessVao = 0;
++    GLuint mPostProcessVbo = 0;
+ };
+ 
+ } // namespace Fast
+diff --git a/include/fast/backends/gfx_rendering_api.h b/include/fast/backends/gfx_rendering_api.h
+index 2043bb44..4634e6bc 100644
+--- a/include/fast/backends/gfx_rendering_api.h
++++ b/include/fast/backends/gfx_rendering_api.h
+@@ -5,6 +5,7 @@
+ #include <unordered_map>
+ #include <set>
+ #include "imconfig.h"
++#include "../postprocess/PostProcessTypes.h"
+ 
+ namespace Fast {
+ struct ShaderProgram;
+@@ -83,6 +84,43 @@ class GfxRenderingAPI {
+     virtual void SetSrgbMode() = 0;
+     virtual ImTextureID GetTextureById(int id) = 0;
+ 
++    // Post-process / user-shader runtime.
++    //
++    // Phase 1 of the CRT-shader plan (docs/crt_shader_plan_2026-05-11.md
++    // §3.2). The interface is small on purpose: the interpreter owns
++    // the FBO chain and the per-frame parameter pack; backends are only
++    // responsible for compiling a fragment program and running it as a
++    // fullscreen pass that samples a source FB's color texture and
++    // writes into a destination FB.
++    //
++    // SupportsPostProcess() is the runtime gate. Backends that haven't
++    // implemented the feature leave the default `return false` and the
++    // interpreter skips the pass; backends that have implemented it
++    // return true and the other three methods become live. This avoids
++    // forcing every backend to ship a full implementation in lockstep.
++    //
++    // Returned program IDs are opaque to the interpreter — backends
++    // can use vector indices, handle ints, whatever — but must be
++    // round-trippable: a value handed back from CreatePostProcessProgram
++    // is what the interpreter passes to RunPostProcess / Destroy.
++    // -1 means "compile failed".
++    virtual bool SupportsPostProcess() {
++        return false;
++    }
++    virtual int CreatePostProcessProgram(const PostProcessSource& src) {
++        (void)src;
++        return -1;
++    }
++    virtual void DestroyPostProcessProgram(int progId) {
++        (void)progId;
++    }
++    virtual void RunPostProcess(int progId, int srcFb, int dstFb, const PostProcessParams& params) {
++        (void)progId;
++        (void)srcFb;
++        (void)dstFb;
++        (void)params;
++    }
++
+   protected:
+     int8_t mCurrentDepthTest = 0;
+     int8_t mCurrentDepthMask = 0;
+diff --git a/include/fast/interpreter.h b/include/fast/interpreter.h
+index 3fae415b..f133e021 100644
+--- a/include/fast/interpreter.h
++++ b/include/fast/interpreter.h
+@@ -15,6 +15,7 @@
+ #include "fast/types.h"
+ #include "fast/ucodehandlers.h"
+ #include "backends/gfx_rendering_api.h"
++#include "postprocess/PostProcessChain.h"
+ 
+ #include "fast/resource/type/Texture.h"
+ #include "ship/resource/Resource.h"
+@@ -451,6 +452,15 @@ class Interpreter {
+ 
+     // private: TODO make these private
+     void Flush();
++    // End-of-frame composition step: resolves MSAA (when applicable),
++    // runs the post-process chain (when active), and sets mGfxFrameBuffer
++    // to the texture handle the GUI samples. Called from Run() and
++    // RunGuiOnly() once GBI execution is complete.
++    void ComposeFinalFrame();
++    // Reconcile the post-process chain with CVAR_POSTPROCESS_ENABLED /
++    // _SHADER. Compiles / unloads the active shader only on transitions —
++    // a no-op when both CVars are unchanged from the prior frame.
++    void UpdatePostProcessFromCVars();
+     ShaderProgram* LookupOrCreateShaderProgram(uint64_t id0, uint64_t id1);
+     ColorCombiner* LookupOrCreateColorCombiner(const ColorCombinerKey& key);
+     void TextureCacheClear();
+@@ -581,6 +591,14 @@ class Interpreter {
+     int mGameFb{};             // game_framebuffer;
+     int mGameFbMsaaResolved{}; // game_framebuffer_msaa_resolved;
+ 
++    // Post-process / user-shader pipeline. Owns its own FBO(s) and the
++    // currently-loaded compiled program. Inactive (passthrough) until a
++    // shader is loaded via PostProcessChain::LoadShader.
++    PostProcessChain mPostProcessChain{};
++    uint32_t mFrameCounter{};      // Monotonic, wraps. Fed to shader uniforms.
++    bool mPostProcessEnabled{};    // Last-seen CVAR_POSTPROCESS_ENABLED.
++    std::string mPostProcessName;  // Last-seen CVAR_POSTPROCESS_SHADER.
++
+     std::set<std::pair<float, float>> mGetPixelDepthPending; // get_pixel_depth_pending;
+     std::unordered_map<std::pair<float, float>, uint16_t, hash_pair_ff> mGetPixelDepthCached; // get_pixel_depth_cached;
+     std::map<std::string, MaskedTextureEntry, std::less<>> mMaskedTextures;
+diff --git a/include/fast/postprocess/PostProcessChain.h b/include/fast/postprocess/PostProcessChain.h
+new file mode 100644
+index 00000000..7b5d7ef4
+--- /dev/null
++++ b/include/fast/postprocess/PostProcessChain.h
+@@ -0,0 +1,72 @@
++// Implemented from the plan in docs/crt_shader_plan_2026-05-11.md §3.3.
++// No code copied from RetroArch or any GPL-licensed shader runtime.
++#pragma once
++
++#include <cstdint>
++#include <string>
++
++#include "PostProcessTypes.h"
++
++namespace Fast {
++class GfxRenderingAPI;
++
++// Owns the off-screen framebuffer(s) and compiled program slot for the
++// post-process / user-shader pipeline. The interpreter holds one of
++// these as a member and forwards Init / OnResize / Run calls from its
++// existing per-frame entry points.
++//
++// Phase 1 only supports a single fragment pass, so the chain holds
++// exactly one destination FBO whose color texture is what the GUI
++// samples. Multi-pass (a ring of ping-pong FBOs) is a follow-up; the
++// public API is shaped so adding more passes does not change the call
++// sites in the interpreter.
++class PostProcessChain {
++  public:
++    PostProcessChain() = default;
++    ~PostProcessChain() = default;
++
++    PostProcessChain(const PostProcessChain&) = delete;
++    PostProcessChain& operator=(const PostProcessChain&) = delete;
++
++    // Allocate backend FBOs. Safe to call against a backend that
++    // returns SupportsPostProcess() == false; in that case the chain
++    // stays disarmed and Run() is a no-op that returns srcFb unchanged.
++    void Init(GfxRenderingAPI* rapi);
++
++    // Resize the chain's FBOs to dstWidth x dstHeight. Idempotent.
++    void OnResize(GfxRenderingAPI* rapi, uint32_t dstWidth, uint32_t dstHeight);
++
++    // Compile + install a new program. Replaces any previously loaded
++    // program. Returns true on success; on failure the chain is left
++    // disarmed and Run() passes through.
++    bool LoadShader(GfxRenderingAPI* rapi, const PostProcessSource& src);
++
++    // Drop the loaded program and return to passthrough.
++    void UnloadShader(GfxRenderingAPI* rapi);
++
++    // Execute the pipeline. Returns the FBO id whose color texture
++    // should be exposed to the GUI for the rest of the frame. If the
++    // chain is inactive the return value is srcFb (a passthrough).
++    int Run(GfxRenderingAPI* rapi, int srcFb, const PostProcessParams& params);
++
++    // True iff a compiled program is loaded and the backend supports
++    // post-process. The interpreter checks this to decide whether to
++    // force the MSAA resolve to land in a sampleable texture (rather
++    // than blitting directly to the swap-chain back buffer).
++    bool IsActive() const;
++
++    // Diagnostic accessor for the currently-loaded shader name.
++    const std::string& GetLoadedName() const {
++        return mLoadedName;
++    }
++
++  private:
++    int mProgramId = -1;
++    int mDstFb = -1;
++    uint32_t mDstWidth = 0;
++    uint32_t mDstHeight = 0;
++    bool mBackendSupported = false;
++    std::string mLoadedName;
++};
++
++} // namespace Fast
+diff --git a/include/fast/postprocess/PostProcessSourceLoader.h b/include/fast/postprocess/PostProcessSourceLoader.h
+new file mode 100644
+index 00000000..984210a1
+--- /dev/null
++++ b/include/fast/postprocess/PostProcessSourceLoader.h
+@@ -0,0 +1,26 @@
++// Implemented from the plan in docs/crt_shader_plan_2026-05-11.md §3.4.
++// No code copied from RetroArch or any GPL-licensed shader runtime.
++#pragma once
++
++#include <string>
++#include <vector>
++
++#include "PostProcessTypes.h"
++
++namespace Fast {
++
++// Resolve a post-process shader by short name and populate `out` with
++// the source text. Lookup order:
++//   1. Filesystem: `./shaders/<name>.glsl` relative to the executable's
++//      working directory. This is where users drop their own shaders.
++//   2. Builtins: `shaders/postprocess/<name>.glsl` inside f3d.o2r.
++//
++// Returns true on success. On failure `out` is left untouched and the
++// reason is logged via SPDLOG_ERROR.
++bool LoadPostProcessShader(const std::string& name, PostProcessSource& out);
++
++// Names of builtin (in-archive) shaders. Used by ports to populate a
++// menu picker without having to know about the resource manager.
++std::vector<std::string> ListBuiltinPostProcessShaders();
++
++} // namespace Fast
+diff --git a/include/fast/postprocess/PostProcessTypes.h b/include/fast/postprocess/PostProcessTypes.h
+new file mode 100644
+index 00000000..22d07db3
+--- /dev/null
++++ b/include/fast/postprocess/PostProcessTypes.h
+@@ -0,0 +1,43 @@
++// Implemented from the libretro/Mednafen public shader-uniform conventions
++// (Source/TextureSize/OutputSize/FrameCount) and the plan in
++// docs/crt_shader_plan_2026-05-11.md §3.2. No code copied from RetroArch
++// or any GPL-licensed shader runtime.
++#pragma once
++
++#include <stdint.h>
++#include <string>
++
++namespace Fast {
++
++// Per-frame inputs the runtime supplies to each post-process pass.
++//
++// Backends are responsible for converting these into whatever uniform
++// storage the underlying API wants (a uniform block, push constants,
++// loose glUniform calls, etc.). The set is intentionally minimal in
++// Phase 1 and matches the "common five" uniforms found in essentially
++// every single-file CRT/scanline shader.
++struct PostProcessParams {
++    uint32_t srcWidth;          // Game framebuffer dimensions (the
++    uint32_t srcHeight;         // texture the pass samples from).
++    uint32_t dstWidth;          // Output framebuffer dimensions (the
++    uint32_t dstHeight;         // surface the pass renders into).
++    uint32_t frameCount;        // Monotonic frame counter, wraps.
++    float    frameDeltaSeconds; // Wall-clock delta since previous frame.
++};
++
++// Per-backend source text for a single fragment-shader pass.
++//
++// The core layer (PostProcessSourceLoader, to land in a follow-up commit
++// alongside the SPIRV-Cross transpiler) populates whichever language
++// strings are needed for the active backend. Phase 1 ships only `glsl`
++// populated; `hlsl` and `msl` are reserved fields that backends ignore
++// when empty so the SPIRV-Cross transpiler can drop in later without
++// reshaping this struct.
++struct PostProcessSource {
++    std::string name; // Diagnostic label (typically the shader filename).
++    std::string glsl; // GLSL 330 core fragment-shader source.
++    std::string hlsl; // HLSL SM 5.0 fragment-shader source. May be empty.
++    std::string msl;  // MSL 2.2 fragment-shader source. May be empty.
++};
++
++} // namespace Fast
+diff --git a/src/fast/CMakeLists.txt b/src/fast/CMakeLists.txt
+index 66bf70d0..af482f5b 100644
+--- a/src/fast/CMakeLists.txt
++++ b/src/fast/CMakeLists.txt
+@@ -11,6 +11,13 @@ file(GLOB Source_Files__Debug RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "debug/*.cpp"
+ source_group("debug" FILES ${Source_Files__Debug})
+ target_sources(libultraship PRIVATE ${Source_Files__Debug})
+ 
++#=================== Postprocess ===================
++
++file(GLOB Source_Files__Postprocess RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "postprocess/*.cpp")
++
++source_group("postprocess" FILES ${Source_Files__Postprocess})
++target_sources(libultraship PRIVATE ${Source_Files__Postprocess})
++
+ #=================== Resource ===================
+ 
+ file(GLOB Source_Files__Resource__Types RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "resource/type/*.h" "resource/type/*.cpp")
+diff --git a/src/fast/backends/gfx_opengl.cpp b/src/fast/backends/gfx_opengl.cpp
+index d400fa49..1d480666 100644
+--- a/src/fast/backends/gfx_opengl.cpp
++++ b/src/fast/backends/gfx_opengl.cpp
+@@ -894,6 +894,243 @@ void* GfxRenderingAPIOGL::GetFramebufferTextureId(int fb_id) {
+     return (void*)(uintptr_t)mFrameBuffers[fb_id].clrbuf;
+ }
+ 
++// --- Post-process / user-shader pipeline ----------------------------------
++//
++// Implemented from the plan in docs/crt_shader_plan_2026-05-11.md §7.1.
++// No code copied from RetroArch or any GPL-licensed shader runtime.
++
++static const char kPostProcessVertexShader[] =
++    "#version 330 core\n"
++    "in vec2 aPos;\n"
++    "out vec2 vTexCoord;\n"
++    "uniform int FlipY;\n"
++    "void main() {\n"
++    "    gl_Position = vec4(aPos, 0.0, 1.0);\n"
++    "    vec2 uv = aPos * 0.5 + 0.5;\n"
++    "    if (FlipY != 0) uv.y = 1.0 - uv.y;\n"
++    "    vTexCoord = uv;\n"
++    "}\n";
++
++bool GfxRenderingAPIOGL::SupportsPostProcess() {
++    return true;
++}
++
++GLuint GfxRenderingAPIOGL::CompilePostProcessProgram(const std::string& fsSource, std::string& errOut) {
++    auto compile = [&](GLenum type, const char* src) -> GLuint {
++        GLuint sh = glCreateShader(type);
++        glShaderSource(sh, 1, &src, nullptr);
++        glCompileShader(sh);
++        GLint ok = GL_FALSE;
++        glGetShaderiv(sh, GL_COMPILE_STATUS, &ok);
++        if (!ok) {
++            GLint len = 0;
++            glGetShaderiv(sh, GL_INFO_LOG_LENGTH, &len);
++            std::string log(std::max(len, 1) - 1, '\0');
++            if (len > 0) {
++                glGetShaderInfoLog(sh, len, nullptr, log.data());
++            }
++            errOut = std::move(log);
++            glDeleteShader(sh);
++            return 0;
++        }
++        return sh;
++    };
++    GLuint vs = compile(GL_VERTEX_SHADER, kPostProcessVertexShader);
++    if (vs == 0) {
++        return 0;
++    }
++    GLuint fs = compile(GL_FRAGMENT_SHADER, fsSource.c_str());
++    if (fs == 0) {
++        glDeleteShader(vs);
++        return 0;
++    }
++    GLuint prog = glCreateProgram();
++    glAttachShader(prog, vs);
++    glAttachShader(prog, fs);
++    // Tie the only vertex attribute to slot 0; the FS doesn't have any so
++    // there is no fragment-output binding to worry about (single FS
++    // output is assumed at location 0).
++    glBindAttribLocation(prog, 0, "aPos");
++    glLinkProgram(prog);
++    glDeleteShader(vs);
++    glDeleteShader(fs);
++    GLint ok = GL_FALSE;
++    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
++    if (!ok) {
++        GLint len = 0;
++        glGetProgramiv(prog, GL_INFO_LOG_LENGTH, &len);
++        std::string log(std::max(len, 1) - 1, '\0');
++        if (len > 0) {
++            glGetProgramInfoLog(prog, len, nullptr, log.data());
++        }
++        errOut = std::move(log);
++        glDeleteProgram(prog);
++        return 0;
++    }
++    return prog;
++}
++
++int GfxRenderingAPIOGL::CreatePostProcessProgram(const PostProcessSource& src) {
++    if (src.glsl.empty()) {
++        SPDLOG_ERROR("Post-process shader '{}' has no GLSL source", src.name);
++        return -1;
++    }
++    std::string err;
++    GLuint prog = CompilePostProcessProgram(src.glsl, err);
++    if (prog == 0) {
++        SPDLOG_ERROR("Post-process shader '{}' failed to compile/link: {}", src.name, err);
++        return -1;
++    }
++
++    PostProcessProgramOGL slot{};
++    slot.program = prog;
++    slot.name = src.name;
++    slot.sourceLocation = glGetUniformLocation(prog, "Source");
++    slot.sourceSizeLocation = glGetUniformLocation(prog, "SourceSize");
++    slot.outputSizeLocation = glGetUniformLocation(prog, "OutputSize");
++    slot.inputSizeLocation = glGetUniformLocation(prog, "InputSize");
++    slot.frameCountLocation = glGetUniformLocation(prog, "FrameCount");
++    slot.frameDirectionLocation = glGetUniformLocation(prog, "FrameDirection");
++
++    for (size_t i = 0; i < mPostProcessPrograms.size(); ++i) {
++        if (mPostProcessPrograms[i].program == 0) {
++            mPostProcessPrograms[i] = std::move(slot);
++            return (int)i;
++        }
++    }
++    mPostProcessPrograms.push_back(std::move(slot));
++    return (int)(mPostProcessPrograms.size() - 1);
++}
++
++void GfxRenderingAPIOGL::DestroyPostProcessProgram(int progId) {
++    if (progId < 0 || (size_t)progId >= mPostProcessPrograms.size()) {
++        return;
++    }
++    auto& slot = mPostProcessPrograms[progId];
++    if (slot.program != 0) {
++        glDeleteProgram(slot.program);
++        slot = PostProcessProgramOGL{};
++    }
++}
++
++GLuint GfxRenderingAPIOGL::EnsurePostProcessVao() {
++    if (mPostProcessVao != 0 && mPostProcessVbo != 0) {
++        return mPostProcessVao;
++    }
++    // Fullscreen triangle in NDC. Extends past the [-1,1] viewport on two
++    // edges so a single triangle covers the entire output without the
++    // diagonal seam of a two-triangle quad.
++    static const GLfloat kFullscreenTriangle[] = {
++        -1.0f, -1.0f, 3.0f, -1.0f, -1.0f, 3.0f,
++    };
++    glGenVertexArrays(1, &mPostProcessVao);
++    glBindVertexArray(mPostProcessVao);
++    glGenBuffers(1, &mPostProcessVbo);
++    glBindBuffer(GL_ARRAY_BUFFER, mPostProcessVbo);
++    glBufferData(GL_ARRAY_BUFFER, sizeof(kFullscreenTriangle), kFullscreenTriangle, GL_STATIC_DRAW);
++    glEnableVertexAttribArray(0);
++    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(GLfloat), (void*)0);
++    return mPostProcessVao;
++}
++
++void GfxRenderingAPIOGL::RunPostProcess(int progId, int srcFb, int dstFb, const PostProcessParams& params) {
++    if (progId < 0 || (size_t)progId >= mPostProcessPrograms.size()) {
++        return;
++    }
++    const PostProcessProgramOGL& slot = mPostProcessPrograms[progId];
++    if (slot.program == 0) {
++        return;
++    }
++    if (srcFb < 0 || (size_t)srcFb >= mFrameBuffers.size()) {
++        return;
++    }
++    if (dstFb < 0 || (size_t)dstFb >= mFrameBuffers.size()) {
++        return;
++    }
++    const FramebufferOGL& srcFbInfo = mFrameBuffers[srcFb];
++    const FramebufferOGL& dstFbInfo = mFrameBuffers[dstFb];
++    if (srcFbInfo.clrbuf == 0 || dstFbInfo.fbo == 0) {
++        return;
++    }
++
++    // Fixed-function state for a fullscreen pass. No scissor, no depth,
++    // no blend. The next regular draw resets viewport / blend / depth.
++    if (mLastScissorEnabled != 0) {
++        glDisable(GL_SCISSOR_TEST);
++        mLastScissorEnabled = 0;
++    }
++    if (mLastBlendEnabled != 0) {
++        glDisable(GL_BLEND);
++        mLastBlendEnabled = 0;
++    }
++    glDisable(GL_DEPTH_TEST);
++    glDepthMask(GL_FALSE);
++    mLastDepthTest = -1;
++    mLastDepthMask = -1;
++    mLastZmodeDecal = -1;
++
++    glBindFramebuffer(GL_FRAMEBUFFER, dstFbInfo.fbo);
++    mCurrentFrameBuffer = dstFb;
++    glViewport(0, 0, dstFbInfo.width, dstFbInfo.height);
++    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
++    glClear(GL_COLOR_BUFFER_BIT);
++
++    // Sample source FB's color texture on TU0 with edge-clamped linear
++    // filtering. Edge-clamp matters for CRT shaders that read beyond
++    // [0,1] for sub-pixel/scanline math.
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, srcFbInfo.clrbuf);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++    mLastBoundTextures[0] = srcFbInfo.clrbuf;
++    mLastActiveTexture = 0;
++
++    glUseProgram(slot.program);
++    mLastLoadedShader = nullptr; // Force LoadShader to re-glUseProgram next frame.
++    if (slot.sourceLocation >= 0) {
++        glUniform1i(slot.sourceLocation, 0);
++    }
++    if (slot.sourceSizeLocation >= 0) {
++        glUniform2f(slot.sourceSizeLocation, (float)params.srcWidth, (float)params.srcHeight);
++    }
++    if (slot.inputSizeLocation >= 0) {
++        glUniform2f(slot.inputSizeLocation, (float)params.srcWidth, (float)params.srcHeight);
++    }
++    if (slot.outputSizeLocation >= 0) {
++        glUniform2f(slot.outputSizeLocation, (float)params.dstWidth, (float)params.dstHeight);
++    }
++    if (slot.frameCountLocation >= 0) {
++        glUniform1i(slot.frameCountLocation, (int)params.frameCount);
++    }
++    if (slot.frameDirectionLocation >= 0) {
++        glUniform1f(slot.frameDirectionLocation, 1.0f);
++    }
++    // FlipY uniform lives on the vertex shader; re-resolve each frame in
++    // case the source FB changed between mGameFb (invertY=true) and
++    // mGameFbMsaaResolved (invertY=false).
++    GLint flipYLoc = glGetUniformLocation(slot.program, "FlipY");
++    if (flipYLoc >= 0) {
++        glUniform1i(flipYLoc, srcFbInfo.invertY ? 1 : 0);
++    }
++
++    EnsurePostProcessVao();
++    glBindVertexArray(mPostProcessVao);
++    glDrawArrays(GL_TRIANGLES, 0, 3);
++
++    // Restore the driver-visible VAO/VBO bindings the regular draw path
++    // assumes. On Apple / GLES the backend keeps mOpenglVao bound at all
++    // times; elsewhere it uses the default VAO (0) and an always-bound
++    // mOpenglVbo on GL_ARRAY_BUFFER.
++#if defined(__APPLE__) || defined(USE_OPENGLES)
++    glBindVertexArray(mOpenglVao);
++#else
++    glBindVertexArray(0);
++#endif
++    glBindBuffer(GL_ARRAY_BUFFER, mOpenglVbo);
++}
++
+ void GfxRenderingAPIOGL::SelectTextureFb(int fb_id) {
+     // glDisable(GL_DEPTH_TEST);
+     int tile = 0;
+diff --git a/src/fast/interpreter.cpp b/src/fast/interpreter.cpp
+index 5c4a9fd0..7e13d0ea 100644
+--- a/src/fast/interpreter.cpp
++++ b/src/fast/interpreter.cpp
+@@ -69,6 +69,7 @@ extern "C" void portRelocFixupTextureAtRuntime(const void *addr, unsigned int nu
+ #include "ship/resource/ResourceManager.h"
+ #include "ship/utils/Utils.h"
+ #include "ship/Context.h"
++#include "fast/postprocess/PostProcessSourceLoader.h"
+ #include "ship/config/ConsoleVariable.h"
+ 
+ #include "libultraship/libultra/os.h"
+@@ -6193,6 +6194,10 @@ void Interpreter::Init(class GfxWindowBackend* wapi, class GfxRenderingAPI* rapi
+     mGameFb = mRapi->CreateFramebuffer();
+     mGameFbMsaaResolved = mRapi->CreateFramebuffer();
+ 
++    // Post-process pipeline. On backends that don't yet implement
++    // post-process this is a no-op — see GfxRenderingAPI::SupportsPostProcess.
++    mPostProcessChain.Init(mRapi);
++
+     mNativeDimensions.width = SCREEN_WIDTH;
+     mNativeDimensions.height = SCREEN_HEIGHT;
+ 
+@@ -6264,6 +6269,10 @@ void Interpreter::SetForceRenderToFb(bool force) {
+ void Interpreter::StartFrame() {
+     mWapi->GetDimensions(&mGfxCurrentWindowDimensions.width, &mGfxCurrentWindowDimensions.height, &mCurWindowPosX,
+                          &mCurWindowPosY);
++    // Reconcile post-process state from CVars before the FBO-size
++    // decisions below, since a fresh shader load flips
++    // mPostProcessChain.IsActive() true and forces mRendersToFb.
++    UpdatePostProcessFromCVars();
+     if (mCurDimensions.height == 0) {
+         // Avoid division by zero
+         mCurDimensions.height = 1;
+@@ -6290,7 +6299,7 @@ void Interpreter::StartFrame() {
+ 
+     mPrvDimensions = mCurDimensions;
+     mPrevNativeDimensions = mNativeDimensions;
+-    if (!ViewportMatchesRendererResolution() || mMsaaLevel > 1) {
++    if (!ViewportMatchesRendererResolution() || mMsaaLevel > 1 || mPostProcessChain.IsActive()) {
+         mRendersToFb = true;
+         if (!ViewportMatchesRendererResolution()) {
+             mRapi->UpdateFramebufferParameters(mGameFb, mCurDimensions.width, mCurDimensions.height, mMsaaLevel, true,
+@@ -6309,6 +6318,12 @@ void Interpreter::StartFrame() {
+         mRendersToFb = false;
+     }
+ 
++    // Resize the post-process output FBO to track the window. The chain
++    // bails out internally when dimensions are unchanged or zero, and is
++    // a no-op when no shader is loaded / the backend lacks support.
++    mPostProcessChain.OnResize(mRapi, mGfxCurrentWindowDimensions.width,
++                               mGfxCurrentWindowDimensions.height);
++
+     mFbActive = false;
+ }
+ 
+@@ -6349,18 +6364,7 @@ void Interpreter::RunGuiOnly() {
+     mGfxFrameBuffer = 0;
+ 
+     if (mRendersToFb) {
+-        mRapi->StartDrawToFramebuffer(0, 1);
+-        mRapi->ClearFramebuffer(true, true);
+-        if (mMsaaLevel > 1) {
+-            if (!ViewportMatchesRendererResolution()) {
+-                mRapi->ResolveMSAAColorBuffer(mGameFbMsaaResolved, mGameFb);
+-                mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(mGameFbMsaaResolved);
+-            } else {
+-                mRapi->ResolveMSAAColorBuffer(0, mGameFb);
+-            }
+-        } else {
+-            mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(mGameFb);
+-        }
++        ComposeFinalFrame();
+     } else if (mFbActive) {
+         // Failsafe reset to main framebuffer to prevent softlocking the renderer
+         mFbActive = 0;
+@@ -6420,18 +6424,7 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
+     currentDir = std::stack<std::string>();
+ 
+     if (mRendersToFb) {
+-        mRapi->StartDrawToFramebuffer(0, 1);
+-        mRapi->ClearFramebuffer(true, true);
+-        if (mMsaaLevel > 1) {
+-            if (!ViewportMatchesRendererResolution()) {
+-                mRapi->ResolveMSAAColorBuffer(mGameFbMsaaResolved, mGameFb);
+-                mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(mGameFbMsaaResolved);
+-            } else {
+-                mRapi->ResolveMSAAColorBuffer(0, mGameFb);
+-            }
+-        } else {
+-            mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(mGameFb);
+-        }
++        ComposeFinalFrame();
+     } else if (mFbActive) {
+         // Failsafe reset to main framebuffer to prevent softlocking the renderer
+         mFbActive = 0;
+@@ -6441,6 +6434,79 @@ void Interpreter::Run(Gfx* commands, const std::unordered_map<Mtx*, MtxF>& mtx_r
+     }
+ }
+ 
++void Interpreter::UpdatePostProcessFromCVars() {
++    auto cvars = Ship::Context::GetInstance()->GetConsoleVariables();
++    if (cvars == nullptr) {
++        return;
++    }
++    const bool enabled = cvars->GetInteger(CVAR_POSTPROCESS_ENABLED, 0) != 0;
++    const char* nameCStr = cvars->GetString(CVAR_POSTPROCESS_SHADER, "");
++    const std::string name = nameCStr != nullptr ? nameCStr : "";
++
++    const bool wantActive = enabled && !name.empty();
++    const bool nameChanged = name != mPostProcessName;
++    const bool enabledChanged = enabled != mPostProcessEnabled;
++
++    if (!wantActive) {
++        if (mPostProcessChain.IsActive()) {
++            mPostProcessChain.UnloadShader(mRapi);
++        }
++    } else if (nameChanged || enabledChanged || !mPostProcessChain.IsActive()) {
++        PostProcessSource src;
++        if (LoadPostProcessShader(name, src)) {
++            if (!mPostProcessChain.LoadShader(mRapi, src)) {
++                SPDLOG_ERROR("Post-process shader '{}' loaded but backend rejected it; disabling", name);
++            }
++        } else if (mPostProcessChain.IsActive()) {
++            // New shader name failed to load; unload the previous one
++            // rather than silently keeping a stale program live.
++            mPostProcessChain.UnloadShader(mRapi);
++        }
++    }
++
++    mPostProcessEnabled = enabled;
++    mPostProcessName = name;
++}
++
++void Interpreter::ComposeFinalFrame() {
++    mRapi->StartDrawToFramebuffer(0, 1);
++    mRapi->ClearFramebuffer(true, true);
++
++    // The texture-backed FBO whose color attachment the post-process pass
++    // samples (or, when no pass is active, the GUI samples directly).
++    // -1 means "the MSAA result went straight to the swap-chain back
++    // buffer; no texture is available this frame" — only possible on the
++    // existing MSAA fast path when post-process is inactive.
++    int srcFb = -1;
++    if (mMsaaLevel > 1) {
++        // §3.1 of the plan: with post-process active we always resolve to
++        // mGameFbMsaaResolved so the pass has a sampleable input, even on
++        // the matched-resolution fast path.
++        if (mPostProcessChain.IsActive() || !ViewportMatchesRendererResolution()) {
++            mRapi->ResolveMSAAColorBuffer(mGameFbMsaaResolved, mGameFb);
++            srcFb = mGameFbMsaaResolved;
++        } else {
++            mRapi->ResolveMSAAColorBuffer(0, mGameFb);
++        }
++    } else {
++        srcFb = mGameFb;
++    }
++
++    if (mPostProcessChain.IsActive() && srcFb >= 0) {
++        PostProcessParams params{};
++        params.srcWidth = mCurDimensions.width;
++        params.srcHeight = mCurDimensions.height;
++        params.dstWidth = mGfxCurrentWindowDimensions.width;
++        params.dstHeight = mGfxCurrentWindowDimensions.height;
++        params.frameCount = mFrameCounter++;
++        params.frameDeltaSeconds = 0.0f;
++        const int outFb = mPostProcessChain.Run(mRapi, srcFb, params);
++        mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(outFb);
++    } else if (srcFb >= 0) {
++        mGfxFrameBuffer = (uintptr_t)mRapi->GetFramebufferTextureId(srcFb);
++    }
++}
++
+ void Interpreter::PresentCurrentFramebuffer() {
+     mRapi->UpdateFramebufferParameters(0, mGfxCurrentWindowDimensions.width, mGfxCurrentWindowDimensions.height, 1,
+                                        false, true, true, !mRendersToFb);
+diff --git a/src/fast/postprocess/PostProcessChain.cpp b/src/fast/postprocess/PostProcessChain.cpp
+new file mode 100644
+index 00000000..6578cce8
+--- /dev/null
++++ b/src/fast/postprocess/PostProcessChain.cpp
+@@ -0,0 +1,83 @@
++// Implemented from the plan in docs/crt_shader_plan_2026-05-11.md §3.3.
++// No code copied from RetroArch or any GPL-licensed shader runtime.
++#include "fast/postprocess/PostProcessChain.h"
++
++#include "fast/backends/gfx_rendering_api.h"
++
++namespace Fast {
++
++void PostProcessChain::Init(GfxRenderingAPI* rapi) {
++    if (rapi == nullptr) {
++        return;
++    }
++    mBackendSupported = rapi->SupportsPostProcess();
++    if (!mBackendSupported) {
++        return;
++    }
++    mDstFb = rapi->CreateFramebuffer();
++    mDstWidth = 0;
++    mDstHeight = 0;
++}
++
++void PostProcessChain::OnResize(GfxRenderingAPI* rapi, uint32_t dstWidth, uint32_t dstHeight) {
++    if (rapi == nullptr || !mBackendSupported || mDstFb < 0) {
++        return;
++    }
++    if (dstWidth == 0 || dstHeight == 0) {
++        return;
++    }
++    if (mDstWidth == dstWidth && mDstHeight == dstHeight) {
++        return;
++    }
++    // Sampleable single-sample color, no depth — this is the final
++    // output surface the GUI consumes via ImGui::Image.
++    rapi->UpdateFramebufferParameters(mDstFb, dstWidth, dstHeight,
++                                      /*msaa_level=*/1,
++                                      /*opengl_invertY=*/false,
++                                      /*render_target=*/true,
++                                      /*has_depth_buffer=*/false,
++                                      /*can_extract_depth=*/false);
++    mDstWidth = dstWidth;
++    mDstHeight = dstHeight;
++}
++
++bool PostProcessChain::LoadShader(GfxRenderingAPI* rapi, const PostProcessSource& src) {
++    if (rapi == nullptr || !mBackendSupported) {
++        return false;
++    }
++    const int newProg = rapi->CreatePostProcessProgram(src);
++    if (newProg < 0) {
++        return false;
++    }
++    if (mProgramId >= 0) {
++        rapi->DestroyPostProcessProgram(mProgramId);
++    }
++    mProgramId = newProg;
++    mLoadedName = src.name;
++    return true;
++}
++
++void PostProcessChain::UnloadShader(GfxRenderingAPI* rapi) {
++    if (rapi == nullptr) {
++        return;
++    }
++    if (mProgramId >= 0 && mBackendSupported) {
++        rapi->DestroyPostProcessProgram(mProgramId);
++    }
++    mProgramId = -1;
++    mLoadedName.clear();
++}
++
++int PostProcessChain::Run(GfxRenderingAPI* rapi, int srcFb, const PostProcessParams& params) {
++    if (!IsActive() || mDstWidth == 0 || mDstHeight == 0) {
++        return srcFb;
++    }
++    rapi->RunPostProcess(mProgramId, srcFb, mDstFb, params);
++    return mDstFb;
++}
++
++bool PostProcessChain::IsActive() const {
++    return mBackendSupported && mProgramId >= 0 && mDstFb >= 0;
++}
++
++} // namespace Fast
+diff --git a/src/fast/postprocess/PostProcessSourceLoader.cpp b/src/fast/postprocess/PostProcessSourceLoader.cpp
+new file mode 100644
+index 00000000..efb959d4
+--- /dev/null
++++ b/src/fast/postprocess/PostProcessSourceLoader.cpp
+@@ -0,0 +1,83 @@
++// Implemented from the plan in docs/crt_shader_plan_2026-05-11.md §3.4.
++// No code copied from RetroArch or any GPL-licensed shader runtime.
++#include "fast/postprocess/PostProcessSourceLoader.h"
++
++#include <cstddef>
++#include <fstream>
++#include <sstream>
++
++#include <spdlog/spdlog.h>
++
++#include "ship/Context.h"
++#include "ship/resource/ResourceManager.h"
++#include "ship/resource/File.h"
++
++namespace Fast {
++
++namespace {
++
++bool ReadFilesystemFile(const std::string& path, std::string& outText) {
++    std::ifstream in(path, std::ios::binary);
++    if (!in.is_open()) {
++        return false;
++    }
++    std::ostringstream ss;
++    ss << in.rdbuf();
++    outText = ss.str();
++    return true;
++}
++
++bool ReadArchiveFile(const std::string& path, std::string& outText) {
++    auto ctx = Ship::Context::GetInstance();
++    if (ctx == nullptr) {
++        return false;
++    }
++    auto rm = ctx->GetResourceManager();
++    if (rm == nullptr) {
++        return false;
++    }
++    auto file = rm->LoadFileProcess(path);
++    if (file == nullptr || !file->IsLoaded || file->Buffer == nullptr) {
++        return false;
++    }
++    const auto& buf = *file->Buffer;
++    if (file->BufferOffset >= buf.size()) {
++        return false;
++    }
++    outText.assign(buf.begin() + file->BufferOffset, buf.end());
++    return true;
++}
++
++} // namespace
++
++bool LoadPostProcessShader(const std::string& name, PostProcessSource& out) {
++    if (name.empty()) {
++        return false;
++    }
++    std::string text;
++    const std::string fsPath = "shaders/" + name + ".glsl";
++    if (ReadFilesystemFile(fsPath, text)) {
++        out.name = name;
++        out.glsl = std::move(text);
++        return true;
++    }
++    const std::string arPath = "shaders/postprocess/" + name + ".glsl";
++    if (ReadArchiveFile(arPath, text)) {
++        out.name = name;
++        out.glsl = std::move(text);
++        return true;
++    }
++    SPDLOG_ERROR("Post-process shader '{}' not found (tried '{}' and archive '{}')", name, fsPath, arPath);
++    return false;
++}
++
++std::vector<std::string> ListBuiltinPostProcessShaders() {
++    // The list mirrors what GenerateF3DO2R packages from
++    // libultraship/src/fast/shaders/postprocess/. Hardcoded rather than
++    // enumerated at runtime so the menu picker stays stable across
++    // archive contents and so a port that ships a stripped f3d.o2r still
++    // gets a usable default selection.
++    return { "scanlines" };
++}
++
++} // namespace Fast
+diff --git a/src/fast/shaders/postprocess/scanlines.glsl b/src/fast/shaders/postprocess/scanlines.glsl
+new file mode 100644
+index 00000000..ea83a7bc
+--- /dev/null
++++ b/src/fast/shaders/postprocess/scanlines.glsl
+@@ -0,0 +1,53 @@
++#version 330 core
++
++// MIT-licensed default scanline shader for the LUS post-process runtime.
++// Original work for this repository; not derived from any third-party
++// CRT shader implementation. Demonstrates the standard runtime uniform
++// schema (see PostProcessTypes.h):
++//
++//   sampler2D Source     -- input game framebuffer
++//   vec2      SourceSize -- input texture pixel dimensions
++//   vec2      OutputSize -- output framebuffer pixel dimensions
++//   vec2      InputSize  -- reserved; same as SourceSize in Phase 1
++//   int       FrameCount -- monotonic frame counter
++//
++// User shaders dropped into ./shaders/<name>.glsl receive the same set.
++
++in vec2 vTexCoord;
++out vec4 fragColor;
++
++uniform sampler2D Source;
++uniform vec2 SourceSize;
++uniform vec2 OutputSize;
++uniform vec2 InputSize;
++uniform int FrameCount;
++
++void main() {
++    vec3 color = texture(Source, vTexCoord).rgb;
++
++    // Per-source-row scanline darkening. SourceSize.y * vTexCoord.y gives
++    // a continuous "row" coordinate; a unit-period cosine creates a smooth
++    // oscillation between adjacent rows. The output is remapped from
++    // [-1,1] to [scanMin,1].
++    const float scanMin = 0.75;
++    float row = vTexCoord.y * SourceSize.y;
++    float scan = mix(scanMin, 1.0, 0.5 + 0.5 * cos(row * 6.283185));
++    color *= scan;
++
++    // Subpixel mask: cheap triad pattern based on output column position.
++    // Keeps overall brightness near unity by raising one channel and
++    // dropping the other two by the same magnitude.
++    const float maskStrength = 0.10;
++    float colMod = mod(gl_FragCoord.x, 3.0);
++    vec3 mask;
++    if (colMod < 1.0) {
++        mask = vec3(1.0 + maskStrength, 1.0 - maskStrength, 1.0 - maskStrength);
++    } else if (colMod < 2.0) {
++        mask = vec3(1.0 - maskStrength, 1.0 + maskStrength, 1.0 - maskStrength);
++    } else {
++        mask = vec3(1.0 - maskStrength, 1.0 - maskStrength, 1.0 + maskStrength);
++    }
++    color *= mask;
++
++    fragColor = vec4(color, 1.0);
++}
+-- 
+2.43.0
+
