@@ -57,11 +57,20 @@ static const std::map<int32_t, const char*> kTextureFilteringMap = {
 // Gui::DrawGame. 0 keeps the framebuffer at the window resolution; 1 forces a
 // 320x240 4:3 framebuffer centered with side strips; 2/3 keep the window's
 // aspect but lock vertical pixel count.
+// Keys 0..3 hand off to libultraship's gLowResMode (Gui.cpp LowResMode switch);
+// keys 4..7 take the PixelPerfectMode path of gAdvancedResolution and ignore
+// gLowResMode. port.cpp's boot latch translates the pending menu value into
+// the right combination of LUS cvars so libultraship sees a stable state for
+// the whole session.
 static const std::map<int32_t, const char*> kLowResModeMap = {
     { 0, "Off (window resolution)" },
-    { 1, "N64 (320x240, 4:3 centered)" },
-    { 2, "240p (window aspect)" },
-    { 3, "480p (window aspect)" },
+    { 1, "N64 (320x240, stretched 4:3)" },
+    { 2, "240p (window aspect, stretched)" },
+    { 3, "480p (window aspect, stretched)" },
+    { 4, "N64 integer-scaled (auto-fit, pixel-perfect)" },
+    { 5, "N64 integer-scaled (2x, pixel-perfect)" },
+    { 6, "N64 integer-scaled (3x, pixel-perfect)" },
+    { 7, "N64 integer-scaled (4x, pixel-perfect)" },
 };
 
 // Mirrors dbObjectDisplayMode (src/sys/develop.h). 0 disables the override and
@@ -255,8 +264,10 @@ void PortMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Options(ComboboxOptions()
                      .Tooltip("Forces the internal framebuffer to a low resolution. "
-                              "N64 mode renders at 320x240 and pillarboxes to 4:3 inside the window. "
-                              "240p / 480p lock vertical pixel count while matching the window's aspect. "
+                              "Stretched modes scale the framebuffer to fill the game viewport. "
+                              "Pixel-perfect modes render N64-native 320x240 and draw it at an integer "
+                              "factor, centred with black borders — sharper retro look, no sub-pixel blur. "
+                              "Auto-fit picks the largest factor that still fits in the window. "
                               "Overrides Internal Resolution while active. "
                               "Latched at startup — changes take effect on next launch (toggling mid-session "
                               "would resize the framebuffer and race the Metal renderer).")
