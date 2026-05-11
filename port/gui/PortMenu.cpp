@@ -53,6 +53,17 @@ static const std::map<int32_t, const char*> kTextureFilteringMap = {
     { Fast::FILTER_NONE, "None" },
 };
 
+// Mirrors the LowResMode switch in libultraship Gui::CalculateGameViewport /
+// Gui::DrawGame. 0 keeps the framebuffer at the window resolution; 1 forces a
+// 320x240 4:3 framebuffer centered with side strips; 2/3 keep the window's
+// aspect but lock vertical pixel count.
+static const std::map<int32_t, const char*> kLowResModeMap = {
+    { 0, "Off (window resolution)" },
+    { 1, "N64 (320x240, 4:3 centered)" },
+    { 2, "240p (window aspect)" },
+    { 3, "480p (window aspect)" },
+};
+
 // Mirrors dbObjectDisplayMode (src/sys/develop.h). 0 disables the override and
 // returns the engine's normal rendering.
 static const std::map<int32_t, const char*> kHitboxViewMap = {
@@ -238,6 +249,19 @@ void PortMenu::AddMenuSettings() {
                      .IsPercentage()
                      .Min(0.5f)
                      .Max(2.0f));
+
+    AddWidget(path, "Low Resolution Mode (Needs reload)", WIDGET_CVAR_COMBOBOX)
+        .CVar("gLowResModePending")
+        .RaceDisable(false)
+        .Options(ComboboxOptions()
+                     .Tooltip("Forces the internal framebuffer to a low resolution. "
+                              "N64 mode renders at 320x240 and pillarboxes to 4:3 inside the window. "
+                              "240p / 480p lock vertical pixel count while matching the window's aspect. "
+                              "Overrides Internal Resolution while active. "
+                              "Latched at startup — changes take effect on next launch (toggling mid-session "
+                              "would resize the framebuffer and race the Metal renderer).")
+                     .ComboMap(kLowResModeMap)
+                     .DefaultIndex(0));
 
 #ifndef __WIIU__
     AddWidget(path, "Anti-aliasing (MSAA)", WIDGET_CVAR_SLIDER_INT)

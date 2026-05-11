@@ -413,6 +413,23 @@ static int PortInitImpl(int argc, char* argv[]) {
 		cv->SetFloat("gAdvancedResolution.AspectRatioY", 3.0f);
 		cv->SetInteger("gAdvancedResolution.Enabled", widescreen_on ? 0 : 1);
 
+		/* Latch gLowResMode at boot. libultraship's Gui::CalculateGameViewport
+		 * reads gLowResMode every frame and rewrites mCurDimensions, which
+		 * forces a Fast3D framebuffer reallocation. Doing that mid-session
+		 * races against the ImGui Metal backend: the per-frame ImGui::Image
+		 * cmd captures the old MTLTexture pointer at submit, but the FB
+		 * resource releases it on dim change before Metal's encoder retains
+		 * the texture, so the next setFragmentTexture: objc_retain hits a
+		 * freed object and SIGSEGVs (the same hazard documented above for
+		 * the widescreen toggle). The menu writes the user's choice to
+		 * gLowResModePending; we copy it here so LUS sees a constant
+		 * gLowResMode for the entire session and the FB resize only ever
+		 * happens at startup. */
+		if (cv->Get("gLowResModePending") == nullptr) {
+			cv->SetInteger("gLowResModePending", cv->GetInteger("gLowResMode", 0));
+		}
+		cv->SetInteger("gLowResMode", cv->GetInteger("gLowResModePending", 0));
+
 		/* Issue #96 migration. v0.7-beta stored the per-player NRage
 		 * analog-remap enable flag at gEnhancements.AnalogRemap.PX —
 		 * the same JSON path that PX.Deadzone / PX.Range hang off of.
