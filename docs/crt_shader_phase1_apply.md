@@ -1,23 +1,11 @@
-# Phase 1 CRT/Post-Process Shader — Applying the libultraship Patch
+# Phase 1 CRT/Post-Process Shader — What Shipped
 
 This branch implements Phase 1 of `docs/crt_shader_plan_2026-05-11.md`.
-The LUS-side changes live in `docs/crt_shader_phase1_libultraship.patch`
-rather than as a submodule SHA bump, because the session that authored
-the patch could not push to `JRickey/libultraship` over the local proxy.
+The LUS-side changes are committed as
+`JRickey/libultraship@2191d4c` on branch `claude/postprocess-shaders`;
+the outer-tree submodule pointer was bumped in commit `aa3a2f1`.
 
-## Applying
-
-```bash
-cd libultraship
-git checkout -b claude/postprocess-shaders        # or feature/postprocess-shaders
-git am ../docs/crt_shader_phase1_libultraship.patch
-git push -u origin claude/postprocess-shaders
-cd ..
-git add libultraship
-git commit -m "Bump libultraship: post-process shaders (Phase 1, OpenGL)"
-```
-
-## What the patch adds
+## What Phase 1 adds
 
 LUS feature work (game-agnostic, ready for upstream PR consideration):
 
@@ -66,8 +54,6 @@ The libultraship target builds cleanly with my changes applied.
 See `docs/crt_shader_plan_2026-05-11.md` §10 for the effort breakdown.
 
 ## Trying it
-
-After applying:
 
 ```bash
 cmake --build build --target ssb64 -j 4
