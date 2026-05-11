@@ -30,6 +30,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-tags: true       # built-in updater derives version from
+                                 # `git describe --tags` at configure time;
+                                 # checkout@v4's default shallow clone
+                                 # omits tags.
       - name: Install build deps
         # libultraship's CMake calls find_package on:
         #   libzip, nlohmann_json, tinyxml2, spdlog (libultraship/src)
@@ -76,6 +80,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-tags: true       # built-in updater derives version from
+                                 # `git describe --tags` at configure time;
+                                 # checkout@v4's default shallow clone
+                                 # omits tags.
       - name: Install build deps
         # libultraship find_package set: libzip, nlohmann_json, tinyxml2,
         # spdlog, SDL2, GLEW. See header comment on the runner for the
@@ -131,6 +139,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-tags: true       # built-in updater derives version from
+                                 # `git describe --tags` at configure time;
+                                 # checkout@v4's default shallow clone
+                                 # omits tags.
       - name: Install build deps
         # Windows runner ships with cmake / Visual Studio Build Tools
         # already. SDL2 comes from vcpkg, which is integrated by

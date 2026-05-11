@@ -1,8 +1,33 @@
 cmake_minimum_required(VERSION 3.24.0 FATAL_ERROR)
 
-project(ssb64 VERSION 0.8.1 LANGUAGES C CXX)
+project(ssb64 LANGUAGES C CXX)
 
 include(ExternalProject)
+
+# Version string for the built-in updater. String-compared exactly against
+# the name returned by GitHub's /tags API, so it must match the release tag
+# character-for-character (suffix-and-all). Resolution order:
+#   1. -DBATTLESHIP_VERSION=... passed by the caller (release CI sets this
+#      to $GITHUB_REF_NAME).
+#   2. `git describe --tags --abbrev=0` for local builds at a tagged commit.
+#   3. "dev" fallback for source tarballs / shallow CI checkouts — those
+#      builds always show "update available", which is the right signal.
+if(NOT BATTLESHIP_VERSION)
+    find_package(Git QUIET)
+    if(Git_FOUND AND EXISTS "${CMAKE_SOURCE_DIR}/.git")
+        execute_process(
+            COMMAND ${GIT_EXECUTABLE} describe --tags --abbrev=0
+            WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+            OUTPUT_VARIABLE BATTLESHIP_VERSION
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+    endif()
+endif()
+if(NOT BATTLESHIP_VERSION)
+    set(BATTLESHIP_VERSION "dev")
+endif()
+message(STATUS "BattleShip updater version: ${BATTLESHIP_VERSION}")
 
 # Pulled-in BEFORE the libultraship subdirectory so its
 # find_package(tinyxml2) sees our pkg-config-fallback shim. Required
@@ -243,7 +268,7 @@ set(SSB64_COMPILE_DEFS
     CIMGUI_DEFINE_ENUMS_AND_STRUCTS
 
     # Updater
-    BATTLESHIP_CURRENT_VERSION=\"v${PROJECT_VERSION}\"
+    BATTLESHIP_CURRENT_VERSION=\"${BATTLESHIP_VERSION}\"
 )
 
 if(SSB64_STAGE_CYCLE_DEMO)
