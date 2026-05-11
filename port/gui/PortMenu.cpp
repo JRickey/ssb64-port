@@ -292,12 +292,14 @@ void PortMenu::AddMenuSettings() {
     AddWidget(path, "Widescreen (Needs reload)", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::WidescreenCVarName())
         .RaceDisable(false)
-        .Options(CheckboxOptions().Tooltip(
-            "Renders battle scenes with a wider field of view to fill widescreen "
-            "windows. Title screen, menus, and intros stretch to fill the window "
-            "(no widescreen art). Some stages may show authored background edges "
-            "that were never visible in 4:3. Experimental — restart required for "
-            "the toggle to take effect."));
+        .Options(CheckboxOptions()
+                     .Tooltip(
+                         "Renders battle scenes with a wider field of view to fill widescreen "
+                         "windows. Title screen, menus, and intros stretch to fill the window "
+                         "(no widescreen art). Some stages may show authored background edges "
+                         "that were never visible in 4:3. Experimental — restart required for "
+                         "the toggle to take effect.")
+                     .DefaultValue(true));
 
     path.sidebarName = "Gameplay";
     path.column = SECTION_COLUMN_1;

@@ -10,7 +10,7 @@ namespace {
 constexpr const char* kWidescreenCVar = "gEnhancements.Widescreen";
 
 bool widescreen_enabled() {
-    return CVarGetInteger(kWidescreenCVar, 0) != 0;
+    return CVarGetInteger(kWidescreenCVar, 1) != 0;
 }
 
 } // namespace

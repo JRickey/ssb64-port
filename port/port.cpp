@@ -408,7 +408,7 @@ static int PortInitImpl(int argc, char* argv[]) {
 	 * latched here); changing it mid-session triggers an mCurDimensions FB
 	 * resize that's racy and crashes. Document this on the menu tooltip. */
 	if (auto cv = sContext->GetConsoleVariables()) {
-		const bool widescreen_on = cv->GetInteger("gEnhancements.Widescreen", 0) != 0;
+		const bool widescreen_on = cv->GetInteger("gEnhancements.Widescreen", 1) != 0;
 		cv->SetFloat("gAdvancedResolution.AspectRatioX", 4.0f);
 		cv->SetFloat("gAdvancedResolution.AspectRatioY", 3.0f);
 		cv->SetInteger("gAdvancedResolution.Enabled", widescreen_on ? 0 : 1);
