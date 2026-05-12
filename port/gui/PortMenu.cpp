@@ -481,44 +481,6 @@ void PortMenu::AddMenuSettings() {
         .Options(WindowButtonOptions().Tooltip("Toggles the graphics debugger window."));
 }
 
-/*
-void PortMenu::AddMenuWindows() {
-    AddMenuEntry("Windows", CVAR_SETTING("Menu.WindowsSidebarSection"));
-
-    WidgetPath path = { "Windows", "Tools", SECTION_COLUMN_1 };
-    AddSidebarEntry("Windows", "Tools", 1);
-    AddWidget(path, "Debug Windows", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Stats", WIDGET_WINDOW_BUTTON)
-        .CVar(CVAR_STATS_WINDOW_OPEN)
-        .RaceDisable(false)
-        .WindowName("Stats")
-        .HideInSearch(true)
-        .Options(WindowButtonOptions().Tooltip("Toggles the Stats window."));
-    AddWidget(path, "Console", WIDGET_WINDOW_BUTTON)
-        .CVar(CVAR_CONSOLE_WINDOW_OPEN)
-        .RaceDisable(false)
-        .WindowName("Console")
-        .HideInSearch(true)
-        .Options(WindowButtonOptions().Tooltip("Toggles the Console window."));
-    AddWidget(path, "Gfx Debugger", WIDGET_WINDOW_BUTTON)
-        .CVar(CVAR_GFX_DEBUGGER_WINDOW_OPEN)
-        .RaceDisable(false)
-        .WindowName("GfxDebuggerWindow")
-        .HideInSearch(true)
-        .Options(WindowButtonOptions().Tooltip("Toggles the graphics debugger window."));
-
-    path.sidebarName = "Input";
-    AddSidebarEntry("Windows", "Input", 1);
-    AddWidget(path, "Controller", WIDGET_SEPARATOR_TEXT);
-    AddWidget(path, "Controller Configuration", WIDGET_WINDOW_BUTTON)
-        .CVar(CVAR_CONTROLLER_CONFIGURATION_WINDOW_OPEN)
-        .RaceDisable(false)
-        .WindowName("Input Editor")
-        .HideInSearch(true)
-        .Options(WindowButtonOptions().Tooltip("Toggles the controller configuration window."));
-}
-*/
-
 void PortMenu::AddMenuAssets() {
     AddMenuEntry("Assets", CVAR_SETTING("Menu.AssetsSidebarSection"));
 
@@ -631,7 +593,6 @@ void PortMenu::AddMenuAbout() {
 
 void PortMenu::AddMenuElements() {
     AddMenuSettings();
-    //AddMenuWindows();
     AddMenuAssets();
     AddMenuAbout();
 
