@@ -411,7 +411,67 @@ static int PortInitImpl(int argc, char* argv[]) {
 		const bool widescreen_on = cv->GetInteger("gEnhancements.Widescreen", 1) != 0;
 		cv->SetFloat("gAdvancedResolution.AspectRatioX", 4.0f);
 		cv->SetFloat("gAdvancedResolution.AspectRatioY", 3.0f);
-		cv->SetInteger("gAdvancedResolution.Enabled", widescreen_on ? 0 : 1);
+
+		/* Latch the Low Resolution Mode menu choice at boot. libultraship's
+		 * Gui::CalculateGameViewport / Gui::DrawGame read gLowResMode and the
+		 * gAdvancedResolution.* cvars every frame and rewrite mCurDimensions,
+		 * which forces a Fast3D framebuffer reallocation. Toggling these
+		 * mid-session races the ImGui Metal backend: the per-frame
+		 * ImGui::Image cmd captures the old MTLTexture pointer at submit,
+		 * but the FB resource releases it on dim change before Metal's
+		 * encoder retains the texture, so the next setFragmentTexture:
+		 * objc_retain hits a freed object and SIGSEGVs (same hazard
+		 * documented above for the widescreen toggle). The menu writes the
+		 * user's choice to gLowResModePending; we translate it into the
+		 * right set of LUS cvars here, once per launch.
+		 *
+		 *   0  Off — window-resolution framebuffer
+		 *   1  N64 stretched 4:3       (gLowResMode=1)
+		 *   2  240p window aspect      (gLowResMode=2)
+		 *   3  480p window aspect      (gLowResMode=3)
+		 *   4..7  N64 pixel-perfect integer scale (PixelPerfectMode path,
+		 *        fixed 320x240 framebuffer via VerticalResolutionToggle=1
+		 *        + VerticalPixelCount=240, factor selected by sub-key) */
+		if (cv->Get("gLowResModePending") == nullptr) {
+			cv->SetInteger("gLowResModePending", cv->GetInteger("gLowResMode", 0));
+		}
+		const int32_t mode = cv->GetInteger("gLowResModePending", 0);
+
+		int32_t low_res_mode = 0;
+		bool integer_scale = false;
+		int32_t integer_factor = 1;
+		bool integer_auto_fit = false;
+		switch (mode) {
+			case 1: low_res_mode = 1; break;
+			case 2: low_res_mode = 2; break;
+			case 3: low_res_mode = 3; break;
+			case 4: integer_scale = true; integer_auto_fit = true; break;
+			case 5: integer_scale = true; integer_factor = 2; break;
+			case 6: integer_scale = true; integer_factor = 3; break;
+			case 7: integer_scale = true; integer_factor = 4; break;
+			default: break;
+		}
+
+		cv->SetInteger("gLowResMode", low_res_mode);
+		if (integer_scale) {
+			/* PixelPerfect path needs Enabled=1 regardless of widescreen so
+			 * ApplyResolutionChanges runs; with VerticalResolutionToggle=1
+			 * and a 4:3 AspectRatio, mCurDimensions resolves to 320x240, then
+			 * DrawGame's pixel-perfect branch draws it at integer factor. */
+			cv->SetInteger("gAdvancedResolution.Enabled", 1);
+			cv->SetInteger("gAdvancedResolution.VerticalResolutionToggle", 1);
+			cv->SetInteger("gAdvancedResolution.VerticalPixelCount", 240);
+			cv->SetInteger("gAdvancedResolution.PixelPerfectMode", 1);
+			cv->SetInteger("gAdvancedResolution.IntegerScale.FitAutomatically", integer_auto_fit ? 1 : 0);
+			cv->SetInteger("gAdvancedResolution.IntegerScale.Factor", integer_factor);
+			cv->SetInteger("gAdvancedResolution.IntegerScale.NeverExceedBounds", 1);
+		} else {
+			/* Restore the widescreen-driven 4:3 pillarbox default when no
+			 * integer-scale mode is selected. */
+			cv->SetInteger("gAdvancedResolution.Enabled", widescreen_on ? 0 : 1);
+			cv->SetInteger("gAdvancedResolution.VerticalResolutionToggle", 0);
+			cv->SetInteger("gAdvancedResolution.PixelPerfectMode", 0);
+		}
 
 		/* Issue #96 migration. v0.7-beta stored the per-player NRage
 		 * analog-remap enable flag at gEnhancements.AnalogRemap.PX —
@@ -520,15 +580,14 @@ static int PortInitImpl(int argc, char* argv[]) {
 		}
 	}
 
-	// Pin LUS to off-screen rendering when the stage-clear "frozen frame"
-	// enhancement is enabled, so mGameFb is populated during gameplay and
-	// the GPU readback at scene transitions captures the prior frame
-	// rather than the post-Present swap-chain back buffer (undefined
-	// contents under DXGI FLIP_DISCARD on D3D11). Cost is one extra full-
-	// screen blit per frame (sub-millisecond on any modern GPU). The CVar
-	// menu callback re-applies this on toggle.
-	port_capture_set_force_render_to_fb(
-		port_enhancement_stage_clear_frozen_wallpaper_enabled());
+	// Pin LUS to off-screen rendering so mGameFb is populated during
+	// gameplay and the GPU readback at scene transitions captures the
+	// prior frame rather than the post-Present swap-chain back buffer
+	// (undefined contents under DXGI FLIP_DISCARD on D3D11). Required by
+	// the 1P stage-clear frozen-wallpaper capture (issue #57) and the VS
+	// match -> results-screen photo wipe (issue #81). Cost is one extra
+	// full-screen blit per frame (sub-millisecond on any modern GPU).
+	port_capture_set_force_render_to_fb(1);
 
 	// FileDropMgr must come up before the first-run wizard so SDL_DROPFILE
 	// events landing on the window during the wizard frame loop can be

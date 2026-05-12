@@ -8,7 +8,6 @@
 #include "PortMenu.h"
 
 #include "Compat.h"
-#include "../bridge/framebuffer_capture.h"
 #include "../enhancements/enhancements.h"
 
 #include <fast/backends/gfx_rendering_api.h>
@@ -51,6 +50,26 @@ static const std::map<int32_t, const char*> kTextureFilteringMap = {
     { Fast::FILTER_THREE_POINT, "Three-Point" },
     { Fast::FILTER_LINEAR, "Linear" },
     { Fast::FILTER_NONE, "None" },
+};
+
+// Mirrors the LowResMode switch in libultraship Gui::CalculateGameViewport /
+// Gui::DrawGame. 0 keeps the framebuffer at the window resolution; 1 forces a
+// 320x240 4:3 framebuffer centered with side strips; 2/3 keep the window's
+// aspect but lock vertical pixel count.
+// Keys 0..3 hand off to libultraship's gLowResMode (Gui.cpp LowResMode switch);
+// keys 4..7 take the PixelPerfectMode path of gAdvancedResolution and ignore
+// gLowResMode. port.cpp's boot latch translates the pending menu value into
+// the right combination of LUS cvars so libultraship sees a stable state for
+// the whole session.
+static const std::map<int32_t, const char*> kLowResModeMap = {
+    { 0, "Off (window resolution)" },
+    { 1, "N64 (320x240, stretched 4:3)" },
+    { 2, "240p (window aspect, stretched)" },
+    { 3, "480p (window aspect, stretched)" },
+    { 4, "N64 integer-scaled (auto-fit, pixel-perfect)" },
+    { 5, "N64 integer-scaled (2x, pixel-perfect)" },
+    { 6, "N64 integer-scaled (3x, pixel-perfect)" },
+    { 7, "N64 integer-scaled (4x, pixel-perfect)" },
 };
 
 // Mirrors dbObjectDisplayMode (src/sys/develop.h). 0 disables the override and
@@ -260,6 +279,21 @@ void PortMenu::AddMenuSettings() {
                      .Min(0.5f)
                      .Max(2.0f));
 
+    AddWidget(path, "Low Resolution Mode (Needs reload)", WIDGET_CVAR_COMBOBOX)
+        .CVar("gLowResModePending")
+        .RaceDisable(false)
+        .Options(ComboboxOptions()
+                     .Tooltip("Forces the internal framebuffer to a low resolution. "
+                              "Stretched modes scale the framebuffer to fill the game viewport. "
+                              "Pixel-perfect modes render N64-native 320x240 and draw it at an integer "
+                              "factor, centred with black borders — sharper retro look, no sub-pixel blur. "
+                              "Auto-fit picks the largest factor that still fits in the window. "
+                              "Overrides Internal Resolution while active. "
+                              "Latched at startup — changes take effect on next launch (toggling mid-session "
+                              "would resize the framebuffer and race the Metal renderer).")
+                     .ComboMap(kLowResModeMap)
+                     .DefaultIndex(0));
+
 #ifndef __WIIU__
     AddWidget(path, "Anti-aliasing (MSAA)", WIDGET_CVAR_SLIDER_INT)
         .CVar(CVAR_MSAA_VALUE)
@@ -345,23 +379,6 @@ void PortMenu::AddMenuSettings() {
     path.column = SECTION_COLUMN_1;
     AddSidebarEntry("Settings", "Gameplay", 1);
 
-    AddWidget(path, "1P Stage Clear: Frozen Frame Background", WIDGET_CVAR_CHECKBOX)
-        .CVar(enhancements::StageClearFrozenWallpaperCVarName())
-        .RaceDisable(false)
-        .Callback([](WidgetInfo&) {
-            // When this flips on we need LUS to start rendering off-screen so
-            // mGameFb is populated by the time the next stage-clear scene
-            // transition fires. When it flips off we drop the per-frame blit.
-            port_capture_set_force_render_to_fb(
-                port_enhancement_stage_clear_frozen_wallpaper_enabled());
-        })
-        .Options(CheckboxOptions().Tooltip(
-            "On real hardware the 1P stage-clear bonus screen freezes the last gameplay frame "
-            "as the background. The port reproduces this via a GPU readback when the scene "
-            "loads. While enabled, the renderer draws each frame to an off-screen buffer "
-            "(sub-millisecond cost) so the prior gameplay frame is preserved across the "
-            "scene transition. Disable to revert to a solid black background.")
-                     .DefaultValue(true));
     AddWidget(path, "Disable Stage Hazards", WIDGET_CVAR_CHECKBOX)
         .CVar(enhancements::StageHazardsDisabledCVarName())
         .RaceDisable(false)
