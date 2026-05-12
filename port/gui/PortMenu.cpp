@@ -11,15 +11,19 @@
 #include "../enhancements/enhancements.h"
 
 #include <fast/backends/gfx_rendering_api.h>
+#include <fast/postprocess/PostProcessSourceLoader.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
 #include <ship/window/gui/Gui.h>
+
+#include <imgui.h>
 
 #include <SDL2/SDL.h>
 #include <spdlog/fmt/fmt.h>
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <filesystem>
 
 namespace fs = std::filesystem;
@@ -80,25 +84,150 @@ static const std::map<int32_t, const char*> kHitboxViewMap = {
     { 2, "Outline + opaque hurtboxes" },
 };
 
-// Post-process shader picker. The combo stores an int index; the callback
-// translates that index into the string CVar value LUS reads each frame
-// (gPostProcessShader). Index 0 is reserved as the "off" position; the
-// callback flips gPostProcessEnabled to match so the user gets a single
-// dropdown UX instead of "checkbox + name field." Add an entry here when
-// a new builtin (or commonly-used user shader) ships under
-// libultraship/src/fast/shaders/postprocess/.
-static const std::map<int32_t, const char*> kPostProcessShaderMap = {
-    { 0, "Off" },
-    { 1, "Scanlines (built-in)" },
-    { 2, "CRT — Lottes (built-in)" },
-};
-// Parallel index → CVar-value table. Kept separate from the display map
-// so the user-facing label can drift without changing what gets written
-// to disk / the LUS loader.
-static const std::map<int32_t, const char*> kPostProcessShaderNames = {
-    { 1, "scanlines" },
-    { 2, "crt-lottes" },
-};
+// Bundled (in-archive) post-process shaders get a friendly label
+// in the picker. Names not in this map render with the shader's
+// short name directly (the user-supplied taxonomy is good enough).
+static const char* PostProcessShaderLabel(const std::string& name) {
+    if (name == "scanlines")  return "Scanlines";
+    if (name == "crt-lottes") return "CRT — Lottes";
+    return nullptr;
+}
+
+// Render the post-process shader picker as a single combo widget
+// that opens onto a tree of bundled + user-installed shaders. Drives
+// the two LUS cvars LUS::Run reads each frame:
+//   gPostProcessEnabled (int, 0/1)
+//   gPostProcessShader  (string, short name as accepted by
+//                        Fast::LoadPostProcessShader)
+// The combo's preview text reflects the current cvar state, so a
+// fresh launch picks up the previously-selected shader without the
+// picker needing to know about state-restore.
+void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
+    const bool enabled = CVarGetInteger("gPostProcessEnabled", 0) != 0;
+    const char* currentRaw = CVarGetString("gPostProcessShader", "");
+    const std::string current = currentRaw ? currentRaw : std::string();
+
+    std::string preview = "Off";
+    if (enabled && !current.empty()) {
+        if (const char* friendly = PostProcessShaderLabel(current)) {
+            preview = friendly;
+        } else {
+            preview = current;
+        }
+    }
+
+    ImGui::TextUnformatted("Post-Process Shader");
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    if (!ImGui::BeginCombo("##gPostProcessShaderPicker", preview.c_str())) {
+        return;
+    }
+
+    // Filter input persists across frames inside the open popup
+    // only — closing the combo clears it. ImGui draws the combo
+    // content inside its own internal child window each frame, so
+    // a static-local is the simplest persistence story without a
+    // companion cvar.
+    static char filterBuf[128] = "";
+    ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
+    ImGui::InputTextWithHint("##gPostProcessShaderFilter", "Filter…", filterBuf, sizeof(filterBuf));
+    const std::string filter = filterBuf;
+
+    auto matchesFilter = [&filter](const std::string& s) -> bool {
+        if (filter.empty()) {
+            return true;
+        }
+        // Case-insensitive substring match.
+        std::string hay = s;
+        std::string needle = filter;
+        std::transform(hay.begin(), hay.end(), hay.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::transform(needle.begin(), needle.end(), needle.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return hay.find(needle) != std::string::npos;
+    };
+
+    auto selectShader = [](const std::string& name) {
+        if (name.empty()) {
+            CVarSetInteger("gPostProcessEnabled", 0);
+        } else {
+            CVarSetString("gPostProcessShader", name.c_str());
+            CVarSetInteger("gPostProcessEnabled", 1);
+        }
+    };
+
+    // "Off" sits at the top regardless of filter — it's not a shader
+    // name, just the disable affordance, and hiding it behind the
+    // filter would leave the user with no way to turn the effect off
+    // once they've narrowed the list.
+    if (ImGui::Selectable("Off", !enabled)) {
+        selectShader(std::string());
+    }
+    ImGui::Separator();
+
+    // Bundled group: pulled from the LUS API rather than hardcoded
+    // here so adding a builtin shader to f3d.o2r exposes it in the
+    // picker without a port-side change.
+    const std::vector<std::string> bundled = Fast::ListBuiltinPostProcessShaders();
+    std::vector<std::string> bundledFiltered;
+    bundledFiltered.reserve(bundled.size());
+    for (const std::string& name : bundled) {
+        const char* label = PostProcessShaderLabel(name);
+        if (matchesFilter(name) || (label && matchesFilter(label))) {
+            bundledFiltered.push_back(name);
+        }
+    }
+    if (!bundledFiltered.empty()) {
+        ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
+        if (ImGui::TreeNodeEx("Bundled", ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            for (const std::string& name : bundledFiltered) {
+                const char* friendly = PostProcessShaderLabel(name);
+                const std::string label = friendly ? friendly : name;
+                const bool active = enabled && current == name;
+                if (ImGui::Selectable(label.c_str(), active)) {
+                    selectShader(name);
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    // User-installed shaders, one tree node per folder under the
+    // per-user shaders dir. The "(loose)" bucket holds shaders that
+    // live directly in the root.
+    const std::vector<Fast::UserPostProcessShaderFolder> userFolders =
+        Fast::ListUserPostProcessShaders();
+    for (const auto& folder : userFolders) {
+        std::vector<std::string> matching;
+        matching.reserve(folder.shaderNames.size());
+        for (const std::string& name : folder.shaderNames) {
+            if (matchesFilter(name) || matchesFilter(folder.displayName)) {
+                matching.push_back(name);
+            }
+        }
+        if (matching.empty()) {
+            continue;
+        }
+        ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
+        if (ImGui::TreeNodeEx(folder.displayName.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            for (const std::string& name : matching) {
+                const bool active = enabled && current == name;
+                if (ImGui::Selectable(name.c_str(), active)) {
+                    selectShader(name);
+                }
+            }
+            ImGui::TreePop();
+        }
+    }
+
+    if (bundledFiltered.empty() && userFolders.empty() && filter.empty()) {
+        ImGui::TextDisabled("No user shaders installed.");
+        ImGui::TextDisabled("Drop .glsl / .glslp files into:");
+        const std::string userDir = Ship::Context::GetPathRelativeToAppDirectory("shaders");
+        ImGui::TextDisabled("%s", userDir.c_str());
+    }
+
+    ImGui::EndCombo();
+}
 
 } // namespace
 
@@ -308,29 +437,9 @@ void PortMenu::AddMenuSettings() {
                      .DefaultValue(1));
 #endif
 
-    AddWidget(path, "Post-Process Shader", WIDGET_CVAR_COMBOBOX)
-        .CVar("gPostProcessShaderSelect")
+    AddWidget(path, "Post-Process Shader", WIDGET_CUSTOM)
         .RaceDisable(false)
-        .Callback([](WidgetInfo&) {
-            const int32_t idx = CVarGetInteger("gPostProcessShaderSelect", 0);
-            if (idx == 0) {
-                CVarSetInteger("gPostProcessEnabled", 0);
-            } else {
-                const auto it = kPostProcessShaderNames.find(idx);
-                if (it != kPostProcessShaderNames.end()) {
-                    CVarSetString("gPostProcessShader", it->second);
-                    CVarSetInteger("gPostProcessEnabled", 1);
-                }
-            }
-        })
-        .Options(ComboboxOptions()
-                     .Tooltip(
-                         "Applies a fullscreen fragment shader to the rendered frame before the GUI "
-                         "draws. \"Scanlines\" is a built-in MIT-licensed CRT effect; drop "
-                         "additional .glsl files into the ./shaders/ folder next to the executable "
-                         "to load them by name via the gPostProcessShader console variable.")
-                     .ComboMap(kPostProcessShaderMap)
-                     .DefaultIndex(0));
+        .CustomFunction(RenderPostProcessShaderPicker);
 
     AddWidget(path, "Renderer API (Needs reload)", WIDGET_VIDEO_BACKEND).RaceDisable(false);
     AddWidget(path, "Enable Vsync", WIDGET_CVAR_CHECKBOX)
