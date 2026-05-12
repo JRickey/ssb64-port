@@ -355,6 +355,19 @@ void PortMenu::AddMenuSettings() {
                      .ComboMap(kHitboxViewMap)
                      .DefaultIndex(0));
 
+    // --- Input customization ---
+    path.sidebarName = "Input";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Input", 1);
+
+    AddWidget(path, "Controller", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Controller Configuration", WIDGET_WINDOW_BUTTON)
+        .CVar(CVAR_CONTROLLER_CONFIGURATION_WINDOW_OPEN)
+        .RaceDisable(false)
+        .WindowName("Input Editor")
+        .HideInSearch(true)
+        .Options(WindowButtonOptions().Tooltip("Toggles the controller configuration window."));
+
     // --- Controls sidebar: per-player input remapping ---
     path.sidebarName = "Controls";
     path.column = SECTION_COLUMN_1;
@@ -428,8 +441,8 @@ void PortMenu::AddMenuSettings() {
 
     AddWidget(path, "Master Unlocks", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Unlock Everything", WIDGET_CVAR_CHECKBOX)
-    .CVar("gCheats.UnlockAll")
-    .RaceDisable(false);
+        .CVar("gCheats.UnlockAll")
+        .RaceDisable(false);
 
     AddWidget(path, "Individual Characters", WIDGET_SEPARATOR_TEXT);
     AddWidget(path, "Unlock Captain Falcon", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockCaptain").RaceDisable(false);
@@ -441,8 +454,34 @@ void PortMenu::AddMenuSettings() {
     AddWidget(path, "Unlock Mushroom Kingdom", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockInishie").RaceDisable(false);
     AddWidget(path, "Unlock Item Switch Menu", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockItemSwitch").RaceDisable(false);
     AddWidget(path, "Unlock Sound Test Menu", WIDGET_CVAR_CHECKBOX).CVar("gCheats.UnlockSoundTest").RaceDisable(false);
+
+    // --- Tools ---
+    path.sidebarName = "Tools";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Settings", "Tools", 1);
+
+    AddWidget(path, "Debug Windows", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path, "Stats", WIDGET_WINDOW_BUTTON)
+        .CVar(CVAR_STATS_WINDOW_OPEN)
+        .RaceDisable(false)
+        .WindowName("Stats")
+        .HideInSearch(true)
+        .Options(WindowButtonOptions().Tooltip("Toggles the Stats window."));
+    AddWidget(path, "Console", WIDGET_WINDOW_BUTTON)
+        .CVar(CVAR_CONSOLE_WINDOW_OPEN)
+        .RaceDisable(false)
+        .WindowName("Console")
+        .HideInSearch(true)
+        .Options(WindowButtonOptions().Tooltip("Toggles the Console window."));
+    AddWidget(path, "Gfx Debugger", WIDGET_WINDOW_BUTTON)
+        .CVar(CVAR_GFX_DEBUGGER_WINDOW_OPEN)
+        .RaceDisable(false)
+        .WindowName("GfxDebuggerWindow")
+        .HideInSearch(true)
+        .Options(WindowButtonOptions().Tooltip("Toggles the graphics debugger window."));
 }
 
+/*
 void PortMenu::AddMenuWindows() {
     AddMenuEntry("Windows", CVAR_SETTING("Menu.WindowsSidebarSection"));
 
@@ -478,6 +517,7 @@ void PortMenu::AddMenuWindows() {
         .HideInSearch(true)
         .Options(WindowButtonOptions().Tooltip("Toggles the controller configuration window."));
 }
+*/
 
 void PortMenu::AddMenuAssets() {
     AddMenuEntry("Assets", CVAR_SETTING("Menu.AssetsSidebarSection"));
@@ -591,7 +631,7 @@ void PortMenu::AddMenuAbout() {
 
 void PortMenu::AddMenuElements() {
     AddMenuSettings();
-    AddMenuWindows();
+    //AddMenuWindows();
     AddMenuAssets();
     AddMenuAbout();
 
