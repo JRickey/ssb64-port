@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -15,8 +16,88 @@
 #include <sys/stat.h>
 #endif
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 namespace ssb64 {
 namespace enhancements {
+
+namespace {
+
+#if defined(_WIN32)
+// Run a child process with stdout/stderr redirected and no console window.
+// Required on Windows because _popen() / system() shell through cmd.exe;
+// when called from a /SUBSYSTEM:WINDOWS binary (no parent console), the OS
+// allocates a fresh visible console window for the child. The user sees that
+// console flash up in the background — once at startup when the updater
+// queries GitHub for tags, then again every time we shell out for anything.
+//
+// `onLine` receives each non-empty line of merged stdout/stderr as it
+// arrives (split on \r or \n so curl's progress output also feeds through
+// one update at a time). Returns the child's exit code, or -1 on launch
+// failure.
+int RunCaptureNoWindow(std::string cmd,
+                       const std::function<void(const std::string&)>& onLine) {
+    HANDLE readPipe = nullptr;
+    HANDLE writePipe = nullptr;
+    SECURITY_ATTRIBUTES sa{};
+    sa.nLength = sizeof(sa);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = nullptr;
+    if (!CreatePipe(&readPipe, &writePipe, &sa, 0)) return -1;
+    // The read end stays in the parent; don't let the child inherit it.
+    SetHandleInformation(readPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdOutput = writePipe;
+    si.hStdError = writePipe;
+    si.hStdInput = nullptr;
+
+    PROCESS_INFORMATION pi{};
+    BOOL ok = CreateProcessA(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+                             CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    // Always close the parent's write handle; the child holds its own copy.
+    // Without this, ReadFile blocks forever waiting for EOF.
+    CloseHandle(writePipe);
+    if (!ok) {
+        CloseHandle(readPipe);
+        return -1;
+    }
+
+    std::string line;
+    char buf[512];
+    DWORD got = 0;
+    while (ReadFile(readPipe, buf, sizeof(buf), &got, nullptr) && got > 0) {
+        for (DWORD i = 0; i < got; ++i) {
+            char c = buf[i];
+            if (c == '\r' || c == '\n') {
+                if (!line.empty()) {
+                    onLine(line);
+                    line.clear();
+                }
+            } else {
+                line += c;
+            }
+        }
+    }
+    if (!line.empty()) onLine(line);
+    CloseHandle(readPipe);
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    return static_cast<int>(code);
+}
+#endif
+
+} // namespace
 
 // We use atomics for the state flags so the UI thread doesn't have to lock a mutex 60 times a second!
 static std::atomic<bool> s_updateChecked{false};
@@ -43,25 +124,27 @@ void CheckForUpdatesAsync(bool force) {
     s_isCheckingForUpdates.store(true);
 
     std::thread([]() {
+        const char* const kCurlTagsCmd =
+            "curl -s -m 10 -H \"User-Agent: BattleShip-Updater\" "
+            "https://api.github.com/repos/JRickey/BattleShip/tags";
+
+        std::string response;
         #if defined(_WIN32)
-        FILE* pipe = _popen("curl -s -m 10 -H \"User-Agent: BattleShip-Updater\" https://api.github.com/repos/JRickey/BattleShip/tags", "r");
+        // CreateProcess path: keep the child fully headless. The response is
+        // a single JSON blob, so just concatenate every captured line.
+        RunCaptureNoWindow(kCurlTagsCmd, [&](const std::string& line) {
+            response += line;
+        });
         #else
-        FILE* pipe = popen("curl -s -m 10 -H \"User-Agent: BattleShip-Updater\" https://api.github.com/repos/JRickey/BattleShip/tags", "r");
-        #endif
+        FILE* pipe = popen(kCurlTagsCmd, "r");
         if (!pipe) {
             s_isCheckingForUpdates.store(false);
             return;
         }
-
-        std::string response = "";
         char buffer[128];
         while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
             response += buffer;
         }
-
-        #if defined(_WIN32)
-        _pclose(pipe);
-        #else
         pclose(pipe);
         #endif
 
@@ -130,19 +213,47 @@ void StartGameUpdate() {
 
         std::string tempPath = std::string(appImagePath) + ".part";
         std::string cmd = "curl -L -# -o \"" + tempPath + "\" \"" + url + "\" 2>&1";
-        FILE* pipe = popen(cmd.c_str(), "r");
 
         #elif defined(_WIN32)
         std::string tempZip = "update_temp.zip";
         std::string cmd = "curl -L -# -o \"" + tempZip + "\" \"" + url + "\" 2>&1";
-        FILE* pipe = _popen(cmd.c_str(), "r");
 
         #elif defined(__APPLE__)
         std::string tempDmg = "/tmp/BattleShip_Update.dmg";
         std::string cmd = "curl -L -# -o \"" + tempDmg + "\" \"" + url + "\" 2>&1";
-        FILE* pipe = popen(cmd.c_str(), "r");
         #endif
 
+        // Forward each line of curl's progress output to the UI status string.
+        // curl -# emits "##... 12.5%" style progress; we strip everything but
+        // digits and dots to land on the percentage.
+        auto onProgressLine = [](const std::string& line) {
+            if (line.find('%') == std::string::npos) return;
+            std::string pctStr;
+            for (char ch : line) {
+                if ((ch >= '0' && ch <= '9') || ch == '.') {
+                    pctStr += ch;
+                }
+            }
+            if (!pctStr.empty()) {
+                std::lock_guard<std::mutex> lock(s_stringMutex);
+                s_downloadStatus = "Downloading... " + pctStr + "%";
+            }
+        };
+
+        int exitCode;
+        #if defined(_WIN32)
+        // No console flash even though curl is a console subprocess.
+        exitCode = RunCaptureNoWindow(cmd, onProgressLine);
+        if (exitCode < 0) {
+            {
+                std::lock_guard<std::mutex> lock(s_stringMutex);
+                s_downloadStatus = "Error: Failed to launch download.";
+            }
+            s_isDownloading.store(false);
+            return;
+        }
+        #else
+        FILE* pipe = popen(cmd.c_str(), "r");
         if (!pipe) {
             {
                 std::lock_guard<std::mutex> lock(s_stringMutex);
@@ -151,37 +262,18 @@ void StartGameUpdate() {
             s_isDownloading.store(false);
             return;
         }
-
-        // Universal, freeze-proof read loop
         int c;
-        std::string currentLine = "";
+        std::string currentLine;
         while ((c = fgetc(pipe)) != EOF) {
             if (c == '\r' || c == '\n') {
-                if (!currentLine.empty() && currentLine.find('%') != std::string::npos) {
-
-                    // Filter out ALL terminal escape codes. Only keep numbers and decimals!
-                    std::string pctStr = "";
-                    for (char ch : currentLine) {
-                        if ((ch >= '0' && ch <= '9') || ch == '.') {
-                            pctStr += ch;
-                        }
-                    }
-
-                    if (!pctStr.empty()) {
-                        std::lock_guard<std::mutex> lock(s_stringMutex);
-                        s_downloadStatus = "Downloading... " + pctStr + "%";
-                    }
-                }
+                if (!currentLine.empty()) onProgressLine(currentLine);
                 currentLine.clear();
             } else {
-                currentLine += (char)c;
+                currentLine += static_cast<char>(c);
             }
         }
-
-        #if defined(_WIN32)
-        int exitCode = _pclose(pipe);
-        #else
-        int exitCode = pclose(pipe);
+        if (!currentLine.empty()) onProgressLine(currentLine);
+        exitCode = pclose(pipe);
         #endif
 
         if (exitCode == 0) {
@@ -220,7 +312,13 @@ void StartGameUpdate() {
                     s_downloadStatus = "Update ready! Close the game to apply.";
                 }
                 s_downloadComplete.store(true);
-                system("start \"BattleShip Updater\" \"update_game.bat\"");
+                // ShellExecuteA avoids the cmd.exe console flash that
+                // system("start ...") would produce; the .bat is still
+                // launched in its own console (the .bat associates with
+                // cmd.exe through the shell, which is the desired visible
+                // window for update-in-progress feedback).
+                ShellExecuteA(nullptr, "open", "update_game.bat", nullptr,
+                              nullptr, SW_SHOWNORMAL);
             } else {
                 std::lock_guard<std::mutex> lock(s_stringMutex);
                 s_downloadStatus = "Error: Failed to create updater script.";
@@ -257,8 +355,9 @@ void OpenReleasePage() {
     const char* url = "https://github.com/JRickey/BattleShip/releases/latest";
 
     #if defined(_WIN32)
-    std::string cmd = std::string("start \"\" \"") + url + "\"";
-    system(cmd.c_str());
+    // ShellExecute hands off to the default browser without first spawning
+    // a cmd.exe console (which system("start ...") would do from a GUI app).
+    ShellExecuteA(nullptr, "open", url, nullptr, nullptr, SW_SHOWNORMAL);
     #elif defined(__APPLE__)
     std::string cmd = std::string("open ") + url;
     system(cmd.c_str());
