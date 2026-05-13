@@ -265,6 +265,15 @@ extern "C" {
     int port_cheat_unlock_itemswitch() { return CVarGetInteger("gCheats.UnlockItemSwitch", 0); }
 }
 
+extern "C" {
+    // Stub for the upstream widescreen engine hack
+    float port_widescreen_clip_x_scale(void) {
+        // Returning 1.0f forces the engine to behave like a standard 4:3 CRT.
+        // (A true widescreen hook would calculate: current_screen_aspect / (4.0f / 3.0f))
+        return 1.0f;
+    }
+}
+
 namespace ssb64 {
 namespace enhancements {
 

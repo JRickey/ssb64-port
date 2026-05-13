@@ -404,6 +404,18 @@ void PortMenu::AddMenuSettings() {
 
     AddWidget(path, "Volume Levels", WIDGET_SEPARATOR_TEXT);
 
+
+    // Master
+    AddWidget(path, "Master Volume", WIDGET_CVAR_SLIDER_FLOAT)
+        .CVar("gSettings.Audio.MasterVolume")
+        .RaceDisable(false)
+        .Options(FloatSliderOptions()
+        .Tooltip("Adjust the overall volume of the entire game.")
+        .DefaultValue(1.0f)
+        .Min(0.0f)
+        .Max(1.0f)
+        .IsPercentage());
+
     // Music Volume Slider
     AddWidget(path, "Music Volume", WIDGET_CVAR_SLIDER_FLOAT)
         .CVar("gSettings.Audio.MusicVolume")
