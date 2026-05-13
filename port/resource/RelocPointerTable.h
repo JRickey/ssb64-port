@@ -17,6 +17,7 @@
  * O(1), and stale tokens from earlier scene/setup generations are rejected.
  */
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -44,9 +45,29 @@ void *portRelocResolvePointerDebug(uint32_t token, const char *file, int line);
 void *portRelocTryResolvePointer(uint32_t token);
 
 /**
- * Reset the token table (e.g. on scene change when all files are unloaded).
+ * Reset the token table (hard wipe — clears all slots, resets free list).
+ *
+ * Historically called from lbRelocInitSetup() on every scene boundary,
+ * which invalidated tokens for intern-buffer files that persist across
+ * scenes (mainmotion, submotion, model, special1-4, shieldpose) — the
+ * source of the variant-1/2/3 stale-data crash family. With the per-slot
+ * generational model this wholesale reset is no longer needed for normal
+ * scene cycling; use portRelocInvalidateRange() instead. Kept for
+ * diagnostic or test paths that need to discard all token state.
  */
 void portRelocResetPointerTable(void);
+
+/**
+ * Selectively invalidate slots whose stored pointer falls in [base, base+size).
+ * Each affected slot is NULLed and its generation bumped so stale tokens
+ * fail decode; the slot index is recycled via an internal free list.
+ *
+ * Called from port_taskman_evict_arena_caches() with the scene-arena
+ * range so tokens for arena-allocated data become stale at exactly the
+ * point that data is freed, while tokens pointing at the intern buffer
+ * (which survives the scene transition) remain valid.
+ */
+void portRelocInvalidateRange(const void *base, size_t size);
 
 #ifdef __cplusplus
 }
