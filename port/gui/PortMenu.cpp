@@ -10,9 +10,7 @@
 #include "Compat.h"
 #include "../enhancements/enhancements.h"
 
-#include <fast/Fast3dWindow.h>
 #include <fast/backends/gfx_rendering_api.h>
-#include <fast/interpreter.h>
 #include <fast/postprocess/PostProcessSourceLoader.h>
 #include <ship/Context.h>
 #include <ship/window/Window.h>
@@ -231,78 +229,6 @@ void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
     ImGui::EndCombo();
 }
 
-// Render `#pragma parameter` sliders for the currently-loaded shader.
-// Pulls descriptors + live values from the post-process chain hanging
-// off the Fast3dWindow / Interpreter pair; values reset to defaults
-// each time the shader is reloaded (no cvar persistence in this
-// phase — the slider state lives only in the chain's per-pass arrays).
-void RenderPostProcessShaderParameters(WidgetInfo& /*widget*/) {
-    if (CVarGetInteger("gPostProcessEnabled", 0) == 0) {
-        return;
-    }
-    auto ctx = Ship::Context::GetInstance();
-    if (ctx == nullptr) {
-        return;
-    }
-    auto window = std::dynamic_pointer_cast<Fast::Fast3dWindow>(ctx->GetWindow());
-    if (window == nullptr) {
-        return;
-    }
-    auto interp = window->GetInterpreterWeak().lock();
-    if (interp == nullptr) {
-        return;
-    }
-    Fast::PostProcessChain& chain = interp->GetPostProcessChain();
-    if (!chain.IsActive()) {
-        return;
-    }
-
-    // Aggregate parameter count across all passes — if there are none
-    // (most simple shaders), render nothing rather than an empty
-    // labeled block.
-    size_t total = 0;
-    const size_t passCount = chain.GetPassCount();
-    for (size_t i = 0; i < passCount; ++i) {
-        total += chain.GetParameterCount(i);
-    }
-    if (total == 0) {
-        return;
-    }
-
-    ImGui::SeparatorText("Shader Parameters");
-    for (size_t passIdx = 0; passIdx < passCount; ++passIdx) {
-        const size_t paramCount = chain.GetParameterCount(passIdx);
-        for (size_t paramIdx = 0; paramIdx < paramCount; ++paramIdx) {
-            const auto* desc = chain.GetParameterDescriptor(passIdx, paramIdx);
-            if (desc == nullptr) {
-                continue;
-            }
-            float value = chain.GetParameterValue(passIdx, paramIdx);
-            // ImGui ID includes pass + param idx so multi-pass shaders
-            // that declare the same parameter name on different passes
-            // get distinct widgets.
-            const std::string id = fmt::format("{}##pp_param_{}_{}", desc->label, passIdx, paramIdx);
-            if (ImGui::SliderFloat(id.c_str(), &value, desc->minValue, desc->maxValue, "%.3f")) {
-                chain.SetParameterValue(passIdx, paramIdx, value);
-            }
-        }
-    }
-    // Reset-to-defaults shortcut. Re-walks every pass and writes the
-    // descriptor default value back into the live state. Cheap and
-    // doesn't need a separate clear path.
-    if (ImGui::SmallButton("Reset to Defaults##pp_param_reset")) {
-        for (size_t passIdx = 0; passIdx < passCount; ++passIdx) {
-            const size_t paramCount = chain.GetParameterCount(passIdx);
-            for (size_t paramIdx = 0; paramIdx < paramCount; ++paramIdx) {
-                const auto* desc = chain.GetParameterDescriptor(passIdx, paramIdx);
-                if (desc != nullptr) {
-                    chain.SetParameterValue(passIdx, paramIdx, desc->defaultValue);
-                }
-            }
-        }
-    }
-}
-
 } // namespace
 
 void PortMenu::AddSidebarEntry(std::string sectionName, std::string sidebarName, uint32_t columnCount) {
@@ -514,10 +440,6 @@ void PortMenu::AddMenuSettings() {
     AddWidget(path, "Post-Process Shader", WIDGET_CUSTOM)
         .RaceDisable(false)
         .CustomFunction(RenderPostProcessShaderPicker);
-    AddWidget(path, "Post-Process Shader Parameters", WIDGET_CUSTOM)
-        .RaceDisable(false)
-        .HideInSearch(true)
-        .CustomFunction(RenderPostProcessShaderParameters);
 
     AddWidget(path, "Renderer API (Needs reload)", WIDGET_VIDEO_BACKEND).RaceDisable(false);
     AddWidget(path, "Enable Vsync", WIDGET_CVAR_CHECKBOX)
