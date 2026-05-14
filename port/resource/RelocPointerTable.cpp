@@ -147,13 +147,24 @@ void *portRelocResolvePointer(uint32_t token)
     return portRelocResolvePointerDebug(token, nullptr, 0);
 }
 
+/* Diagnostic counters — periodically dumped to spdlog so we can verify
+ * the per-slot table is actually resolving valid tokens (not silently
+ * NULLing everything, which would explain a "no vertices rendered" no-
+ * crash regression). Reset every gPortDebugLogPeriod resolves. */
+static uint64_t sResolveHits   = 0;
+static uint64_t sResolveMisses = 0;
+static uint64_t sResolveZero   = 0;
+constexpr uint64_t kResolveLogPeriod = 100000;
+
 void *portRelocResolvePointerDebug(uint32_t token, const char *file, int line)
 {
     if (token == 0) {
+        sResolveZero++;
         return nullptr;
     }
     uint32_t index = 0;
     if (!decodeToken(token, &index)) {
+        sResolveMisses++;
         uint32_t tokenGen   = token >> TOKEN_GENERATION_SHIFT;
         uint32_t tokenIndex = token & TOKEN_INDEX_MASK;
         uint32_t slotGen    = (sSlots && tokenIndex < sNextIndex) ? sSlots[tokenIndex].gen : 0;
@@ -167,6 +178,14 @@ void *portRelocResolvePointerDebug(uint32_t token, const char *file, int line)
                           token, tokenGen, slotGen, tokenIndex, sNextIndex - 1);
         }
         return nullptr;
+    }
+    sResolveHits++;
+    /* Periodic diag dump: ratio of hits / misses confirms the table is
+     * actually serving valid resolves vs silently NULLing everything. */
+    if (((sResolveHits + sResolveMisses) % kResolveLogPeriod) == 0) {
+        spdlog::info("RelocPointerTable: resolves so far hits={} misses={} zero={} (next_index={} free={})",
+                     sResolveHits, sResolveMisses, sResolveZero, sNextIndex,
+                     sFreeIndices.size());
     }
     return sSlots[index].ptr;
 }
