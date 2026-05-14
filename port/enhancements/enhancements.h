@@ -66,9 +66,11 @@ const char* WidescreenCVarName();
 void CheckForUpdatesAsync(bool force = false);
 void StartGameUpdate();
 bool IsUpdateAvailable();
+bool DidUpdateCheckFail();
 bool IsDownloading();
 bool IsDownloadComplete();
 bool IsCheckingForUpdates();
+std::string GetUpdateStatus();
 std::string GetDownloadStatus();
 std::string GetLatestVersion();
 }
