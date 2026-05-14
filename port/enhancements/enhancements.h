@@ -71,6 +71,24 @@ bool IsDownloadComplete();
 bool IsCheckingForUpdates();
 std::string GetDownloadStatus();
 std::string GetLatestVersion();
+
+// Libretro shader pack downloader. One-shot background job that
+// fetches libretro/glsl-shaders' master.zip and stream-extracts the
+// single-file CRT shaders (those that ship in libretro's expected
+// "single GLSL file with #ifdef VERTEX / FRAGMENT halves") into the
+// per-user shaders dir. Sibling `<name>.lus.json` sidecars are
+// written with `compat=native` so the menu picker can warn the user
+// that they need Low Resolution Mode for these shaders to render
+// at the right scale.
+//
+// All UI state below is atomic so the menu doesn't need a lock per
+// frame. Status strings need a mutex but are read at most once a
+// frame from the picker.
+void        DownloadLibretroShaderPackAsync();
+bool        IsShaderPackDownloadInProgress();
+bool        IsShaderPackDownloadComplete();
+std::string GetShaderPackStatus();
+int         GetShaderPackInstalledCount();
 }
 }
 #endif

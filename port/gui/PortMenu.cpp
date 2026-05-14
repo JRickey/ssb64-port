@@ -93,6 +93,31 @@ static const char* PostProcessShaderLabel(const std::string& name) {
     return nullptr;
 }
 
+// Draws the compat badge after a picker entry. `Any` shaders render
+// at any resolution; `Native` shaders ratio against InputSize and
+// only look right when the source FB is locked to ~240p (Low
+// Resolution Mode in the Settings → Graphics menu). The badge text
+// itself is colored, license hover-text comes from the sidecar.
+static void DrawPostProcessCompatBadge(const Fast::PostProcessShaderInfo& info) {
+    const char* text = info.compat == Fast::PostProcessCompat::Any ? "[any res]" : "[needs 240p]";
+    const ImVec4 color = info.compat == Fast::PostProcessCompat::Any
+        ? ImVec4(0.55f, 0.85f, 0.55f, 1.0f)
+        : ImVec4(0.95f, 0.75f, 0.35f, 1.0f);
+    ImGui::SameLine();
+    ImGui::TextColored(color, "%s", text);
+    if (!info.license.empty() && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("License: %s", info.license.c_str());
+    }
+}
+
+// Selecting a `compat=native` shader while Low Resolution Mode is
+// disabled is the common UX trap — the shader compiles and runs but
+// produces a tiny render in the corner of the FB. We open this
+// pending-modal token from the picker so the modal can be drawn at
+// the top of the next frame outside any combo / popup context.
+static std::string s_lowResWarnShader;
+static bool s_lowResWarnNeedsOpen = false;
+
 // Render the post-process shader picker as a single combo widget
 // that opens onto a tree of bundled + user-installed shaders. Drives
 // the two LUS cvars LUS::Run reads each frame:
@@ -149,10 +174,37 @@ void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
     auto selectShader = [](const std::string& name) {
         if (name.empty()) {
             CVarSetInteger("gPostProcessEnabled", 0);
-        } else {
-            CVarSetString("gPostProcessShader", name.c_str());
-            CVarSetInteger("gPostProcessEnabled", 1);
+            return;
         }
+        CVarSetString("gPostProcessShader", name.c_str());
+        CVarSetInteger("gPostProcessEnabled", 1);
+
+        // Trigger the Low Resolution Mode warn modal when the picked
+        // shader expects a native-resolution source FB but the user's
+        // current latched mode is "off". The shader still loads — we
+        // never block selection — but the modal nudges them toward
+        // enabling N64 mode + restart so the picture isn't a tiny
+        // render in the corner of the window.
+        const Fast::PostProcessShaderInfo info = Fast::GetPostProcessShaderInfo(name);
+        if (info.compat == Fast::PostProcessCompat::Native &&
+            CVarGetInteger("gLowResModePending", 0) == 0) {
+            s_lowResWarnShader = name;
+            s_lowResWarnNeedsOpen = true;
+        }
+    };
+
+    // Per-frame compat-info cache. Filesystem stat + sidecar parse
+    // happens here so each picker entry below can show a badge without
+    // re-probing on every Selectable. The map's lifetime is the
+    // visible combo body; rebuilt every frame the combo is open since
+    // the user's shader set rarely changes mid-popup and the cost is
+    // dwarfed by ImGui itself.
+    std::map<std::string, Fast::PostProcessShaderInfo> infoCache;
+    auto cachedInfo = [&infoCache](const std::string& name) -> const Fast::PostProcessShaderInfo& {
+        auto it = infoCache.find(name);
+        if (it != infoCache.end()) return it->second;
+        Fast::PostProcessShaderInfo info = Fast::GetPostProcessShaderInfo(name);
+        return infoCache.emplace(name, info).first->second;
     };
 
     // "Off" sits at the top regardless of filter — it's not a shader
@@ -186,6 +238,7 @@ void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
                 if (ImGui::Selectable(label.c_str(), active)) {
                     selectShader(name);
                 }
+                DrawPostProcessCompatBadge(cachedInfo(name));
             }
             ImGui::TreePop();
         }
@@ -210,10 +263,13 @@ void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
         ImGui::SetNextItemOpen(true, ImGuiCond_FirstUseEver);
         if (ImGui::TreeNodeEx(folder.displayName.c_str(), ImGuiTreeNodeFlags_SpanAvailWidth)) {
             for (const std::string& name : matching) {
+                const Fast::PostProcessShaderInfo& info = cachedInfo(name);
+                const std::string label = info.label.empty() ? name : info.label;
                 const bool active = enabled && current == name;
-                if (ImGui::Selectable(name.c_str(), active)) {
+                if (ImGui::Selectable(label.c_str(), active)) {
                     selectShader(name);
                 }
+                DrawPostProcessCompatBadge(info);
             }
             ImGui::TreePop();
         }
@@ -227,6 +283,139 @@ void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
     }
 
     ImGui::EndCombo();
+}
+
+// Live status panel for the post-process chain. Reads
+// Fast::GetPostProcessRuntimeDiagnostics(), which the chain publishes
+// on every load / unload. Lets the user confirm at a glance:
+//   * which shader is actually active (matches the cvar)
+//   * which load path produced it (legacy .glsl / .glslp, or .slang)
+//   * how many passes compiled
+//   * the last error if a load failed
+// Pair the on-screen state with the matching SPDLOG_INFO lines in
+// ssb64.log to walk through the load pipeline — see
+// docs/crt_shader_testing_protocol.md.
+void RenderPostProcessDiagnostics(WidgetInfo& /*widget*/) {
+    const Fast::PostProcessRuntimeDiagnostics diag = Fast::GetPostProcessRuntimeDiagnostics();
+
+    ImGui::TextDisabled("Shader runtime diagnostics");
+    if (diag.active) {
+        ImGui::Text("Active:  %s", diag.name.c_str());
+        ImGui::Text("Flavor:  %s", diag.flavor.c_str());
+        ImGui::Text("Passes:  %zu", diag.passCount);
+    } else if (!diag.lastError.empty()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.45f, 0.35f, 1.0f), "Inactive — last error:");
+        ImGui::TextWrapped("%s", diag.lastError.c_str());
+    } else {
+        ImGui::TextDisabled("No shader loaded.");
+    }
+
+    // Reload button — flips the enabled cvar off then on to force the
+    // interpreter to redo the load (which re-runs all of the
+    // SPDLOG_INFO instrumentation in the load path). Helpful when
+    // tweaking sidecars or replacing files on disk during testing.
+    if (ImGui::Button("Reload active shader")) {
+        const char* currentRaw = CVarGetString("gPostProcessShader", "");
+        const std::string current = currentRaw ? currentRaw : std::string();
+        if (!current.empty()) {
+            CVarSetInteger("gPostProcessEnabled", 0);
+            // The interpreter's transition detection keys on the (name,
+            // enabled) pair, so we re-write both even though the name
+            // is unchanged — that re-arms the load path.
+            CVarSetString("gPostProcessShader", current.c_str());
+            CVarSetInteger("gPostProcessEnabled", 1);
+        }
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Force the runtime to re-resolve, re-load, and re-compile the\n"
+            "currently-selected shader. Watch ssb64.log for the matching\n"
+            "Post-process: ... INFO lines. Useful after editing a shader\n"
+            "file on disk or its .lus.json sidecar.");
+    }
+}
+
+// Renders the "Download libretro shader pack" affordance immediately
+// beneath the picker. We expose it as its own custom-widget callback
+// so the picker stays a single ImGui::BeginCombo / EndCombo unit and
+// the button is freely positioned by the menu layout system.
+void RenderShaderPackDownloader(WidgetInfo& /*widget*/) {
+    using namespace ssb64::enhancements;
+
+    const bool inProgress = IsShaderPackDownloadInProgress();
+    if (inProgress) {
+        ImGui::BeginDisabled();
+    }
+    const char* label = inProgress ? "Downloading..." : "Download libretro shader pack";
+    if (ImGui::Button(label, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+        DownloadLibretroShaderPackAsync();
+    }
+    if (inProgress) {
+        ImGui::EndDisabled();
+    }
+
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip(
+            "Fetches libretro/glsl-shaders' master.zip and installs the single-file\n"
+            "GLSL shaders into <user-data>/shaders/libretro/. The picker above will\n"
+            "list them once the install finishes. These shaders are GPL'd and are\n"
+            "installed by the user at runtime — the binary itself stays MIT.\n"
+            "Most expect Low Resolution Mode for correct rendering scale.");
+    }
+
+    const std::string status = GetShaderPackStatus();
+    if (!status.empty()) {
+        ImGui::TextDisabled("%s", status.c_str());
+    }
+}
+
+// Modal companion to RenderPostProcessShaderPicker. Drawn from
+// RenderMenuTopLevel each frame so the popup survives the picker's
+// combo closing. The picker sets s_lowResWarnNeedsOpen when the user
+// selects a `compat=native` shader while Low Resolution Mode is off.
+void RenderPostProcessLowResWarnModal() {
+    if (s_lowResWarnNeedsOpen) {
+        ImGui::OpenPopup("Low Resolution Mode##postprocess");
+        s_lowResWarnNeedsOpen = false;
+    }
+
+    // Center the modal even though the picker may have triggered it
+    // from a deep ImGui menu — the user shouldn't have to chase it
+    // back to the picker's screen position.
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Low Resolution Mode##postprocess",
+                                nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+
+    ImGui::TextWrapped("\"%s\" was designed for the native 240p source resolution.",
+                       s_lowResWarnShader.c_str());
+    ImGui::Spacing();
+    ImGui::TextWrapped("Low Resolution Mode is off, so the source framebuffer is the "
+                       "full window size — the shader will render correctly, but the "
+                       "picture will live in a small corner of the screen.");
+    ImGui::Spacing();
+    ImGui::TextWrapped("Enabling Low Resolution Mode forces the source FB to 320x240 "
+                       "and requires a restart to take effect (it's latched at boot to "
+                       "avoid mid-session Fast3D resize hazards).");
+    ImGui::Spacing();
+
+    if (ImGui::Button("Enable N64 mode (latched, restart required)")) {
+        CVarSetInteger("gLowResModePending", 1);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Keep current settings")) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Disable post-process")) {
+        CVarSetInteger("gPostProcessEnabled", 0);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 } // namespace
@@ -440,6 +629,14 @@ void PortMenu::AddMenuSettings() {
     AddWidget(path, "Post-Process Shader", WIDGET_CUSTOM)
         .RaceDisable(false)
         .CustomFunction(RenderPostProcessShaderPicker);
+
+    AddWidget(path, "Shader Pack Downloader", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .CustomFunction(RenderShaderPackDownloader);
+
+    AddWidget(path, "Shader Runtime Diagnostics", WIDGET_CUSTOM)
+        .RaceDisable(false)
+        .CustomFunction(RenderPostProcessDiagnostics);
 
     AddWidget(path, "Renderer API (Needs reload)", WIDGET_VIDEO_BACKEND).RaceDisable(false);
     AddWidget(path, "Enable Vsync", WIDGET_CVAR_CHECKBOX)
@@ -850,6 +1047,8 @@ void PortMenu::DrawElement() {
         }
         ImGui::EndPopup();
     }
+
+    RenderPostProcessLowResWarnModal();
 }
 
 } // namespace ssb64
