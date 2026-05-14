@@ -34,6 +34,10 @@
 #include <nlohmann/json.hpp>
 #include <ship/Context.h>
 
+#include <fast/postprocess/PostProcessGlslNormalizer.h>
+#include <fast/postprocess/PostProcessTranspiler.h>
+#include <fast/postprocess/PostProcessTypes.h>
+
 namespace ssb64 {
 namespace enhancements {
 
@@ -42,6 +46,7 @@ namespace {
 std::atomic<bool> s_inProgress{false};
 std::atomic<bool> s_complete{false};
 std::atomic<int>  s_installedCount{0};
+std::atomic<int>  s_skippedUnsupported{0};
 
 std::mutex  s_statusMutex;
 std::string s_status;
@@ -82,25 +87,46 @@ std::string DeriveLabel(const std::string& stem) {
     return label;
 }
 
-// A libretro single-file shader is recognizable by the VS/FS-half
-// preprocessor guards. The PostProcessGlslNormalizer relies on these
-// to split the file into VS and FS sources, so anything lacking them
-// won't load cleanly. Libretro authors use both `#ifdef VERTEX` /
-// `#ifdef FRAGMENT` and the older `#if defined(VERTEX)` /
-// `#elif defined(FRAGMENT)` idiom — both shapes are accepted here.
-bool LooksLikeSingleFileShader(const std::string& path) {
+// Read a candidate shader file into memory. Returns the empty string
+// on read failure — caller treats that as "not installable" without
+// having to distinguish open-failure from unreadable.
+std::string ReadCandidateShader(const std::filesystem::path& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in.is_open()) {
-        return false;
+        return std::string();
     }
     std::ostringstream ss;
     ss << in.rdbuf();
-    const std::string text = ss.str();
+    return ss.str();
+}
+
+// A libretro single-file shader is recognizable by the VS/FS-half
+// preprocessor guards. The PostProcessGlslNormalizer relies on these
+// to split the file into VS and FS sources. Used as a cheap pre-
+// filter so the transpile-validate step (which spins up glslang +
+// SPIRV-Cross) only runs on plausible candidates.
+bool LooksLikeSingleFileShader(const std::string& text) {
     const bool hasVertex   = text.find("#ifdef VERTEX") != std::string::npos ||
                              text.find("defined(VERTEX)") != std::string::npos;
     const bool hasFragment = text.find("#ifdef FRAGMENT") != std::string::npos ||
                              text.find("defined(FRAGMENT)") != std::string::npos;
     return hasVertex && hasFragment;
+}
+
+// Run the same normalize + transpile pipeline the in-game picker
+// would use, returning true iff the shader compiles end-to-end on
+// this LUS build. Anything that returns false here would also fail
+// at runtime — installing it just clutters the picker with broken
+// entries — so the downloader uses this as the authoritative
+// install gate. Self-maintaining: when the normalizer improves
+// (e.g. handles a new VS-varying shape), the next download
+// automatically installs more shaders without code changes here.
+bool TranspilesUnderCurrentNormalizer(const std::string& source) {
+    const std::string normalized = Fast::NormalizeUserGlsl(source);
+    Fast::PostProcessSource src;
+    src.glsl = normalized;
+    std::string err;
+    return Fast::PostProcessTranspiler::SynthesizeMissing(src, err);
 }
 
 // Run a subprocess and discard its stdout. Returns true on exit code
@@ -268,14 +294,27 @@ int CollectShaders(const std::filesystem::path& extractedRoot,
 
     auto installOne = [&](const std::filesystem::path& path,
                           const std::string& categoryHint) {
-        if (!LooksLikeSingleFileShader(path.string())) {
-            return;
-        }
         std::string stem = path.stem().string();
         if (stem.empty()) {
             return;
         }
         if (LooksLikeMultiPassComponent(stem)) {
+            return;
+        }
+        // Read once, then run cheap-then-expensive filters against the
+        // same buffer so we never touch the file twice or invoke
+        // glslang on obvious junk.
+        const std::string source = ReadCandidateShader(path);
+        if (source.empty() || !LooksLikeSingleFileShader(source)) {
+            return;
+        }
+        // Authoritative gate: if the in-process transpiler can't lower
+        // this shader to the backend languages, the picker can't
+        // either. Drop the file so the user never sees an entry that
+        // would just fail to load. A single counter is bumped so the
+        // status line can attribute the gap.
+        if (!TranspilesUnderCurrentNormalizer(source)) {
+            s_skippedUnsupported.fetch_add(1);
             return;
         }
         if (usedStems.count(stem) != 0) {
@@ -364,6 +403,7 @@ void DownloadLibretroShaderPackAsync() {
     s_inProgress.store(true);
     s_complete.store(false);
     s_installedCount.store(0);
+    s_skippedUnsupported.store(0);
     SetStatus("Starting download...");
 
     std::thread([]() {
@@ -421,11 +461,20 @@ void DownloadLibretroShaderPackAsync() {
         // Best-effort cleanup; failure here just leaves files in /tmp.
         std::filesystem::remove_all(tempDir, ec);
 
+        const int skipped = s_skippedUnsupported.load();
         if (installed > 0) {
-            SetStatus("Installed " + std::to_string(installed) + " shaders");
+            std::string msg = "Installed " + std::to_string(installed) + " shaders";
+            if (skipped > 0) {
+                msg += " (skipped " + std::to_string(skipped) +
+                       " unsupported by this build)";
+            }
+            SetStatus(std::move(msg));
             s_complete.store(true);
         } else {
-            SetStatus("No compatible shaders found");
+            SetStatus(skipped > 0
+                          ? "No supported shaders (" + std::to_string(skipped) +
+                                " candidates failed to transpile)"
+                          : std::string("No compatible shaders found"));
         }
         s_inProgress.store(false);
     }).detach();
