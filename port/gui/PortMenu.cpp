@@ -90,7 +90,7 @@ static const std::map<int32_t, const char*> kHitboxViewMap = {
 // short name directly (the user-supplied taxonomy is good enough).
 static const char* PostProcessShaderLabel(const std::string& name) {
     if (name == "scanlines")  return "Scanlines";
-    if (name == "crt-lottes") return "CRT — Lottes";
+    if (name == "crt-lottes") return "CRT - Lottes";
     return nullptr;
 }
 
@@ -155,7 +155,7 @@ void RenderPostProcessShaderPicker(WidgetInfo& /*widget*/) {
     // companion cvar.
     static char filterBuf[128] = "";
     ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x);
-    ImGui::InputTextWithHint("##gPostProcessShaderFilter", "Filter…", filterBuf, sizeof(filterBuf));
+    ImGui::InputTextWithHint("##gPostProcessShaderFilter", "Filter...", filterBuf, sizeof(filterBuf));
     const std::string filter = filterBuf;
 
     auto matchesFilter = [&filter](const std::string& s) -> bool {
@@ -374,20 +374,21 @@ void RenderShaderPackDownloader(WidgetInfo& /*widget*/) {
         phase == ShaderPackPhase::AwaitingSelection ||
         phase == ShaderPackPhase::InstallingSelected;
 
-    if (ImGui::Button("Get more shaders…", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+    if (UIWidgets::Button(
+            "Get more shaders...",
+            UIWidgets::ButtonOptions()
+                .Color(UIWidgets::Colors::LightBlue)
+                .Tooltip("Browse and install community CRT/scanline/NTSC shaders\n"
+                         "from libretro/glsl-shaders. These shaders are GPL'd and\n"
+                         "are installed by the user at runtime - the binary itself\n"
+                         "stays MIT. Most expect Low Resolution Mode for correct\n"
+                         "rendering scale."))) {
         SPDLOG_INFO("Shader pack: button clicked, current phase={} busy={}",
                     static_cast<int>(phase), busy);
         s_shaderPackModalNeedsOpen = true;
         if (!busy) {
-            FetchShaderPackCatalogAsync();
+            ssb64::enhancements::FetchShaderPackCatalogAsync();
         }
-    }
-    if (ImGui::IsItemHovered()) {
-        ImGui::SetTooltip(
-            "Browse and install community CRT/scanline/NTSC shaders from\n"
-            "libretro/glsl-shaders. These shaders are GPL'd and are installed\n"
-            "by the user at runtime — the binary itself stays MIT. Most\n"
-            "expect Low Resolution Mode for correct rendering scale.");
     }
 
     const std::string status = GetShaderPackStatus();
@@ -456,6 +457,14 @@ void RenderShaderPackModal() {
         ImGui::CloseCurrentPopup();
     };
 
+    // Fixed sizes for the action-row buttons so the modal layout
+     // doesn't reflow as their labels change between phases. The
+     // theme's default Fill size would consume the entire content
+     // region and we want the rest of the modal (text, list) to keep
+     // its space.
+    const ImVec2 kSmallButton(120.0f, 0.0f);
+    const ImVec2 kMediumButton(160.0f, 0.0f);
+
     switch (phase) {
         case ShaderPackPhase::Idle:
         case ShaderPackPhase::Error: {
@@ -467,11 +476,17 @@ void RenderShaderPackModal() {
                 ? status.c_str()
                 : "No catalog loaded. Try fetching again.");
             ImGui::Spacing();
-            if (ImGui::Button("Retry")) {
-                FetchShaderPackCatalogAsync();
+            if (UIWidgets::Button("Retry",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kSmallButton)
+                                      .Color(UIWidgets::Colors::LightBlue))) {
+                ssb64::enhancements::FetchShaderPackCatalogAsync();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Close")) {
+            if (UIWidgets::Button("Close",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kSmallButton)
+                                      .Color(UIWidgets::Colors::Gray))) {
                 ImGui::CloseCurrentPopup();
             }
             break;
@@ -479,12 +494,15 @@ void RenderShaderPackModal() {
         case ShaderPackPhase::DownloadingCatalog:
         case ShaderPackPhase::ExtractingCatalog:
         case ShaderPackPhase::EnumeratingCatalog: {
-            ImGui::TextWrapped("%s", status.empty() ? "Working…" : status.c_str());
+            ImGui::TextWrapped("%s", status.empty() ? "Working..." : status.c_str());
             ImGui::Spacing();
             ImGui::TextDisabled("Validating each shader against this build's\n"
                                 "post-process pipeline. Takes a few seconds.");
             ImGui::Spacing();
-            if (ImGui::Button("Cancel")) {
+            if (UIWidgets::Button("Cancel",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kSmallButton)
+                                      .Color(UIWidgets::Colors::Gray))) {
                 closeWithCancel();
             }
             break;
@@ -494,17 +512,34 @@ void RenderShaderPackModal() {
                                s_shaderPackCandidatesUi.size());
             ImGui::Spacing();
 
-            if (ImGui::Button("Select all")) {
+            if (UIWidgets::Button("Select all",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kMediumButton)
+                                      .Color(UIWidgets::Colors::Gray))) {
                 s_shaderPackSelected.assign(s_shaderPackCandidatesUi.size(), true);
             }
             ImGui::SameLine();
-            if (ImGui::Button("Select none")) {
+            if (UIWidgets::Button("Select none",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kMediumButton)
+                                      .Color(UIWidgets::Colors::Gray))) {
                 s_shaderPackSelected.assign(s_shaderPackCandidatesUi.size(), false);
             }
             ImGui::SameLine();
+            // The InputString widget has its own padded layout; let it
+            // claim the remaining row width so the placeholder doesn't
+            // crowd the buttons.
+            std::string filterValue = s_shaderPackFilter;
             ImGui::SetNextItemWidth(-1.0f);
-            ImGui::InputTextWithHint("##shaderPackFilter", "Filter by name…",
-                                     s_shaderPackFilter, sizeof(s_shaderPackFilter));
+            if (UIWidgets::InputString(
+                    "##shaderPackFilter", &filterValue,
+                    UIWidgets::InputOptions()
+                        .LabelPosition(UIWidgets::LabelPositions::None)
+                        .PlaceholderText("Filter by name..."))) {
+                std::strncpy(s_shaderPackFilter, filterValue.c_str(),
+                             sizeof(s_shaderPackFilter) - 1);
+                s_shaderPackFilter[sizeof(s_shaderPackFilter) - 1] = '\0';
+            }
 
             // Lower-case copy of the filter — case-insensitive substring
             // match is what users expect from a name filter.
@@ -513,13 +548,14 @@ void RenderShaderPackModal() {
                            [](unsigned char c) { return std::tolower(c); });
 
             // Reserve room above for the action row at the bottom so
-            // ImGui::Button doesn't shove the list off-screen on the
-            // last frame.
+            // the Install button doesn't shove the list off-screen on
+            // the last frame. Themed checkboxes are taller than the
+            // ImGui defaults; use the actual frame height + spacing
+            // for the reservation.
             ImGui::BeginChild("##shaderPackList",
-                              ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() - 4.0f),
+                              ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() - 8.0f),
                               true);
             int visibleCount = 0;
-            int checkedVisible = 0;
             for (size_t i = 0; i < s_shaderPackCandidatesUi.size(); ++i) {
                 const auto& cand = s_shaderPackCandidatesUi[i];
                 if (!filterLower.empty()) {
@@ -532,11 +568,10 @@ void RenderShaderPackModal() {
                 }
                 ++visibleCount;
                 bool checked = s_shaderPackSelected[i];
-                if (ImGui::Checkbox(cand.displayLabel.c_str(), &checked)) {
+                if (UIWidgets::Checkbox(cand.displayLabel.c_str(), &checked,
+                                        UIWidgets::CheckboxOptions().Color(
+                                            UIWidgets::Colors::LightBlue))) {
                     s_shaderPackSelected[i] = checked;
-                }
-                if (checked) {
-                    ++checkedVisible;
                 }
             }
             if (visibleCount == 0 && !filterLower.empty()) {
@@ -556,7 +591,10 @@ void RenderShaderPackModal() {
             if (!canInstall) {
                 ImGui::BeginDisabled();
             }
-            if (ImGui::Button(installLabel.c_str())) {
+            if (UIWidgets::Button(installLabel.c_str(),
+                                  UIWidgets::ButtonOptions()
+                                      .Size(ImVec2(220.0f, 0.0f))
+                                      .Color(UIWidgets::Colors::Green))) {
                 std::vector<std::string> picks;
                 picks.reserve(static_cast<size_t>(totalChecked));
                 for (size_t i = 0; i < s_shaderPackCandidatesUi.size(); ++i) {
@@ -564,27 +602,33 @@ void RenderShaderPackModal() {
                         picks.push_back(s_shaderPackCandidatesUi[i].stem);
                     }
                 }
-                InstallSelectedShaderPackAsync(picks);
+                ssb64::enhancements::InstallSelectedShaderPackAsync(picks);
             }
             if (!canInstall) {
                 ImGui::EndDisabled();
             }
             ImGui::SameLine();
-            if (ImGui::Button("Cancel")) {
+            if (UIWidgets::Button("Cancel",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kSmallButton)
+                                      .Color(UIWidgets::Colors::Gray))) {
                 closeWithCancel();
             }
             break;
         }
         case ShaderPackPhase::InstallingSelected: {
-            ImGui::TextWrapped("%s", status.empty() ? "Installing…" : status.c_str());
+            ImGui::TextWrapped("%s", status.empty() ? "Installing..." : status.c_str());
             ImGui::Spacing();
-            ImGui::TextDisabled("Just copying files now — this should take less than a second.");
+            ImGui::TextDisabled("Just copying files now - this should take less than a second.");
             break;
         }
         case ShaderPackPhase::Done: {
             ImGui::TextWrapped("%s", status.empty() ? "Done." : status.c_str());
             ImGui::Spacing();
-            if (ImGui::Button("OK")) {
+            if (UIWidgets::Button("OK",
+                                  UIWidgets::ButtonOptions()
+                                      .Size(kSmallButton)
+                                      .Color(UIWidgets::Colors::Green))) {
                 s_shaderPackCandidatesUi.clear();
                 s_shaderPackSelected.clear();
                 s_shaderPackLastPhase = ShaderPackPhase::Idle;

@@ -87,8 +87,13 @@ void SetStatus(std::string s) {
 }
 
 // Stem-to-label heuristic. Libretro's filename convention is already
-// reasonable ("crt-hyllian-curvature-glow" → "CRT — Hyllian Curvature
+// reasonable ("crt-hyllian-curvature-glow" -> "CRT - Hyllian Curvature
 // Glow") so we just title-case the components.
+//
+// Stays strictly ASCII: ImGui's default font is Latin-1 only (no
+// U+2014 em dash etc.), and a non-ASCII separator renders as `?` in
+// the picker. Use a plain hyphen-with-spaces as the CRT-prefix
+// separator instead.
 std::string DeriveLabel(const std::string& stem) {
     std::string label;
     bool startWord = true;
@@ -96,10 +101,11 @@ std::string DeriveLabel(const std::string& stem) {
     for (size_t i = 0; i < stem.size(); ++i) {
         char c = stem[i];
         if (c == '-' || c == '_') {
-            // The first "crt-" gets an em dash separator for readability:
-            // "crt-hyllian" → "CRT — Hyllian". Subsequent dashes are spaces.
+            // The first "crt-" gets a hyphen-with-spaces separator
+            // for readability: "crt-hyllian" -> "CRT - Hyllian".
+            // Subsequent dashes are plain spaces.
             if (!seenDashAfterCrt && (label == "Crt" || label == "CRT")) {
-                label = "CRT — ";
+                label = "CRT - ";
                 seenDashAfterCrt = true;
             } else {
                 label += ' ';
@@ -159,6 +165,86 @@ bool TranspilesUnderCurrentNormalizer(const std::string& source) {
     return Fast::PostProcessTranspiler::SynthesizeMissing(src, err);
 }
 
+// True if `text` contains `<ident>` as a whole identifier (left/right
+// neighbors are not identifier chars). Whole-word match avoids
+// false-positives like matching `FragColor` inside `MyFragColor`.
+bool HasWholeWord(const std::string& text, const std::string& ident) {
+    if (ident.empty()) return false;
+    auto isIdChar = [](char c) {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+               (c >= '0' && c <= '9') || c == '_';
+    };
+    size_t pos = 0;
+    while ((pos = text.find(ident, pos)) != std::string::npos) {
+        const bool leftOk = (pos == 0) || !isIdChar(text[pos - 1]);
+        const size_t end = pos + ident.size();
+        const bool rightOk = (end >= text.size()) || !isIdChar(text[end]);
+        if (leftOk && rightOk) return true;
+        pos += 1;
+    }
+    return false;
+}
+
+// Reject shaders that write `FragColor.rgb = ...` (or .gl_FragColor.rgb,
+// or our own .fragColor.rgb after rewrite) without anywhere also
+// setting the alpha channel. The runtime post-process pass blends the
+// shader's output over the back buffer using the source alpha, and an
+// unwritten `out vec4 fragColor;` alpha ends up as 0 on at least the
+// macOS Metal driver — so the entire screen multiplies to black.
+//
+// The whole installed-corpus diagnostic when this filter was added
+// (zfast_crt_composite was the only file matching the pattern) showed
+// this is a one-off authorial bug: every other libretro single-file
+// shader either writes `FragColor = vec4(rgb, 1.0)` or assigns the
+// `.a` channel separately.
+bool WritesPartialFragColor(const std::string& source) {
+    // Look for any of the libretro fragment-output names with a `.rgb`
+    // (or `.bgr` / `.rbg` etc. — any 3-component swizzle excluding `a`)
+    // assignment. We pin on the trailing `.rgb` rather than the full
+    // assignment text so we don't have to enumerate whitespace
+    // permutations between the swizzle and the `=`.
+    const bool hasRgbWrite =
+        source.find("FragColor.rgb") != std::string::npos ||
+        source.find("gl_FragColor.rgb") != std::string::npos;
+    if (!hasRgbWrite) {
+        return false;
+    }
+    // If the shader ALSO touches alpha — explicit `.a`, full `.rgba`,
+    // or a vec4-typed assignment — it's authoring a complete pixel and
+    // there's nothing to filter. We check for the swizzles and for the
+    // `vec4(` constructor anywhere on a line that also names FragColor.
+    // The fragment-shader-writes-literal-vec4 pattern dominates the
+    // libretro corpus so this is a low-noise check.
+    if (source.find("FragColor.a") != std::string::npos ||
+        source.find("gl_FragColor.a") != std::string::npos ||
+        source.find("FragColor.rgba") != std::string::npos ||
+        source.find("gl_FragColor.rgba") != std::string::npos) {
+        return false;
+    }
+    // `FragColor = ` (no swizzle) writes the full vec4, including alpha.
+    // Use whole-word matching so we don't false-positive on `FragColor.rgb`.
+    if (HasWholeWord(source, "FragColor") || HasWholeWord(source, "gl_FragColor")) {
+        // The shader names FragColor. We've already ruled out `.a`
+        // writes; only an unswizzled `FragColor =` write would set
+        // alpha to a definite value. Look for that pattern explicitly.
+        // A `FragColor = vec4(...)` line has no swizzle between the
+        // identifier and the `=`. Approximation: search for
+        // "FragColor =" or "FragColor=" or "FragColor  =" (any
+        // whitespace).
+        for (const std::string needle : { std::string("FragColor ="),
+                                          std::string("FragColor="),
+                                          std::string("gl_FragColor ="),
+                                          std::string("gl_FragColor=") }) {
+            if (source.find(needle) != std::string::npos) {
+                return false;
+            }
+        }
+    }
+    // Reached: `.rgb` was written, no `.a` and no full-vec4 assignment.
+    // Alpha is undefined — reject.
+    return true;
+}
+
 // Reject shaders that derive their output from libretro multipass-
 // history bindings (`PassPrev<N>Texture`, numbered `Pass<N>Texture`).
 // Our auto-bind preprocessor lets these compile by stubbing the
@@ -206,6 +292,34 @@ bool ReferencesUnsupportedHistoryBinding(const std::string& source) {
     return findUnboundedSemantic("PassPrev") || findUnboundedSemantic("Pass");
 }
 
+// Cross-platform tool requirements for the downloader. Validated
+// against macOS / Windows 10+ / mainstream desktop Linux distros:
+//
+//   * `curl` — on $PATH. macOS (system since 10.x), Windows
+//     (System32 since Win10 1803), Debian/Ubuntu/Fedora/Arch
+//     (default install). Minimal-container Linux may need
+//     `apt install curl`.
+//   * `unzip` OR `tar` (libarchive-backed) — on $PATH. macOS
+//     bsdtar handles zip via `tar -xf`. Win10+ ships tar in
+//     System32 with zip support. Linux ships GNU tar (no zip
+//     support) but `unzip` is universal on desktop installs.
+//   * `temp_directory_path()` resolves to `$TMPDIR` (macOS,
+//     /var/folders/...), `$TMPDIR or /tmp` (Linux), or `%TEMP%`
+//     (Windows, `C:\Users\<u>\AppData\Local\Temp\`). All three
+//     tolerate spaces in the path because we ShellQuote the
+//     argument.
+//   * `Ship::Context::GetPathRelativeToAppDirectory("shaders")`
+//     resolves per-OS via LUS (macOS `~/Library/Application
+//     Support/BattleShip`, Linux `~/.local/share/BattleShip`,
+//     Windows `%APPDATA%\BattleShip`). Always under the user
+//     home, no admin/root needed.
+//
+// On a system where one of these binaries is missing, popen
+// returns success, fgets reads no output, and pclose reports
+// exit 127 ("command not found"). The status string + per-step
+// SPDLOG_ERROR distinguishes which tool is missing without
+// extra plumbing.
+
 // Run a subprocess and discard its stdout. Returns true on exit code
 // 0. We discard stdout/stderr because we shell out with the silent
 // flags (`-s` on curl, `-q` on unzip) — but the FILE* still needs to
@@ -217,6 +331,7 @@ bool RunSilent(const std::string& cmd) {
     FILE* pipe = popen(cmd.c_str(), "r");
 #endif
     if (!pipe) {
+        SPDLOG_ERROR("Shader pack: popen failed for `{}`", cmd);
         return false;
     }
     char buf[256];
@@ -228,6 +343,11 @@ bool RunSilent(const std::string& cmd) {
 #else
     int rc = pclose(pipe);
 #endif
+    if (rc != 0) {
+        // 127 = "command not found" on POSIX shells; useful breadcrumb
+        // for users on minimal Linux installs without curl / unzip.
+        SPDLOG_ERROR("Shader pack: command failed (exit={}): `{}`", rc, cmd);
+    }
     return rc == 0;
 }
 
@@ -363,7 +483,8 @@ void EnumerateCandidates(const std::filesystem::path& repoRoot,
             return;
         }
         if (!TranspilesUnderCurrentNormalizer(source) ||
-            ReferencesUnsupportedHistoryBinding(source)) {
+            ReferencesUnsupportedHistoryBinding(source) ||
+            WritesPartialFragColor(source)) {
             s_skippedUnsupported.fetch_add(1);
             return;
         }
@@ -433,6 +554,24 @@ void EnumerateCandidates(const std::filesystem::path& repoRoot,
               [](const PendingCandidate& a, const PendingCandidate& b) {
                   return a.displayLabel < b.displayLabel;
               });
+}
+
+// Pure tempdir teardown without touching phase / status. Used by the
+// worker-thread error paths so a failed download doesn't leave the
+// extracted tree (potentially hundreds of MB after unzip) sitting in
+// /tmp until the next fetch attempt happens to wipe it on entry.
+// Idempotent and safe to call when no tempdir is held.
+void WipeTempDir() {
+    std::filesystem::path victim;
+    {
+        std::lock_guard<std::mutex> lock(s_candidatesMutex);
+        victim = std::move(s_tempDir);
+        s_tempDir.clear();
+    }
+    if (!victim.empty()) {
+        std::error_code ec;
+        std::filesystem::remove_all(victim, ec);
+    }
 }
 
 // Move the flow back to Idle and best-effort delete the tempdir.
@@ -521,6 +660,8 @@ void FetchShaderPackCatalogAsync() {
         if (ec) {
             SetStatus("Error: could not create temp dir");
             s_phase.store(ShaderPackPhase::Error);
+            // No tempdir to wipe — create_directories failed before
+            // we published the path to s_tempDir.
             return;
         }
         {
@@ -535,6 +676,7 @@ void FetchShaderPackCatalogAsync() {
         if (!RunCurlDownload(url, zipPath)) {
             SPDLOG_ERROR("Shader pack: curl download failed");
             SetStatus("Error: download failed");
+            WipeTempDir();
             s_phase.store(ShaderPackPhase::Error);
             return;
         }
@@ -545,6 +687,7 @@ void FetchShaderPackCatalogAsync() {
         if (!RunExtract(zipPath, extractDir)) {
             SPDLOG_ERROR("Shader pack: extract failed");
             SetStatus("Error: extract failed");
+            WipeTempDir();
             s_phase.store(ShaderPackPhase::Error);
             return;
         }
@@ -573,6 +716,7 @@ void FetchShaderPackCatalogAsync() {
         if (total == 0) {
             SPDLOG_WARN("Shader pack: enumeration produced 0 candidates");
             SetStatus("No supported shaders in this build");
+            WipeTempDir();
             s_phase.store(ShaderPackPhase::Error);
             return;
         }
@@ -605,16 +749,20 @@ void InstallSelectedShaderPackAsync(const std::vector<std::string>& selectedStem
                 Ship::Context::GetPathRelativeToAppDirectory("shaders")) / "libretro";
         } catch (...) {
             SetStatus("Error: LUS context unavailable");
+            WipeTempDir();
             s_phase.store(ShaderPackPhase::Error);
             return;
         }
 
         std::error_code ec;
-        // Wipe the libretro subdir before re-installing — the
-        // downloader fully owns it, and removed entries shouldn't
-        // linger in the picker just because the user installed a
-        // smaller subset this round.
-        std::filesystem::remove_all(outRoot, ec);
+        // Additive install: do NOT wipe outRoot. The user's prior
+        // downloads live alongside this round's picks, so successive
+        // "Get more shaders" runs accumulate the picker's library
+        // instead of replacing it. Same-stem files get overwritten
+        // by `copy_options::overwrite_existing` below, so an
+        // intentional re-pick of an already-installed shader still
+        // refreshes the bytes + sidecar (label format changes,
+        // upstream source updates) without disturbing the rest.
         std::filesystem::create_directories(outRoot, ec);
 
         // Snapshot candidate list under lock so the install loop
