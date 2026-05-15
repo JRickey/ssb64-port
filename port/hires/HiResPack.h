@@ -100,15 +100,11 @@ public:
     /* When enabled (gHiResTextures.DumpSource CVar), dumps the source N64
      * byte run + dimensions + palette to a .bin file under
      * <app-data>/hires_dump/. Used by the offline GPL pack conversion tool
-     * (see tools/hires-pack-convert/) to translate Reloaded Rice-CRC PNG
-     * names into our decoded-RGBA8-CRC names.
+     * (see tools/hires-pack-convert/convert.py).
      *
-     * NOTE: As of the post-decode hook refactor this function is currently
-     * unreachable from the runtime path (Lookup() runs after the decode and
-     * no longer has source bytes). The dump call site needs to be re-wired
-     * into a pre-decode hook in libultraship; until then dump-mode is
-     * dormant. The implementation is kept intact so that re-wire is a
-     * one-line change. */
+     * NOTE: dormant since the post-decode hook refactor — Lookup() no
+     * longer has source bytes. Kept available for a future re-wire into a
+     * pre-decode dump hook on the libultraship side. */
     void MaybeDumpSource(uint8_t fmt, uint8_t siz,
                          const uint8_t* texels, uint16_t width, uint16_t height, uint32_t bpl,
                          const uint8_t* palette, uint32_t paletteBytes);

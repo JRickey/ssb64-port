@@ -342,15 +342,17 @@ const DecodedTexture* HiResPack::Lookup(uint8_t fmt, uint8_t siz,
     key.siz = siz;
     key.rgba8Crc = Crc32Bytes(rgba8, (size_t)width * height * 4);
 
-    // Per-call diagnostic for the first 8 lookups — confirms the hook is
-    // firing and shows the exact keys being searched.
+    // Per-call diagnostic + hit/miss flag for the first 8 lookups — lets us
+    // confirm the hook is firing on real boots without spamming the log
+    // during normal play.
+    bool will_hit = gIndex.find(key) != gIndex.end();
     if (mLookupStats.lookups <= 8) {
         port_log("HiResPack: lookup #%llu fmt=%u siz=%u w=%u h=%u "
-                 "key=%08X#%X#%X (idx=%zu)\n",
+                 "key=%08X#%X#%X %s\n",
                  (unsigned long long)mLookupStats.lookups,
                  fmt, siz, width, height,
                  key.rgba8Crc, key.fmt, key.siz,
-                 gIndex.size());
+                 will_hit ? "HIT" : "miss");
     }
     // Periodic log so the user can see coverage drift while playing — every
     // 64 cache misses (a few seconds of typical gameplay).
