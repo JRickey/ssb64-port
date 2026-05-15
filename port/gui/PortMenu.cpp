@@ -20,6 +20,7 @@
 
 #include <SDL2/SDL.h>
 #include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cassert>
@@ -335,38 +336,265 @@ void RenderPostProcessDiagnostics(WidgetInfo& /*widget*/) {
     }
 }
 
-// Renders the "Download libretro shader pack" affordance immediately
-// beneath the picker. We expose it as its own custom-widget callback
-// so the picker stays a single ImGui::BeginCombo / EndCombo unit and
-// the button is freely positioned by the menu layout system.
+// State scoped to the shader-pack modal, mirroring the Low-Res-warn
+// pattern. We keep a "needs to open this frame" flag so the
+// RenderShaderPackModal hook (called every frame from
+// RenderMenuTopLevel) can issue the OpenPopup against the correct
+// ImGui ID — clicking the picker's "Get more shaders…" button only
+// sets the flag; OpenPopup must run on the same stack as the
+// matching BeginPopupModal.
+static bool s_shaderPackModalNeedsOpen = false;
+
+// User-side selection state. Vector<bool> packs the picks alongside
+// the candidate list returned by GetShaderPackCandidates(); we keep
+// the candidate copy here so toggles don't reach into the worker
+// thread's data, and so cancel-then-reopen produces a fresh list
+// instead of stale state.
+static std::vector<ssb64::enhancements::ShaderPackCandidate> s_shaderPackCandidatesUi;
+static std::vector<bool>                                     s_shaderPackSelected;
+// Last phase we saw on the previous frame — used to detect the
+// AwaitingSelection edge so we snapshot the candidate list once
+// (instead of once per frame, which would also reset the user's
+// checkbox state).
+static ssb64::enhancements::ShaderPackPhase s_shaderPackLastPhase =
+    ssb64::enhancements::ShaderPackPhase::Idle;
+static char s_shaderPackFilter[128] = {};
+
+// Renders the "Get more shaders…" affordance immediately beneath the
+// picker. Click opens the modal; the modal handles the catalog fetch,
+// the user's selection, and the install in sequence.
 void RenderShaderPackDownloader(WidgetInfo& /*widget*/) {
     using namespace ssb64::enhancements;
 
-    const bool inProgress = IsShaderPackDownloadInProgress();
-    if (inProgress) {
-        ImGui::BeginDisabled();
-    }
-    const char* label = inProgress ? "Downloading..." : "Download libretro shader pack";
-    if (ImGui::Button(label, ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
-        DownloadLibretroShaderPackAsync();
-    }
-    if (inProgress) {
-        ImGui::EndDisabled();
-    }
+    const ShaderPackPhase phase = GetShaderPackPhase();
+    const bool busy =
+        phase == ShaderPackPhase::DownloadingCatalog ||
+        phase == ShaderPackPhase::ExtractingCatalog ||
+        phase == ShaderPackPhase::EnumeratingCatalog ||
+        phase == ShaderPackPhase::AwaitingSelection ||
+        phase == ShaderPackPhase::InstallingSelected;
 
+    if (ImGui::Button("Get more shaders…", ImVec2(ImGui::GetContentRegionAvail().x, 0))) {
+        SPDLOG_INFO("Shader pack: button clicked, current phase={} busy={}",
+                    static_cast<int>(phase), busy);
+        s_shaderPackModalNeedsOpen = true;
+        if (!busy) {
+            FetchShaderPackCatalogAsync();
+        }
+    }
     if (ImGui::IsItemHovered()) {
         ImGui::SetTooltip(
-            "Fetches libretro/glsl-shaders' master.zip and installs the single-file\n"
-            "GLSL shaders into <user-data>/shaders/libretro/. The picker above will\n"
-            "list them once the install finishes. These shaders are GPL'd and are\n"
-            "installed by the user at runtime — the binary itself stays MIT.\n"
-            "Most expect Low Resolution Mode for correct rendering scale.");
+            "Browse and install community CRT/scanline/NTSC shaders from\n"
+            "libretro/glsl-shaders. These shaders are GPL'd and are installed\n"
+            "by the user at runtime — the binary itself stays MIT. Most\n"
+            "expect Low Resolution Mode for correct rendering scale.");
     }
 
     const std::string status = GetShaderPackStatus();
-    if (!status.empty()) {
+    if (!status.empty() && phase == ShaderPackPhase::Done) {
+        // Persistent post-install summary directly under the button
+        // (the modal closes on Install, so the user wouldn't see this
+        // otherwise).
         ImGui::TextDisabled("%s", status.c_str());
     }
+}
+
+// Drawn from RenderMenuTopLevel each frame so the modal survives the
+// picker combo collapsing. Six conceptual states laid out in one
+// function because they share the same window+title+button layout
+// scaffold; switching them out frame-to-frame is the entire UX:
+//
+//   1. Loading (DownloadingCatalog / ExtractingCatalog /
+//      EnumeratingCatalog) — spinner + status string + Cancel.
+//   2. Awaiting selection — checkbox list + filter + Select All /
+//      None + Install + Cancel.
+//   3. Installing — spinner + status + (no Cancel; copy is fast).
+//   4. Done / Error — status line + OK.
+void RenderShaderPackModal() {
+    using namespace ssb64::enhancements;
+
+    if (s_shaderPackModalNeedsOpen) {
+        SPDLOG_INFO("Shader pack: opening modal");
+        ImGui::OpenPopup("Shader pack##downloader");
+        s_shaderPackModalNeedsOpen = false;
+    }
+
+    const ShaderPackPhase phase = GetShaderPackPhase();
+
+    // Detect the just-arrived AwaitingSelection edge — when we cross
+    // it we snapshot the candidate list and reset the selection
+    // bitmap to "all on" so the user's first interaction is to
+    // de-select rather than to re-tick everything.
+    if (phase == ShaderPackPhase::AwaitingSelection &&
+        s_shaderPackLastPhase != ShaderPackPhase::AwaitingSelection) {
+        s_shaderPackCandidatesUi = GetShaderPackCandidates();
+        s_shaderPackSelected.assign(s_shaderPackCandidatesUi.size(), true);
+        s_shaderPackFilter[0] = '\0';
+    }
+    s_shaderPackLastPhase = phase;
+
+    // Always re-pin position + size on every open. NoSavedSettings
+    // prevents imgui.ini from restoring stale geometry that could
+    // place the modal off-screen or at zero size — a known cause of
+    // "modal looks stuck because it's invisible". Matches the flags
+    // used by the Re-extract modal lower in this file.
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(560.0f, 480.0f), ImGuiCond_Always);
+    if (!ImGui::BeginPopupModal("Shader pack##downloader", nullptr,
+                                ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+
+    const std::string status = GetShaderPackStatus();
+
+    auto closeWithCancel = [&]() {
+        CancelShaderPackFlow();
+        s_shaderPackCandidatesUi.clear();
+        s_shaderPackSelected.clear();
+        s_shaderPackLastPhase = ShaderPackPhase::Idle;
+        ImGui::CloseCurrentPopup();
+    };
+
+    switch (phase) {
+        case ShaderPackPhase::Idle:
+        case ShaderPackPhase::Error: {
+            // Fallback for the rare case where the modal opens before
+            // the catalog phase has actually fired. Offer to retry
+            // the fetch rather than leaving the user with an empty
+            // window.
+            ImGui::TextWrapped("%s", !status.empty()
+                ? status.c_str()
+                : "No catalog loaded. Try fetching again.");
+            ImGui::Spacing();
+            if (ImGui::Button("Retry")) {
+                FetchShaderPackCatalogAsync();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Close")) {
+                ImGui::CloseCurrentPopup();
+            }
+            break;
+        }
+        case ShaderPackPhase::DownloadingCatalog:
+        case ShaderPackPhase::ExtractingCatalog:
+        case ShaderPackPhase::EnumeratingCatalog: {
+            ImGui::TextWrapped("%s", status.empty() ? "Working…" : status.c_str());
+            ImGui::Spacing();
+            ImGui::TextDisabled("Validating each shader against this build's\n"
+                                "post-process pipeline. Takes a few seconds.");
+            ImGui::Spacing();
+            if (ImGui::Button("Cancel")) {
+                closeWithCancel();
+            }
+            break;
+        }
+        case ShaderPackPhase::AwaitingSelection: {
+            ImGui::TextWrapped("%zu shaders available. Tick the ones you'd like to install.",
+                               s_shaderPackCandidatesUi.size());
+            ImGui::Spacing();
+
+            if (ImGui::Button("Select all")) {
+                s_shaderPackSelected.assign(s_shaderPackCandidatesUi.size(), true);
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Select none")) {
+                s_shaderPackSelected.assign(s_shaderPackCandidatesUi.size(), false);
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextWithHint("##shaderPackFilter", "Filter by name…",
+                                     s_shaderPackFilter, sizeof(s_shaderPackFilter));
+
+            // Lower-case copy of the filter — case-insensitive substring
+            // match is what users expect from a name filter.
+            std::string filterLower = s_shaderPackFilter;
+            std::transform(filterLower.begin(), filterLower.end(), filterLower.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+
+            // Reserve room above for the action row at the bottom so
+            // ImGui::Button doesn't shove the list off-screen on the
+            // last frame.
+            ImGui::BeginChild("##shaderPackList",
+                              ImVec2(0.0f, -ImGui::GetFrameHeightWithSpacing() - 4.0f),
+                              true);
+            int visibleCount = 0;
+            int checkedVisible = 0;
+            for (size_t i = 0; i < s_shaderPackCandidatesUi.size(); ++i) {
+                const auto& cand = s_shaderPackCandidatesUi[i];
+                if (!filterLower.empty()) {
+                    std::string labelLower = cand.displayLabel;
+                    std::transform(labelLower.begin(), labelLower.end(), labelLower.begin(),
+                                   [](unsigned char c) { return std::tolower(c); });
+                    if (labelLower.find(filterLower) == std::string::npos) {
+                        continue;
+                    }
+                }
+                ++visibleCount;
+                bool checked = s_shaderPackSelected[i];
+                if (ImGui::Checkbox(cand.displayLabel.c_str(), &checked)) {
+                    s_shaderPackSelected[i] = checked;
+                }
+                if (checked) {
+                    ++checkedVisible;
+                }
+            }
+            if (visibleCount == 0 && !filterLower.empty()) {
+                ImGui::TextDisabled("No shaders match this filter.");
+            }
+            ImGui::EndChild();
+
+            int totalChecked = 0;
+            for (bool b : s_shaderPackSelected) {
+                if (b) ++totalChecked;
+            }
+
+            const std::string installLabel =
+                "Install " + std::to_string(totalChecked) + " shader" +
+                (totalChecked == 1 ? "" : "s");
+            const bool canInstall = totalChecked > 0;
+            if (!canInstall) {
+                ImGui::BeginDisabled();
+            }
+            if (ImGui::Button(installLabel.c_str())) {
+                std::vector<std::string> picks;
+                picks.reserve(static_cast<size_t>(totalChecked));
+                for (size_t i = 0; i < s_shaderPackCandidatesUi.size(); ++i) {
+                    if (s_shaderPackSelected[i]) {
+                        picks.push_back(s_shaderPackCandidatesUi[i].stem);
+                    }
+                }
+                InstallSelectedShaderPackAsync(picks);
+            }
+            if (!canInstall) {
+                ImGui::EndDisabled();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                closeWithCancel();
+            }
+            break;
+        }
+        case ShaderPackPhase::InstallingSelected: {
+            ImGui::TextWrapped("%s", status.empty() ? "Installing…" : status.c_str());
+            ImGui::Spacing();
+            ImGui::TextDisabled("Just copying files now — this should take less than a second.");
+            break;
+        }
+        case ShaderPackPhase::Done: {
+            ImGui::TextWrapped("%s", status.empty() ? "Done." : status.c_str());
+            ImGui::Spacing();
+            if (ImGui::Button("OK")) {
+                s_shaderPackCandidatesUi.clear();
+                s_shaderPackSelected.clear();
+                s_shaderPackLastPhase = ShaderPackPhase::Idle;
+                ImGui::CloseCurrentPopup();
+            }
+            break;
+        }
+    }
+
+    ImGui::EndPopup();
 }
 
 // Modal companion to RenderPostProcessShaderPicker. Drawn from
@@ -1049,6 +1277,7 @@ void PortMenu::DrawElement() {
     }
 
     RenderPostProcessLowResWarnModal();
+    RenderShaderPackModal();
 }
 
 } // namespace ssb64
