@@ -371,15 +371,6 @@ int PortInit(int argc, char* argv[]) {
 static int PortInitImpl(int argc, char* argv[]) {
 	port_log("SSB64: PortInit entered\n");
 
-	/* Wire the SSB64-specific DL-range bounds-check and diag classifier
-	 * into libultraship's GFX walker (see port/port_dl_ranges.h). Done
-	 * before any GFX activity. libultraship has no compile-time symbol
-	 * dependency on these — both are optional callbacks. */
-	{
-		extern void port_dl_ranges_init(void);
-		port_dl_ranges_init();
-	}
-
 	sContext = Ship::Context::CreateUninitializedInstance(
 		"BattleShip",
 		"BattleShip",

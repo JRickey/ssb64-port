@@ -26,11 +26,6 @@ const char *port_diag_get_scene_name(unsigned char id);
 int port_log_get_fd(void);
 }
 
-/* GFX stale-DL diag dump (libultraship public API — fast/interpreter.h).
- * Walks the recent-DL-pushes + recent-segment-writes ring buffers and
- * writes them to spdlog. Called below from the SIGSEGV handler. */
-#include "fast/interpreter.h"
-
 namespace {
 
 std::atomic<uint64_t> sYieldCount{0};
@@ -290,16 +285,6 @@ void CrashSignalHandler(int sig, siginfo_t *info, void *ucontext) {
     WriteBoth(line, pos);
 
     DumpBacktraceFromContext(ucontext);
-
-    /* Dump the GFX stale-DL diag ring buffer (recent DL pushes + segment
-     * writes, all classified by source memory range via the registered
-     * Fast::AddressClassifier — see port_dl_ranges.cpp). This identifies
-     * the upstream holder behind variant-5-style "walker ran past
-     * registered DL range" crashes in gfx_step. NOT async-signal-safe
-     * (uses spdlog) — accepts the deadlock risk because we're already
-     * crashing and the diag is more valuable than perfect signal safety. */
-    Fast::DumpDLDiag(info ? info->si_addr : nullptr,
-                     "port_watchdog::CrashSignalHandler");
 
     /* Restore default handler and re-raise so the OS still produces the
      * normal termination behavior (core file, exit status). */
