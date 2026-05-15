@@ -62,6 +62,10 @@ const char* AnalogRemapDeadzoneCVarName(int playerIndex);
 const char* AnalogRemapRangeCVarName(int playerIndex);
 const char* WidescreenCVarName();
 
+// Discord Rich Presence
+void UpdateDiscordPresence(const char* gameState, const char* matchDetails);
+void TickDiscordPresence();
+
 // Updater functions
 void CheckForUpdatesAsync(bool force = false);
 void StartGameUpdate();

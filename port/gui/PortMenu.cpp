@@ -217,6 +217,12 @@ void PortMenu::AddMenuSettings() {
         .RaceDisable(false)
         .Options(CheckboxOptions().Tooltip("Gives the search input focus when it becomes visible."));
 
+    // DRP
+    AddWidget(path, "Enable Discord Rich Presence", WIDGET_CVAR_CHECKBOX)
+        .CVar(CVAR_SETTING("Menu.EnableDRP"))
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("Adds Discord Rich Presence (DRP)."));
+
     AddWidget(path, "Open App Files Folder", WIDGET_BUTTON)
         .RaceDisable(false)
         .Callback([](WidgetInfo&) {

@@ -550,6 +550,8 @@ void PortPushFrame(void)
 	port_enhancement_stage_hazards_tick();
 	port_widescreen_tick();
 
+	ssb64::enhancements::TickDiscordPresence(); // DRP
+
 	sFrameCount++;
 
 	/* VI-style idle presentation: when no gfx task was submitted this VI,
