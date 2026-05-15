@@ -99,6 +99,10 @@ extern void portResetPackedDisplayListCache(void);
 extern void port_log(const char *fmt, ...);
 extern void gmColScriptsLinkRelocTargets(void);
 
+// DL-source range registry (see port/port_dl_ranges.h).
+void port_dl_range_register(const void *base, size_t size, const char *label);
+void port_dl_range_unregister(const void *base);
+
 // Forward declarations for functions used in mutual recursion
 void* lbRelocGetExternBufferFile(u32 id);
 void* lbRelocGetInternBufferFile(u32 id);
@@ -138,6 +142,18 @@ static void portRelocEvictFileRangesInRange(void *base, size_t size)
 	uintptr_t begin = reinterpret_cast<uintptr_t>(base);
 	uintptr_t end = begin + size;
 
+	/* Unregister matching ranges from the DL-range registry so a stale
+	 * reloc-file pointer in cmd_stack is rejected on next gfx_step (rather
+	 * than dereferencing into now-recycled memory). Done before the erase
+	 * so we still have the base pointers. */
+	for (const auto &r : sPortRelocFileRanges) {
+		uintptr_t rb = r.base;
+		uintptr_t re = rb + r.size;
+		if ((r.size != 0) && (rb < end) && (begin < re)) {
+			port_dl_range_unregister(reinterpret_cast<const void*>(rb));
+		}
+	}
+
 	sPortRelocFileRanges.erase(
 		std::remove_if(sPortRelocFileRanges.begin(), sPortRelocFileRanges.end(),
 			[begin, end](const PortRelocFileRange &range) {
@@ -147,6 +163,34 @@ static void portRelocEvictFileRangesInRange(void *base, size_t size)
 				return (range.size != 0) && (range_begin < end) && (begin < range_end);
 			}),
 		sPortRelocFileRanges.end());
+}
+
+/* Walk a status-buffer array, drop every entry whose .addr falls inside
+ * [lo, hi). Uses unordered swap-with-last + decrement-count erase: lookup
+ * iterates the whole list linearly so order doesn't matter. After this
+ * runs, lbRelocFindStatusBufferFile(id) for an evicted file returns NULL,
+ * which makes ftManagerSetupFilesKind's *p_file_* assignments produce
+ * NULL globals and the existing `*file_head == NULL` defensive guard in
+ * efManagerMakeEffect bail cleanly. The eventual file-reload path
+ * re-allocates fresh memory and re-adds the entry on next request. */
+static void portStatusBufferEvictRange(LBFileNode *entries, s32 *p_num,
+                                        uintptr_t lo, uintptr_t hi)
+{
+	if (entries == nullptr || p_num == nullptr) return;
+	s32 i = 0;
+	while (i < *p_num)
+	{
+		uintptr_t a = reinterpret_cast<uintptr_t>(entries[i].addr);
+		if (a >= lo && a < hi)
+		{
+			entries[i] = entries[*p_num - 1];
+			(*p_num)--;
+		}
+		else
+		{
+			i++;
+		}
+	}
 }
 
 /* Called by syTaskmanStartTask before reusing the scene arena for the next
@@ -164,6 +208,53 @@ extern "C" void port_taskman_evict_arena_caches(const void *base, size_t size)
 	portTextureCacheDeleteRange(base, size);
 	portEvictStructFixupsInRange(base, size);
 	portRelocEvictFileRangesInRange(const_cast<void *>(base), size);
+	/* Structural fix: invalidate tokens whose pointers fall in the recycled
+	 * scene arena. With the per-slot generational model in RelocPointerTable
+	 * .cpp, this NULLs only the affected slots (bumping their generation)
+	 * and pushes their indices onto a free list for reuse. Tokens pointing
+	 * at intern-buffer files (mainmotion, submotion, model, special1-4,
+	 * shieldpose) — which persist across scenes — remain valid because
+	 * they don't intersect this range. This is THE structural fix that
+	 * eliminates the variant-1/2/3 stale-data crash family — see
+	 * docs/bugs/linux_stale_scene_data_family_2026-05-11.md. */
+	portRelocInvalidateRange(base, size);
+
+	/* Variant 6 fix (silent particle/sprite corruption on cross-mode scene
+	 * transitions, e.g. Training → quit → VS with overlapping fighters):
+	 * sLBRelocInternBuffer.status_buffer[] is a flat decomp-side cache of
+	 * {file_id → host addr} that lbRelocGetStatusBufferFile() reads. It is
+	 * only reset in lbRelocInitSetup, which fires at mode entry, NOT per
+	 * scene. Within a mode the cache accumulates; across modes that don't
+	 * happen to traverse a mode-init path, entries from a prior mode
+	 * survive — and when their .addr lives in the recycled scene arena,
+	 * the cache returns a pointer to bytes the upcoming memset(0) is
+	 * about to zero.
+	 *
+	 * Subsequent ftManagerSetupFilesPlayablesAll → ftManagerSetupFilesKind
+	 * calls then assign that stale pointer into the per-character gFTData*
+	 * globals (e.g. gFTDataMarioSpecial2). Downstream readers dereference
+	 * them, read zero bytes, MObjSub.sprites resolves to NULL, the
+	 * defensive `current_sprite != NULL` guard in gcDrawMObjForDObj skips
+	 * gDPSetTextureImage, and particle quads emit without a texture bound
+	 * — rendering as flat boxes. Same shape touches stage-sprite elements
+	 * (clouds, bushes, foreground decoration) that use the particle draw
+	 * path. Fighter mesh draws are unaffected because their model file
+	 * lives in the intern buffer (out of arena range).
+	 *
+	 * Surgical fix: evict status-buffer entries whose .addr falls in the
+	 * arena range, exactly mirroring the existing token-invalidation
+	 * scope. Intern-buffer entries (out of arena range) survive untouched.
+	 * After this, ftManagerSetupFilesKind's lookup for an evicted id
+	 * returns NULL, the global is set NULL, and the file-load path runs
+	 * fresh on next demand. */
+	{
+		uintptr_t lo = reinterpret_cast<uintptr_t>(base);
+		uintptr_t hi = lo + size;
+		portStatusBufferEvictRange(sLBRelocInternBuffer.status_buffer,
+		                            &sLBRelocInternBuffer.status_buffer_num, lo, hi);
+		portStatusBufferEvictRange(sLBRelocInternBuffer.force_status_buffer,
+		                            &sLBRelocInternBuffer.force_status_buffer_num, lo, hi);
+	}
 }
 
 static bool portRelocIsFighterFigatreeFile(u32 file_id)
@@ -522,6 +613,13 @@ void lbRelocLoadAndRelocFile(u32 file_id, void *ram_dst, u32 bytes_num, s32 loc)
 	}
 
 	sPortRelocFileRanges.push_back({ reinterpret_cast<uintptr_t>(ram_dst), copySize, file_id, gRelocFileTable[file_id] });
+
+	/* Mirror this range into the DL-range registry so gfx_step's bounds
+	 * check accepts DLs resolved through reloc files. Path string from
+	 * gRelocFileTable is static (linker-emitted), safe to retain. */
+	port_dl_range_register(ram_dst, copySize,
+	                       (file_id < RELOC_FILE_COUNT && gRelocFileTable[file_id])
+	                       ? gRelocFileTable[file_id] : "reloc?");
 
 	// --- Internal pointer relocation (token-based) ---
 	//
@@ -897,6 +995,54 @@ extern "C" int portRelocFindFileIdAndBase(const void *ptr, uintptr_t *out_base)
 	return -1;
 }
 
+/* Classify a pointer for diagnostic output. Writes a short human-readable
+ * label into buf (e.g. "scene_arena+0x4528", "reloc[523]+0x120 path",
+ * "n64_seg", "low_brk", "high_heap"). Used by the GFX diag dump
+ * (libultraship interpreter.cpp diagDumpAll) to identify the upstream
+ * holder behind a stale-pointer crash in gfx_step. Never derefs ptr —
+ * uses only registered range metadata. */
+extern void *gPortSceneHeap;
+extern const size_t gPortSceneHeapSize;
+extern "C" void port_classify_dl_ptr(uintptr_t addr, char *buf, size_t buf_size)
+{
+	if (buf == nullptr || buf_size == 0) return;
+	if (addr == 0) {
+		std::snprintf(buf, buf_size, "null");
+		return;
+	}
+	if (addr <= 0x0FFFFFFFu) {
+		std::snprintf(buf, buf_size, "n64_seg[%u]+0x%x",
+		              (unsigned)((addr >> 24) & 0xFF),
+		              (unsigned)(addr & 0x00FFFFFFu));
+		return;
+	}
+	if (gPortSceneHeap != nullptr) {
+		uintptr_t arena_base = reinterpret_cast<uintptr_t>(gPortSceneHeap);
+		if (addr >= arena_base && (addr - arena_base) < gPortSceneHeapSize) {
+			std::snprintf(buf, buf_size, "scene_arena+0x%lx",
+			              (unsigned long)(addr - arena_base));
+			return;
+		}
+	}
+	uintptr_t reloc_base = 0;
+	int file_id = portRelocFindFileIdAndBase(reinterpret_cast<const void*>(addr), &reloc_base);
+	if (file_id >= 0) {
+		const char *path = (file_id < (int)RELOC_FILE_COUNT && gRelocFileTable[file_id])
+		                   ? gRelocFileTable[file_id] : "?";
+		std::snprintf(buf, buf_size, "reloc[%d]+0x%lx %s",
+		              file_id, (unsigned long)(addr - reloc_base), path);
+		return;
+	}
+	/* No registered range. Tag by host-address heuristic. */
+	if (addr < 0x100000000ull) {
+		std::snprintf(buf, buf_size, "low_brk@0x%lx", (unsigned long)addr);
+	} else if (addr >= 0x7f0000000000ull) {
+		std::snprintf(buf, buf_size, "high_heap@0x%lx", (unsigned long)addr);
+	} else {
+		std::snprintf(buf, buf_size, "other@0x%lx", (unsigned long)addr);
+	}
+}
+
 void *portRelocResolveArrayEntry(const void *array_ptr, unsigned int index)
 {
 	if (array_ptr == nullptr)
@@ -965,9 +1111,18 @@ bool portRelocDescribePointer(const void *ptr, uintptr_t *out_base, size_t *out_
 
 void lbRelocInitSetup(LBRelocSetup *setup)
 {
-	// Clear token table from previous scene — prevents unbounded growth
-	// and stale tokens pointing to freed heap memory
-	portRelocResetPointerTable();
+	/* Note: the historical portRelocResetPointerTable() call used to live
+	 * here. It wholesale-invalidated every token in the table on every
+	 * scene init, which is what created the variant-1/2/3 stale-data crash
+	 * family — tokens pointing at INTERN-BUFFER files (mainmotion, sub-
+	 * motion, model, special1-4, shieldpose; all persistent across scenes)
+	 * would suddenly fail to resolve at scene N+1 even though their
+	 * underlying memory was still live. The new per-slot generational
+	 * model in RelocPointerTable.cpp handles invalidation surgically:
+	 * port_taskman_evict_arena_caches() calls portRelocInvalidateRange()
+	 * with the scene-arena range, so ONLY arena-backed tokens go stale.
+	 * Persistent file tokens stay valid across scene cycles. No wholesale
+	 * reset here. */
 	gmColScriptsLinkRelocTargets();
 	portResetPackedDisplayListCache();
 	sPortRelocFileRanges.clear();
