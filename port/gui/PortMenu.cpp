@@ -9,6 +9,7 @@
 
 #include "Compat.h"
 #include "../enhancements/enhancements.h"
+#include "../hires/HiResPack.h"
 
 #include <fast/backends/gfx_rendering_api.h>
 #include <ship/Context.h>
@@ -503,6 +504,60 @@ void PortMenu::AddMenuAssets() {
     AddWidget(path, fmt::format("App directory: {}", Ship::Context::GetPathRelativeToAppDirectory("")), WIDGET_TEXT);
     AddWidget(path, fmt::format("Main archive: {}", Ship::Context::GetPathRelativeToAppDirectory("BattleShip.o2r")),
               WIDGET_TEXT);
+
+    path.sidebarName = "Mods";
+    path.column = SECTION_COLUMN_1;
+    AddSidebarEntry("Assets", "Mods", 1);
+
+    AddWidget(path, "Hi-Res Texture Pack", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path,
+              "Drop a PNG pack into the mods/ folder. "
+              "Files are matched by decoded-RGBA8 CRC32 — no per-PNG configuration needed. "
+              "Toggle takes effect on the next texture cache miss.",
+              WIDGET_TEXT);
+    AddWidget(path, "Enable Hi-Res Texture Pack", WIDGET_CVAR_CHECKBOX)
+        .CVar("gHiResTextures.Enabled")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("When on, every cache-miss texture upload hashes the decoded RGBA8 image "
+                                            "and substitutes a matching PNG from the mods/ index at the pack's higher "
+                                            "resolution.")
+                     .DefaultValue(true));
+    AddWidget(path, "Open Mods Folder", WIDGET_BUTTON)
+        .RaceDisable(false)
+        .Callback([](WidgetInfo&) {
+            std::string modsPath = Ship::Context::GetPathRelativeToAppDirectory("mods");
+            std::error_code ec;
+            fs::create_directories(modsPath, ec); // make it if it isn't there yet
+            SDL_OpenURL(std::string("file:///" + fs::absolute(modsPath).string()).c_str());
+        })
+        .Options(ButtonOptions().Tooltip("Opens the mods/ folder in your file browser. Drop pack subfolders here."));
+    AddWidget(path,
+              fmt::format("Indexed PNGs: {}",
+                           ssb64::hires::HiResPack::Get().Stats().indexedTextures),
+              WIDGET_TEXT);
+
+    AddWidget(path, "Pack Authoring", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path,
+              "Dump Source Textures writes one .bin per unique texture into "
+              "<app>/hires_dump/. Used by the offline conversion tool to "
+              "re-name a third-party Rice-CRC pack into our hash. Leave off "
+              "in normal play.",
+              WIDGET_TEXT);
+    AddWidget(path, "Dump Source Textures", WIDGET_CVAR_CHECKBOX)
+        .CVar("gHiResTextures.DumpSource")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("On: every cache-miss with no pack hit dumps the source bytes + dimensions "
+                                            "to <app>/hires_dump/. One file per unique texture per session.")
+                     .DefaultValue(false));
+    AddWidget(path, "Open Dump Folder", WIDGET_BUTTON)
+        .RaceDisable(false)
+        .Callback([](WidgetInfo&) {
+            std::string dumpPath = Ship::Context::GetPathRelativeToAppDirectory("hires_dump");
+            std::error_code ec;
+            fs::create_directories(dumpPath, ec);
+            SDL_OpenURL(std::string("file:///" + fs::absolute(dumpPath).string()).c_str());
+        })
+        .Options(ButtonOptions().Tooltip("Opens the hires_dump/ folder where source-texture dumps land."));
 }
 
 void PortMenu::AddMenuAbout() {
