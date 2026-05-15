@@ -165,6 +165,34 @@ static void portRelocEvictFileRangesInRange(void *base, size_t size)
 		sPortRelocFileRanges.end());
 }
 
+/* Walk a status-buffer array, drop every entry whose .addr falls inside
+ * [lo, hi). Uses unordered swap-with-last + decrement-count erase: lookup
+ * iterates the whole list linearly so order doesn't matter. After this
+ * runs, lbRelocFindStatusBufferFile(id) for an evicted file returns NULL,
+ * which makes ftManagerSetupFilesKind's *p_file_* assignments produce
+ * NULL globals and the existing `*file_head == NULL` defensive guard in
+ * efManagerMakeEffect bail cleanly. The eventual file-reload path
+ * re-allocates fresh memory and re-adds the entry on next request. */
+static void portStatusBufferEvictRange(LBFileNode *entries, s32 *p_num,
+                                        uintptr_t lo, uintptr_t hi)
+{
+	if (entries == nullptr || p_num == nullptr) return;
+	s32 i = 0;
+	while (i < *p_num)
+	{
+		uintptr_t a = reinterpret_cast<uintptr_t>(entries[i].addr);
+		if (a >= lo && a < hi)
+		{
+			entries[i] = entries[*p_num - 1];
+			(*p_num)--;
+		}
+		else
+		{
+			i++;
+		}
+	}
+}
+
 /* Called by syTaskmanStartTask before reusing the scene arena for the next
  * scene. Evicts every port-side cache that may hold a pointer into the old
  * arena's contents (DL widening, texture upload, struct fixup, reloc file
@@ -190,6 +218,43 @@ extern "C" void port_taskman_evict_arena_caches(const void *base, size_t size)
 	 * eliminates the variant-1/2/3 stale-data crash family — see
 	 * docs/bugs/linux_stale_scene_data_family_2026-05-11.md. */
 	portRelocInvalidateRange(base, size);
+
+	/* Variant 6 fix (silent particle/sprite corruption on cross-mode scene
+	 * transitions, e.g. Training → quit → VS with overlapping fighters):
+	 * sLBRelocInternBuffer.status_buffer[] is a flat decomp-side cache of
+	 * {file_id → host addr} that lbRelocGetStatusBufferFile() reads. It is
+	 * only reset in lbRelocInitSetup, which fires at mode entry, NOT per
+	 * scene. Within a mode the cache accumulates; across modes that don't
+	 * happen to traverse a mode-init path, entries from a prior mode
+	 * survive — and when their .addr lives in the recycled scene arena,
+	 * the cache returns a pointer to bytes the upcoming memset(0) is
+	 * about to zero.
+	 *
+	 * Subsequent ftManagerSetupFilesPlayablesAll → ftManagerSetupFilesKind
+	 * calls then assign that stale pointer into the per-character gFTData*
+	 * globals (e.g. gFTDataMarioSpecial2). Downstream readers dereference
+	 * them, read zero bytes, MObjSub.sprites resolves to NULL, the
+	 * defensive `current_sprite != NULL` guard in gcDrawMObjForDObj skips
+	 * gDPSetTextureImage, and particle quads emit without a texture bound
+	 * — rendering as flat boxes. Same shape touches stage-sprite elements
+	 * (clouds, bushes, foreground decoration) that use the particle draw
+	 * path. Fighter mesh draws are unaffected because their model file
+	 * lives in the intern buffer (out of arena range).
+	 *
+	 * Surgical fix: evict status-buffer entries whose .addr falls in the
+	 * arena range, exactly mirroring the existing token-invalidation
+	 * scope. Intern-buffer entries (out of arena range) survive untouched.
+	 * After this, ftManagerSetupFilesKind's lookup for an evicted id
+	 * returns NULL, the global is set NULL, and the file-load path runs
+	 * fresh on next demand. */
+	{
+		uintptr_t lo = reinterpret_cast<uintptr_t>(base);
+		uintptr_t hi = lo + size;
+		portStatusBufferEvictRange(sLBRelocInternBuffer.status_buffer,
+		                            &sLBRelocInternBuffer.status_buffer_num, lo, hi);
+		portStatusBufferEvictRange(sLBRelocInternBuffer.force_status_buffer,
+		                            &sLBRelocInternBuffer.force_status_buffer_num, lo, hi);
+	}
 }
 
 static bool portRelocIsFighterFigatreeFile(u32 file_id)
