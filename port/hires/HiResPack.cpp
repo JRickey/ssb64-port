@@ -175,7 +175,7 @@ private:
     size_t mBudget;
 };
 
-constexpr size_t kDefaultLruBudget = 256u * 1024u * 1024u; // 256 MB
+constexpr size_t kDefaultLruBudget = 512u * 1024u * 1024u; // 512 MB
 LruCache gLru{ kDefaultLruBudget };
 
 bool IsHexDigit(char c) noexcept {
