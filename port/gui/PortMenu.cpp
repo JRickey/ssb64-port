@@ -558,6 +558,32 @@ void PortMenu::AddMenuAssets() {
             SDL_OpenURL(std::string("file:///" + fs::absolute(dumpPath).string()).c_str());
         })
         .Options(ButtonOptions().Tooltip("Opens the hires_dump/ folder where source-texture dumps land."));
+
+    AddWidget(path, "Miss Dump (native key)", WIDGET_SEPARATOR_TEXT);
+    AddWidget(path,
+              "On: every cache-miss with no pack hit writes a .bmp + .rgba into "
+              "<app>/hires_miss_dump/, named with the port's native lookup key "
+              "(miss#<hash>#<fmt>#<siz>_<w>x<h>). Rename the matching pack PNG to "
+              "\"<anything>#<hash>#<fmt>#<siz>_all.png\" and drop it in mods/ to "
+              "bind textures whose Rice CRC no dumper can reach (VS-records "
+              "digits, tiny UI glyphs). Captures a full playthrough by default.",
+              WIDGET_TEXT);
+    AddWidget(path, "Dump Unmatched (native key)", WIDGET_CVAR_CHECKBOX)
+        .CVar("gHiResTextures.DumpMissRgba")
+        .RaceDisable(false)
+        .Options(CheckboxOptions().Tooltip("On: each unique unmatched texture is written as a viewable .bmp plus the "
+                                            "raw .rgba the hash was computed over. The filename is the exact "
+                                            "<hash>#<fmt>#<siz> the pack scanner looks up.")
+                     .DefaultValue(false));
+    AddWidget(path, "Open Miss-Dump Folder", WIDGET_BUTTON)
+        .RaceDisable(false)
+        .Callback([](WidgetInfo&) {
+            std::string missPath = Ship::Context::GetPathRelativeToAppDirectory("hires_miss_dump");
+            std::error_code ec;
+            fs::create_directories(missPath, ec);
+            SDL_OpenURL(std::string("file:///" + fs::absolute(missPath).string()).c_str());
+        })
+        .Options(ButtonOptions().Tooltip("Opens the hires_miss_dump/ folder where native-key dumps land."));
 }
 
 void PortMenu::AddMenuAbout() {
