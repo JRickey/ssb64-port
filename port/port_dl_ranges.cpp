@@ -26,11 +26,32 @@ struct Entry {
     const char *label;
 };
 
-/* Small registry (< 100 ranges typical). Linear scan is fine; mutex is
- * cheap. If profiling shows contention we can switch to a sorted vector
- * with binary search or a copy-on-write atomic snapshot. */
+/* Small registry (< 100 ranges typical). Registration/unregistration
+ * happen only at file load/unload (rare); port_dl_check_addr is called
+ * once per GBI command from gfx_step (extremely hot — tens of thousands
+ * of calls per frame in a fight). The writer-side vector is guarded by
+ * sRangesMtx, but the reader hot path must NOT take that mutex or do a
+ * linear scan per command, or busy scenes (fights) tank to ~30 fps while
+ * light scenes (menus) stay fine.
+ *
+ * Hot-path strategy: the GFX walker advances cmd linearly within one DL,
+ * so consecutive calls almost always land in the same range. A
+ * thread-local single-entry cache of the last in-range hit answers the
+ * common case with two comparisons and one relaxed atomic load — no
+ * mutex, no scan. sRangesGen is bumped on every mutating register/
+ * unregister so a stale cached range can never mask a registry change;
+ * on a generation mismatch or cache miss the call falls through to the
+ * original locked scan, preserving exact classification behavior. */
 std::vector<Entry> sRanges;
 std::mutex sRangesMtx;
+std::atomic<uint64_t> sRangesGen{0};
+
+struct HitCache {
+    uint64_t gen = ~0ull;   /* generation this cache entry was validated at */
+    uintptr_t base = 0;
+    size_t size = 0;
+};
+thread_local HitCache sHitCache;
 
 /* "Walked past" threshold: how far past a registered range do we still
  * recognise as runaway-from-that-range? One 64 KiB window comfortably
@@ -48,12 +69,16 @@ extern "C" void port_dl_range_register(const void *base, size_t size, const char
     std::lock_guard<std::mutex> lk(sRangesMtx);
     for (auto &e : sRanges) {
         if (e.base == b) {
-            e.size = size;
-            e.label = label;
+            if (e.size != size || e.label != label) {
+                e.size = size;
+                e.label = label;
+                sRangesGen.fetch_add(1, std::memory_order_release);
+            }
             return;
         }
     }
     sRanges.push_back({b, size, label});
+    sRangesGen.fetch_add(1, std::memory_order_release);
 }
 
 extern "C" void port_dl_range_unregister(const void *base) {
@@ -63,6 +88,7 @@ extern "C" void port_dl_range_unregister(const void *base) {
     for (auto it = sRanges.begin(); it != sRanges.end(); ++it) {
         if (it->base == b) {
             sRanges.erase(it);
+            sRangesGen.fetch_add(1, std::memory_order_release);
             return;
         }
     }
@@ -70,10 +96,26 @@ extern "C" void port_dl_range_unregister(const void *base) {
 
 extern "C" int port_dl_check_addr(uintptr_t addr) {
     if (addr == 0) return PORT_DL_UNKNOWN;
+
+    /* Hot path: per-GBI-command. The walker advances cmd linearly, so the
+     * previous in-range hit almost always still covers addr. Answer that
+     * case with no mutex and no scan. Only valid while the registry hasn't
+     * changed (generation match); any register/unregister bumps the gen
+     * and forces a re-validation through the locked scan below. */
+    const uint64_t gen = sRangesGen.load(std::memory_order_acquire);
+    {
+        const HitCache c = sHitCache;
+        if (c.gen == gen && c.size != 0 &&
+            (addr >= c.base) && ((addr - c.base) < c.size)) {
+            return PORT_DL_IN_RANGE;
+        }
+    }
+
     std::lock_guard<std::mutex> lk(sRangesMtx);
     bool walked_past = false;
     for (const auto &e : sRanges) {
         if ((addr >= e.base) && ((addr - e.base) < e.size)) {
+            sHitCache = HitCache{gen, e.base, e.size};
             return PORT_DL_IN_RANGE;
         }
         if ((addr >= e.base + e.size) && ((addr - (e.base + e.size)) < kWalkPastWindow)) {
