@@ -3,6 +3,7 @@
 
 #ifdef __cplusplus
 #include <string> // needed for the built-in updater
+#include <vector> // needed for the shader-pack candidate list
 extern "C" {
 #endif
 
@@ -73,6 +74,59 @@ bool IsCheckingForUpdates();
 std::string GetUpdateStatus();
 std::string GetDownloadStatus();
 std::string GetLatestVersion();
+
+// Libretro shader pack downloader. Two-phase background flow:
+//
+//   1. FetchShaderPackCatalogAsync() pulls libretro/glsl-shaders'
+//      master.zip into a tempdir, validates every candidate against
+//      the same normalize + transpile pipeline the picker uses,
+//      and publishes the supported subset to GetShaderPackCandidates().
+//      Phase advances Idle -> DownloadingCatalog -> ExtractingCatalog
+//      -> EnumeratingCatalog -> AwaitingSelection.
+//   2. InstallSelectedShaderPackAsync(stems) copies just the user-
+//      picked candidates from the tempdir into <user-data>/shaders/
+//      libretro/, writes per-shader sidecars, and tears the tempdir
+//      down. Phase advances AwaitingSelection -> InstallingSelected
+//      -> Done.
+//
+// CancelShaderPackFlow() returns to Idle from any phase and removes
+// the tempdir. Sidecars are written with `compat=native` so the
+// picker still warns about Low Resolution Mode.
+//
+// All UI state below is atomic so the menu doesn't need a lock per
+// frame. Status strings + the candidate list are mutex-guarded but
+// read at most once a frame from the picker.
+enum class ShaderPackPhase {
+    Idle,
+    DownloadingCatalog,
+    ExtractingCatalog,
+    EnumeratingCatalog,
+    AwaitingSelection,
+    InstallingSelected,
+    Done,
+    Error,
+};
+
+// One installable candidate the catalog phase discovered. The UI
+// shows `displayLabel`; `stem` is the stable identifier the user
+// passes back to InstallSelectedShaderPackAsync.
+struct ShaderPackCandidate {
+    std::string stem;
+    std::string displayLabel;
+};
+
+void                              FetchShaderPackCatalogAsync();
+void                              InstallSelectedShaderPackAsync(
+                                      const std::vector<std::string>& selectedStems);
+void                              CancelShaderPackFlow();
+ShaderPackPhase                   GetShaderPackPhase();
+std::vector<ShaderPackCandidate>  GetShaderPackCandidates();
+std::string                       GetShaderPackStatus();
+int                               GetShaderPackInstalledCount();
+
+// Back-compat boolean queries, derived from GetShaderPackPhase().
+bool IsShaderPackDownloadInProgress();
+bool IsShaderPackDownloadComplete();
 }
 }
 #endif
