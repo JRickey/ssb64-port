@@ -1191,10 +1191,16 @@ void PortMenu::AddMenuAbout() {
         }
     });
 
-    // 4. "Up to date" Text
-    AddWidget(path, "Up to date", WIDGET_TEXT)
+    // 4. Update result text
+    AddWidget(path, "Update Status", WIDGET_TEXT)
     .PreFunc([](WidgetInfo& info) {
-        info.isHidden = ssb64::enhancements::IsCheckingForUpdates() || ssb64::enhancements::IsUpdateAvailable();
+        const std::string status = ssb64::enhancements::GetUpdateStatus();
+        info.isHidden = ssb64::enhancements::IsCheckingForUpdates() ||
+                        ssb64::enhancements::IsUpdateAvailable() ||
+                        status.empty();
+        if (!info.isHidden) {
+            info.name = status;
+        }
     });
 
     // 5. "Check for Updates" Manual Button

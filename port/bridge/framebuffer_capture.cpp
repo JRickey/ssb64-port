@@ -126,21 +126,29 @@ extern "C" int port_capture_register_fb_for_subrect(const void *base, unsigned i
         return -3;
     }
 
-    /* MSAA: mGameFb is multi-sampled and not directly sampleable as a normal
-     * texture. The interpreter resolves into mGameFbMsaaResolved at end-of-
-     * frame UNLESS the imgui game viewport matches the renderer resolution,
-     * in which case the resolve target is FB 0 (swap chain) instead and
-     * mGameFbMsaaResolved is left stale. We can't read FB 0 (post-Present),
-     * so bail in the matching-viewport MSAA case. */
-    int src_fb;
-    if (interp->mMsaaLevel > 1) {
-        if (interp->ViewportMatchesRendererResolution()) {
-            return -4;
-        }
-        src_fb = interp->mGameFbMsaaResolved;
-    } else {
-        src_fb = interp->mGameFb;
-    }
+    /* Always source from mGameFb. Two reasons:
+     *
+     * 1. mGameFb has opengl_invertY=true (Y-negated rendering matches the
+     *    snapshot FB's invertY=true). CopyFramebuffer therefore performs a
+     *    straight 1:1 row copy. If we sourced from mGameFbMsaaResolved
+     *    instead (created with opengl_invertY=false in the interpreter),
+     *    CopyFramebuffer's metadata mismatch would insert an unwanted Y-flip
+     *    during the blit, leaving the snapshot's storage row 0 holding
+     *    game-bottom instead of game-top — i.e. 1P stage-clear wallpaper
+     *    renders upside-down when MSAA > 1. (VS results photo wipe happens
+     *    to cancel that flip via its bottom-up mesh authoring.)
+     *
+     * 2. glBlitFramebuffer can read from an MSAA color buffer and resolve
+     *    into a single-sample destination in one call when dimensions match
+     *    (OpenGL spec: unscaled MSAA→non-MSAA blit performs an implicit
+     *    resolve). We don't need mGameFbMsaaResolved as a staging buffer.
+     *
+     * The legacy "ViewportMatchesRendererResolution + MSAA" bailout is also
+     * unnecessary now: that case was about mGameFbMsaaResolved being stale
+     * (resolve goes to FB 0 instead). mGameFb itself is always populated
+     * mid-frame, so it's a valid blit source regardless of viewport.
+     */
+    int src_fb = interp->mGameFb;
 
     int snap_fb = ensure_snapshot_fb(interp);
     if (snap_fb < 0) {
